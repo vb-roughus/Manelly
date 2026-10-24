@@ -30,6 +30,9 @@ Filme und Serien durchsuchen und filtern:
   («fehlt»)
 - Serien zeigen, in wie vielen Folgen die gesuchte Spur vorhanden ist; optional nur Serien, bei denen alle Folgen passen
 - Detailansicht mit allen Tonspuren jeder Version bzw. jeder Folge und Link zum Titel in Jellyfin
+- **Treffer in eine Sammlung übernehmen:** alle Titel der aktuellen Suche zu einer bestehenden Jellyfin-Sammlung
+  hinzufügen oder eine neue anlegen. Manelly zeigt vorher, wie viele schon drin sind, und fügt nur die fehlenden hinzu
+- Tonspur- und Video-Filter (Auflösung, Dynamikumfang) sind einklappbar und zeigen eingeklappt eine Zusammenfassung
 - Filter stehen in der URL – eine Suche lässt sich als Lesezeichen speichern
 
 Manelly liest dafür einmal alle Filme, Serien und Folgen samt Tonspuren aus Jellyfin ein und frischt diesen Index im
@@ -41,6 +44,7 @@ Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metad
 ### Allgemein
 
 - Hell- und Dunkelmodus (folgt dem System, umschaltbar)
+- Hauptmenü links lässt sich zu einer schmalen Icon-Leiste einklappen
 - Jellyfin-Verbindung (Adresse und API-Schlüssel) direkt in der Oberfläche einrichten – Manelly testet sie vor dem Speichern
 - Verständliche Fehlerhinweise, wenn Jellyfin nicht erreichbar ist oder der API-Schlüssel nicht stimmt
 
@@ -156,5 +160,6 @@ Server, und Jellyfin muss vom Browser aus nicht erreichbar sein (auch Cover-Bild
 ## Sicherheit
 
 Ein Jellyfin-API-Schlüssel hat Administratorrechte. Manelly hat **noch keine eigene Anmeldung** – wer die Oberfläche
-öffnen kann, kann auch die Jellyfin-Verbindung ändern. Betreibe Manelly daher nur im Heimnetz oder hinter einem Reverse
+öffnen kann, kann auch die Jellyfin-Verbindung ändern und Sammlungen in Jellyfin bearbeiten. (Sammlungen liest Manelly
+mit der Sicht eines Jellyfin-Administrators, weil Jellyfin deren Inhalt nur für einen Benutzer auflöst.) Betreibe Manelly daher nur im Heimnetz oder hinter einem Reverse
 Proxy mit Authentifizierung und mache es nicht direkt im Internet erreichbar.

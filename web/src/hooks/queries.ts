@@ -1,5 +1,9 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AddToCollectionRequest,
+  AddToCollectionResponse,
+  CollectionPreview,
+  CollectionsResponse,
   ConnectionSettings,
   MediaDetail,
   MediaFacetsResponse,
@@ -111,5 +115,32 @@ export function useRefreshMedia() {
   return useMutation({
     mutationFn: () => sendJson<MediaIndexStatus>('POST', '/api/media/refresh', {}),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['media'] }),
+  });
+}
+
+// --- Collections -------------------------------------------------------------
+
+export function useCollections(enabled: boolean) {
+  return useQuery({
+    queryKey: ['collections'],
+    queryFn: ({ signal }) => fetchJson<CollectionsResponse>('/api/collections', signal),
+    enabled,
+  });
+}
+
+/** How many of the titles matching `filters` are missing from the collection (null: a new one). */
+export function useCollectionPreview(collectionId: string | null, filters: MediaFilters, enabled: boolean) {
+  return useQuery({
+    queryKey: ['collections', 'preview', collectionId, toSearchParams(filters).toString()],
+    queryFn: ({ signal }) => sendJson<CollectionPreview>('POST', '/api/collections/preview', { collectionId, filters }, signal),
+    enabled,
+  });
+}
+
+export function useAddToCollection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: AddToCollectionRequest) => sendJson<AddToCollectionResponse>('POST', '/api/collections/add', request),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['collections'] }),
   });
 }

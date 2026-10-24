@@ -85,10 +85,16 @@ function compare(sort: MediaSearchParams['sort']): (a: IndexedItem, b: IndexedIt
   }
 }
 
-export function searchMedia(index: MediaIndex, params: MediaSearchParams): { items: MediaSummary[]; total: number } {
+/** All items matching the filters, unsorted. */
+export function filterItems(index: MediaIndex, params: MediaSearchParams): IndexedItem[] {
   const terms = normalizeText(params.q ?? '').split(/\s+/).filter(Boolean);
   const audio = audioFilterOf(params);
-  const matches = index.items.filter((item) => passes(item, params, terms, audio));
+  return index.items.filter((item) => passes(item, params, terms, audio));
+}
+
+export function searchMedia(index: MediaIndex, params: MediaSearchParams): { items: MediaSummary[]; total: number } {
+  const audio = audioFilterOf(params);
+  const matches = filterItems(index, params);
 
   const primary = compare(params.sort);
   const direction = params.order === 'desc' ? -1 : 1;

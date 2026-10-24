@@ -370,3 +370,44 @@ export interface MediaSearchResponse {
   offset: number;
   index: MediaIndexStatus;
 }
+
+// ---------------------------------------------------------------------------
+// Collections
+
+export interface CollectionSummary {
+  id: string;
+  name: string;
+  itemCount: number | null;
+}
+
+export interface CollectionsResponse {
+  collections: CollectionSummary[];
+}
+
+export interface CollectionPreviewRequest {
+  /** Null for a collection that is yet to be created. */
+  collectionId: string | null;
+  filters: MediaSearchParams;
+}
+
+export interface CollectionPreview {
+  /** Titles matching the filters. */
+  matching: number;
+  alreadyIn: number;
+  toAdd: number;
+}
+
+/** Either `collectionId` (existing collection) or `name` (create a new one). */
+export interface AddToCollectionRequest {
+  collectionId?: string;
+  name?: string;
+  filters: MediaSearchParams;
+}
+
+export interface AddToCollectionResponse {
+  collection: { id: string; name: string };
+  added: number;
+  alreadyIn: number;
+  /** Titles Jellyfin no longer knows, e.g. deleted since the last index refresh. */
+  failed: number;
+}

@@ -5,6 +5,7 @@ import type { JellyfinConnection } from './connection.js';
 import { errorBody, handleError } from './errors.js';
 import { createMediaIndexStore, type MediaIndexStore } from './media/store.js';
 import { apiRoutes } from './routes/api.js';
+import { collectionsRoutes } from './routes/collections.js';
 import { imageRoutes } from './routes/images.js';
 import { mediaRoutes } from './routes/media.js';
 import { settingsRoutes } from './routes/settings.js';
@@ -35,11 +36,9 @@ export async function buildApp({ config, connection, mediaStore, logger = false 
   await app.register(apiRoutes, { prefix: '/api', connection });
   await app.register(settingsRoutes, { prefix: '/api/settings', connection });
   await app.register(imageRoutes, { prefix: '/api/images', connection });
-  await app.register(mediaRoutes, {
-    prefix: '/api/media',
-    connection,
-    store: mediaStore ?? createMediaIndexStore(connection, { log: app.log }),
-  });
+  const store = mediaStore ?? createMediaIndexStore(connection, { log: app.log });
+  await app.register(mediaRoutes, { prefix: '/api/media', connection, store });
+  await app.register(collectionsRoutes, { prefix: '/api/collections', connection, store });
 
   if (config.staticDir) {
     await app.register(fastifyStatic, {

@@ -10,19 +10,22 @@ import { fetchJson, sendJson } from '../lib/api';
 
 export const SESSIONS_REFRESH_MS = 5_000;
 
-export function useSessions() {
+/** Pass `enabled: false` until a connection is set up, so nothing polls in the meantime. */
+export function useSessions(enabled = true) {
   return useQuery({
     queryKey: ['sessions'],
     queryFn: ({ signal }) => fetchJson<SessionsResponse>('/api/sessions', signal),
     refetchInterval: SESSIONS_REFRESH_MS,
+    enabled,
   });
 }
 
-export function useServerStatus() {
+export function useServerStatus(enabled = true) {
   return useQuery({
     queryKey: ['server'],
     queryFn: ({ signal }) => fetchJson<ServerStatus>('/api/server', signal),
     refetchInterval: 60_000,
+    enabled,
   });
 }
 
@@ -30,7 +33,13 @@ export function useSettings() {
   return useQuery({
     queryKey: ['settings'],
     queryFn: ({ signal }) => fetchJson<ConnectionSettings>('/api/settings', signal),
+    // Only retried while the Manelly server is unreachable; changes come from useSaveSettings.
+    refetchInterval: (query) => (query.state.status === 'error' ? SESSIONS_REFRESH_MS : false),
   });
+}
+
+export function isConfigured(settings: ConnectionSettings): boolean {
+  return settings.jellyfinUrl !== null && settings.apiKeyConfigured;
 }
 
 export function useSaveSettings() {

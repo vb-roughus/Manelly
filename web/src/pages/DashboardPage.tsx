@@ -6,18 +6,41 @@ import { ErrorPanel } from '../components/ErrorPanel';
 import { SetupPanel } from '../components/SetupPanel';
 import { StatTile } from '../components/StatTile';
 import { StreamCard } from '../components/StreamCard';
-import { SESSIONS_REFRESH_MS, useSessions } from '../hooks/queries';
+import { isConfigured, SESSIONS_REFRESH_MS, useSessions, useSettings } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
-import { ApiError } from '../lib/api';
+import { useStickyError } from '../hooks/useStickyError';
 import { formatAgo, formatBitrate } from '../lib/format';
 
 export function DashboardPage() {
-  const { data, error, isPending, isFetching, dataUpdatedAt, refetch } = useSessions();
+  const settings = useSettings();
+  const configured = settings.data ? isConfigured(settings.data) : undefined;
+  // No polling while the setup form is shown, so typing there is never interrupted.
+  const sessions = useSessions(configured === true);
+  const { data, error, isFetching, dataUpdatedAt, refetch } = sessions;
+  const settingsError = useStickyError(settings.error, settings.data !== undefined);
+  const sessionsError = useStickyError(error, data !== undefined);
 
   useEffect(() => {
     const count = data?.summary.total ?? 0;
     document.title = data ? `${count} ${count === 1 ? 'Stream' : 'Streams'} · Manelly` : 'Manelly';
   }, [data]);
+
+  function content() {
+    if (configured === undefined) {
+      return settingsError ? <ErrorPanel error={settingsError} /> : <LoadingState />;
+    }
+    if (!configured) return <SetupPanel />;
+    if (data) {
+      return (
+        <>
+          {error && <StaleBanner error={error} />}
+          <Summary data={data} />
+          <StreamList data={data} sampledAt={dataUpdatedAt} />
+        </>
+      );
+    }
+    return sessionsError ? <ErrorPanel error={sessionsError} /> : <LoadingState />;
+  }
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -28,37 +51,23 @@ export function DashboardPage() {
             Live-Übersicht deines Jellyfin-Servers · aktualisiert alle {SESSIONS_REFRESH_MS / 1000} s
           </p>
         </div>
-        <div className="flex items-center gap-3 text-sm text-ink-2">
-          {dataUpdatedAt > 0 && <UpdatedAgo timestamp={dataUpdatedAt} />}
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            disabled={isFetching}
-            className="inline-flex items-center gap-2 rounded-lg bg-card px-3 py-2 font-medium text-ink shadow-sm ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait"
-          >
-            <RefreshCw className={clsx('size-4', isFetching && 'animate-spin')} aria-hidden />
-            Aktualisieren
-          </button>
-        </div>
+        {configured && (
+          <div className="flex items-center gap-3 text-sm text-ink-2">
+            {dataUpdatedAt > 0 && <UpdatedAgo timestamp={dataUpdatedAt} />}
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="inline-flex items-center gap-2 rounded-lg bg-card px-3 py-2 font-medium text-ink shadow-sm ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait"
+            >
+              <RefreshCw className={clsx('size-4', isFetching && 'animate-spin')} aria-hidden />
+              Aktualisieren
+            </button>
+          </div>
+        )}
       </header>
 
-      <div className="mt-6 space-y-6">
-        {isPending ? (
-          <LoadingState />
-        ) : !data ? (
-          error instanceof ApiError && error.code === 'NOT_CONFIGURED' ? (
-            <SetupPanel />
-          ) : (
-            <ErrorPanel error={error} />
-          )
-        ) : (
-          <>
-            {error && <StaleBanner error={error} />}
-            <Summary data={data} />
-            <StreamList data={data} sampledAt={dataUpdatedAt} />
-          </>
-        )}
-      </div>
+      <div className="mt-6 space-y-6">{content()}</div>
     </div>
   );
 }

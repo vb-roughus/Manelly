@@ -12,7 +12,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useServerStatus } from '../hooks/queries';
+import { isConfigured, useServerStatus, useSettings } from '../hooks/queries';
+import { useStickyError } from '../hooks/useStickyError';
 import { useTheme, type Theme } from '../hooks/useTheme';
 
 interface NavItem {
@@ -110,8 +111,11 @@ function NavEntry({ item }: { item: NavItem }) {
 }
 
 function ServerCard() {
-  const { data, error, isPending } = useServerStatus();
-  const state = isPending ? 'pending' : error ? 'error' : 'ok';
+  const { data: settings } = useSettings();
+  const configured = settings ? isConfigured(settings) : undefined;
+  const { data, error } = useServerStatus(configured === true);
+  const shownError = useStickyError(error, data !== undefined);
+  const state = configured === false ? 'unconfigured' : shownError ? 'error' : data ? 'ok' : 'pending';
 
   return (
     <Link
@@ -126,11 +130,12 @@ function ServerCard() {
             'size-2 rounded-full',
             state === 'ok' && 'bg-good shadow-[0_0_0_3px] shadow-good/20',
             state === 'error' && 'bg-critical shadow-[0_0_0_3px] shadow-critical/20',
+            state === 'unconfigured' && 'bg-ink-3',
             state === 'pending' && 'animate-pulse bg-ink-3',
           )}
         />
         <span className="truncate font-medium">
-          {state === 'ok' ? data?.name : state === 'error' ? 'Nicht verbunden' : 'Verbinde …'}
+          {STATE_LABELS[state] ?? data?.name}
         </span>
       </div>
       {data && (
@@ -149,6 +154,12 @@ function ServerCard() {
     </Link>
   );
 }
+
+const STATE_LABELS: Partial<Record<string, string>> = {
+  unconfigured: 'Noch nicht eingerichtet',
+  error: 'Nicht verbunden',
+  pending: 'Verbinde …',
+};
 
 const iconButtonClass =
   'grid size-9 place-items-center rounded-lg text-ink-2 ring-1 ring-line transition hover:bg-card hover:text-ink';

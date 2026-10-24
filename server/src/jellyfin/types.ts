@@ -75,11 +75,19 @@ export interface JfBaseItem {
   PrimaryImageAspectRatio?: number;
   MediaStreams?: JfMediaStream[];
   MediaSources?: JfMediaSource[];
+  /** Folders and collections; only filled with a user context. */
+  ChildCount?: number;
 }
 
 export interface JfItemsResult {
   Items?: JfBaseItem[];
   TotalRecordCount?: number;
+}
+
+export interface JfUser {
+  Id?: string;
+  Name?: string;
+  Policy?: { IsAdministrator?: boolean; IsDisabled?: boolean };
 }
 
 export interface JfVirtualFolder {

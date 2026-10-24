@@ -10,7 +10,7 @@ const AUDIO_FORMATS = ['atmos', 'dtsx', 'truehd', 'eac3', 'ac3', 'dts-hd-ma', 'd
 const list = (items: object = { type: 'string', maxLength: 200 }) => ({ type: 'array', maxItems: 50, items });
 
 // Fastify coerces single values to arrays, so ?genre=Drama and ?genre=Drama&genre=Krimi both work.
-const searchQuerySchema = {
+export const searchQuerySchema = {
   type: 'object',
   additionalProperties: false,
   properties: {

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import type { MediaIndexStatus, MediaSummary, MediaType } from '@manelly/shared';
-import { LoaderCircle, RefreshCw, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
+import { FolderPlus, LoaderCircle, RefreshCw, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
 import clsx from 'clsx';
 import { ErrorPanel } from '../components/ErrorPanel';
+import { CollectionDialog } from '../components/media/CollectionDialog';
 import { FilterPanel, ResetFiltersButton } from '../components/media/FilterPanel';
 import { MediaCard } from '../components/media/MediaCard';
 import { MediaDetailDialog } from '../components/media/MediaDetailDialog';
@@ -25,6 +26,7 @@ export function MediaPage() {
   const filters = useMemo(() => readFilters(searchParams), [searchParams]);
   const openItem = searchParams.get('item');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [collectionOpen, setCollectionOpen] = useState(false);
 
   const settings = useSettings();
   const configured = settings.data ? isConfigured(settings.data) : undefined;
@@ -114,8 +116,18 @@ export function MediaPage() {
               )}
               {search.isFetching && !search.isFetchingNextPage && <LoaderCircle className="ml-2 inline size-3.5 animate-spin" aria-hidden />}
             </p>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {(filterCount > 0 || filters.q || filters.type) && <ResetFiltersButton onClick={() => setFilters({})} />}
+              <button
+                type="button"
+                onClick={() => setCollectionOpen(true)}
+                disabled={total === 0 || !index?.counts}
+                title="Alle Treffer zu einer Jellyfin-Sammlung hinzufügen"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-card px-2.5 py-1.5 text-sm font-medium shadow-sm ring-1 ring-line hover:bg-card-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FolderPlus className="size-4 text-accent" aria-hidden />
+                Zur Sammlung
+              </button>
               <select
                 aria-label="Sortierung"
                 value={Math.max(0, sortValue)}
@@ -161,6 +173,7 @@ export function MediaPage() {
       </div>
 
       <MediaDetailDialog id={openItem} filters={filters} onClose={closeDetail} />
+      <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} filters={filters} total={total} />
     </PageFrame>
   );
 }

@@ -1,0 +1,95 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Components only use the semantic names below (bg-card,
+ * text-ink-2, border-line, ...), so light and dark mode swap in one place.
+ * Dark mode follows the OS unless the theme toggle stamps data-theme on <html>.
+ */
+:root {
+  color-scheme: light;
+  --page: #f4f4f1;
+  --card: #fcfcfb;
+  --card-2: #efeee9;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #6b6a65;
+  --line: rgb(11 11 11 / 0.1);
+  --accent: #8b45b0;
+  --glow: rgb(170 92 195 / 0.14);
+  --backdrop-opacity: 0.16;
+
+  /* Status colors are fixed across themes and always paired with an icon + label. */
+  --good: #0ca30c;
+  --info: #2a78d6;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --card: #1a1a19;
+    --card-2: #242423;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --ink-3: #959389;
+    --line: rgb(255 255 255 / 0.1);
+    --accent: #c08ad6;
+    --glow: rgb(170 92 195 / 0.18);
+    --backdrop-opacity: 0.3;
+    --info: #3987e5;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --card: #1a1a19;
+  --card-2: #242423;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --ink-3: #959389;
+  --line: rgb(255 255 255 / 0.1);
+  --accent: #c08ad6;
+  --glow: rgb(170 92 195 / 0.18);
+  --backdrop-opacity: 0.3;
+  --info: #3987e5;
+}
+
+@theme inline {
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-info: var(--info);
+  --color-warning: var(--warning);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+}
+
+@utility bg-brand {
+  background-image: linear-gradient(120deg, #aa5cc3, #00a4dc);
+}
+
+@utility text-brand {
+  background-image: linear-gradient(120deg, #aa5cc3, #00a4dc);
+  background-clip: text;
+  color: transparent;
+}
+
+body {
+  background-color: var(--page);
+  background-image: radial-gradient(60rem 30rem at 15% -10%, var(--glow), transparent 70%);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

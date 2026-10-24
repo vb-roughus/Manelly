@@ -1,0 +1,13 @@
+services:
+  manelly:
+    build: .
+    image: manelly:latest
+    container_name: manelly
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      # Werte kommen aus der Datei .env neben dieser Datei (Vorlage: .env.example).
+      JELLYFIN_URL: ${JELLYFIN_URL:-}
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}

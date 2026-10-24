@@ -1,0 +1,10 @@
+{
+  "name": "@manelly/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API-Typen, die Server und Web-Frontend gemeinsam nutzen.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

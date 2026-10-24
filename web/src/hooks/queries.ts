@@ -1,12 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ConnectionSettings,
+  MediaDetail,
+  MediaFacetsResponse,
+  MediaIndexStatus,
+  MediaSearchResponse,
   SaveSettingsRequest,
   SaveSettingsResponse,
   ServerStatus,
   SessionsResponse,
 } from '@manelly/shared';
 import { fetchJson, sendJson } from '../lib/api';
+import { toSearchParams, type MediaFilters } from '../lib/media';
 
 export const SESSIONS_REFRESH_MS = 5_000;
 
@@ -52,5 +57,59 @@ export function useSaveSettings() {
       // Everything else was fetched from the previous server (or none at all).
       void queryClient.invalidateQueries({ predicate: (query) => !['settings', 'server'].includes(String(query.queryKey[0])) });
     },
+  });
+}
+
+// --- Media -------------------------------------------------------------------
+
+/** While the index is being built, poll so progress and results appear on their own. */
+const whileBuilding = (state: string | undefined) => (state === 'building' ? 1500 : false);
+
+export function useMediaFacets(enabled: boolean) {
+  return useQuery({
+    queryKey: ['media', 'facets'],
+    queryFn: ({ signal }) => fetchJson<MediaFacetsResponse>('/api/media/facets', signal),
+    refetchInterval: (query) => whileBuilding(query.state.data?.index.state),
+    enabled,
+  });
+}
+
+export const MEDIA_PAGE_SIZE = 60;
+
+export function useMediaSearch(filters: MediaFilters, enabled: boolean) {
+  const query = toSearchParams(filters).toString();
+  return useInfiniteQuery({
+    queryKey: ['media', 'search', query],
+    queryFn: ({ signal, pageParam }) =>
+      fetchJson<MediaSearchResponse>(
+        `/api/media/search?${toSearchParams({ ...filters, offset: pageParam, limit: MEDIA_PAGE_SIZE })}`,
+        signal,
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (last) => {
+      const next = last.offset + last.items.length;
+      return next < last.total ? next : undefined;
+    },
+    // Keep the old results on screen while new filters load.
+    placeholderData: keepPreviousData,
+    refetchInterval: (q) => whileBuilding(q.state.data?.pages[0]?.index.state),
+    enabled,
+  });
+}
+
+export function useMediaDetail(id: string | null, filters: MediaFilters) {
+  const query = toSearchParams(filters).toString();
+  return useQuery({
+    queryKey: ['media', 'detail', id, query],
+    queryFn: ({ signal }) => fetchJson<MediaDetail>(`/api/media/items/${encodeURIComponent(id!)}?${query}`, signal),
+    enabled: id !== null,
+  });
+}
+
+export function useRefreshMedia() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => sendJson<MediaIndexStatus>('POST', '/api/media/refresh', {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['media'] }),
   });
 }

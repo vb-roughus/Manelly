@@ -3,7 +3,11 @@
 Ein Web-Tool für deinen [Jellyfin](https://jellyfin.org)-Server: Server-Management, Medien durchsuchen und
 Troubleshooting an einem Ort.
 
-**Aktueller Stand:** ein Live-Dashboard der laufenden Streams.
+## Funktionen
+
+### Dashboard
+
+Live-Übersicht der laufenden Streams:
 
 - Alle aktiven Wiedergaben mit Cover, Benutzer, Gerät, Client und Fortschritt (läuft flüssig mit, Aktualisierung alle 5 s)
 - Wiedergabeart wie im Jellyfin-Dashboard: **Direct Play**, **Remux**, **Direct Stream** oder **Transcode**, inklusive Hardware-Beschleunigung
@@ -12,12 +16,35 @@ Troubleshooting an einem Ort.
 - Fortschritt des Transcoders als Puffer im Fortschrittsbalken
 - Kennzahlen: aktive Streams, Direct Play / Direct Stream / Transcodes, geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
+
+### Medien
+
+Filme und Serien durchsuchen und filtern:
+
+- Titelsuche, Filme/Serien, Genre, Erscheinungsjahr, Bewertung, Altersfreigabe, Auflösung, Dynamikumfang (Dolby Vision,
+  HDR10, …) und Bibliothek
+- **Tonspur-Filter** nach Sprache, Format (Dolby Atmos, DTS:X, TrueHD, DTS-HD MA, Dolby Digital Plus, …) und Kanälen. Die
+  Bedingungen gelten für **dieselbe Spur**: «Deutsch in Dolby Atmos» findet nur Titel mit einer deutschen Atmos-Spur, nicht
+  solche mit deutscher DTS- und englischer Atmos-Spur
+- Schnellwahl **«Deutsch in Dolby Atmos»** und **«Ohne deutsche Tonspur»**; jeder Tonspur-Filter lässt sich auch umkehren
+  («fehlt»)
+- Serien zeigen, in wie vielen Folgen die gesuchte Spur vorhanden ist; optional nur Serien, bei denen alle Folgen passen
+- Detailansicht mit allen Tonspuren jeder Version bzw. jeder Folge und Link zum Titel in Jellyfin
+- Filter stehen in der URL – eine Suche lässt sich als Lesezeichen speichern
+
+Manelly liest dafür einmal alle Filme, Serien und Folgen samt Tonspuren aus Jellyfin ein und frischt diesen Index im
+Hintergrund auf, wenn er älter als 15 Minuten ist (oder sofort mit «Neu einlesen»). Dolby Atmos und DTS:X erkennt Jellyfin
+am Codec-Profil der Tonspur (z. B. «Dolby TrueHD + Dolby Atmos»). Wurde eine Datei mit einer älteren Jellyfin-Version
+gescannt, fehlt das Profil eventuell. Dann bei den betroffenen Titeln in Jellyfin «Metadaten aktualisieren» mit «Alle
+Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metadaten) und danach in Manelly «Neu einlesen».
+
+### Allgemein
+
 - Hell- und Dunkelmodus (folgt dem System, umschaltbar)
 - Jellyfin-Verbindung (Adresse und API-Schlüssel) direkt in der Oberfläche einrichten – Manelly testet sie vor dem Speichern
 - Verständliche Fehlerhinweise, wenn Jellyfin nicht erreichbar ist oder der API-Schlüssel nicht stimmt
 
-Geplant: Medien durchsuchen, Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und Troubleshooting (Logs,
-Wiedergabe-Analyse).
+Geplant: Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und Troubleshooting (Logs, Wiedergabe-Analyse).
 
 ## Schnellstart auf dem Mac
 

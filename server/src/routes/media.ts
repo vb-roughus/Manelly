@@ -1,0 +1,81 @@
+import type { FastifyInstance } from 'fastify';
+import type { MediaDetail, MediaFacetsResponse, MediaIndexStatus, MediaSearchParams, MediaSearchResponse } from '@manelly/shared';
+import type { JellyfinConnection } from '../connection.js';
+import { AppError, requireClient } from '../errors.js';
+import type { MediaIndexStore } from '../media/store.js';
+import { mediaDetail, searchMedia } from '../media/search.js';
+
+const AUDIO_FORMATS = ['atmos', 'dtsx', 'truehd', 'eac3', 'ac3', 'dts-hd-ma', 'dts-hd', 'dts', 'aac', 'flac', 'pcm', 'opus', 'mp3', 'vorbis', 'other'];
+
+const list = (items: object = { type: 'string', maxLength: 200 }) => ({ type: 'array', maxItems: 50, items });
+
+// Fastify coerces single values to arrays, so ?genre=Drama and ?genre=Drama&genre=Krimi both work.
+const searchQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    q: { type: 'string', maxLength: 200 },
+    type: { type: 'string', enum: ['Movie', 'Series'] },
+    genre: list(),
+    yearFrom: { type: 'integer', minimum: 1800, maximum: 3000 },
+    yearTo: { type: 'integer', minimum: 1800, maximum: 3000 },
+    minRating: { type: 'number', minimum: 0, maximum: 10 },
+    officialRating: list(),
+    resolution: list({ type: 'string', enum: ['4K', '1080p', '720p', 'SD'] }),
+    dynamicRange: list({ type: 'string', enum: ['DV', 'HDR10+', 'HDR10', 'HLG', 'SDR'] }),
+    library: list(),
+    audioLanguage: list({ type: 'string', maxLength: 20 }),
+    audioFormat: list({ type: 'string', enum: AUDIO_FORMATS }),
+    audioMinChannels: { type: 'integer', minimum: 1, maximum: 32 },
+    audioMode: { type: 'string', enum: ['has', 'lacks'] },
+    audioCoverage: { type: 'string', enum: ['any', 'all'] },
+    sort: { type: 'string', enum: ['name', 'year', 'rating', 'added'] },
+    order: { type: 'string', enum: ['asc', 'desc'] },
+    offset: { type: 'integer', minimum: 0 },
+    limit: { type: 'integer', minimum: 1, maximum: 200 },
+  },
+} as const;
+
+export async function mediaRoutes(app: FastifyInstance, opts: { connection: JellyfinConnection; store: MediaIndexStore }) {
+  const { connection, store } = opts;
+
+  const status = (): MediaIndexStatus => {
+    requireClient(connection.client);
+    return store.status();
+  };
+
+  app.get('/status', async (): Promise<MediaIndexStatus> => status());
+
+  app.post('/refresh', async (): Promise<MediaIndexStatus> => {
+    requireClient(connection.client);
+    store.refresh();
+    return store.status();
+  });
+
+  app.get('/facets', async (): Promise<MediaFacetsResponse> => {
+    status();
+    return { facets: store.get()?.facets ?? null, index: store.status() };
+  });
+
+  app.get<{ Querystring: MediaSearchParams }>(
+    '/search',
+    { schema: { querystring: searchQuerySchema } },
+    async (request): Promise<MediaSearchResponse> => {
+      status();
+      const index = store.get();
+      const result = index ? searchMedia(index, request.query) : { items: [], total: 0 };
+      return { ...result, offset: request.query.offset ?? 0, index: store.status() };
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: MediaSearchParams }>(
+    '/items/:id',
+    { schema: { querystring: searchQuerySchema } },
+    async (request): Promise<MediaDetail> => {
+      status();
+      const item = store.get()?.byId.get(request.params.id);
+      if (!item) throw new AppError('NOT_FOUND', 'Dieser Titel ist nicht (mehr) im Medien-Index.');
+      return mediaDetail(item, request.query);
+    },
+  );
+}

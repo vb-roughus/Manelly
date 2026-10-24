@@ -195,3 +195,178 @@ export interface SaveSettingsResponse {
   settings: ConnectionSettings;
   server: ServerStatus;
 }
+
+// ---------------------------------------------------------------------------
+// Media search
+
+export type MediaType = 'Movie' | 'Series';
+
+/**
+ * Audio formats Manelly distinguishes. A track lists its codec format and, if
+ * present, an immersive format on top, e.g. ["truehd", "atmos"].
+ */
+export type AudioFormat =
+  | 'atmos'
+  | 'dtsx'
+  | 'truehd'
+  | 'eac3'
+  | 'ac3'
+  | 'dts-hd-ma'
+  | 'dts-hd'
+  | 'dts'
+  | 'aac'
+  | 'flac'
+  | 'pcm'
+  | 'opus'
+  | 'mp3'
+  | 'vorbis'
+  | 'other';
+
+export type Resolution = '4K' | '1080p' | '720p' | 'SD';
+
+/** DV = Dolby Vision. */
+export type DynamicRange = 'DV' | 'HDR10+' | 'HDR10' | 'HLG' | 'SDR';
+
+export interface AudioTrack {
+  /** BCP 47 language, e.g. "de"; null when the file does not say. */
+  language: string | null;
+  formats: AudioFormat[];
+  codec: string | null;
+  /** Codec profile from Jellyfin, e.g. "Dolby TrueHD + Dolby Atmos". */
+  profile: string | null;
+  channels: number | null;
+  channelLayout: string | null;
+  title: string | null;
+  isDefault: boolean;
+  /** Detail view only: whether the track satisfies the active audio filter. */
+  matches?: boolean;
+}
+
+/** One file of an item; movies can have several versions (e.g. 4K and 1080p). */
+export interface MediaVersion {
+  name: string | null;
+  container: string | null;
+  resolution: Resolution | null;
+  dynamicRange: DynamicRange | null;
+  videoCodec: string | null;
+  audio: AudioTrack[];
+}
+
+export type AudioFilterMode = 'has' | 'lacks';
+export type AudioFilterCoverage = 'any' | 'all';
+export type MediaSort = 'name' | 'year' | 'rating' | 'added';
+
+/** Query parameters of GET /api/media/search; lists are repeated parameters. */
+export interface MediaSearchParams {
+  q?: string;
+  type?: MediaType;
+  genre?: string[];
+  yearFrom?: number;
+  yearTo?: number;
+  minRating?: number;
+  officialRating?: string[];
+  resolution?: Resolution[];
+  dynamicRange?: DynamicRange[];
+  library?: string[];
+  /** Language, format and channel conditions must all hold for the same track. Use "und" for unknown. */
+  audioLanguage?: string[];
+  audioFormat?: AudioFormat[];
+  audioMinChannels?: number;
+  audioMode?: AudioFilterMode;
+  /** Series: "all" requires every episode to satisfy the audio filter. */
+  audioCoverage?: AudioFilterCoverage;
+  sort?: MediaSort;
+  order?: 'asc' | 'desc';
+  offset?: number;
+  limit?: number;
+}
+
+export interface AudioBadge {
+  language: string | null;
+  /** The most notable format of the track, e.g. "atmos" for TrueHD Atmos. */
+  format: AudioFormat;
+  channels: number | null;
+  /** Whether a track of this kind satisfies the active audio filter. */
+  matches: boolean;
+}
+
+export interface MediaSummary {
+  id: string;
+  type: MediaType;
+  name: string;
+  year: number | null;
+  endYear: number | null;
+  communityRating: number | null;
+  officialRating: string | null;
+  genres: string[];
+  poster: ImageRef | null;
+  resolutions: Resolution[];
+  dynamicRanges: DynamicRange[];
+  audio: AudioBadge[];
+  /** Series only; `matching` is null without an audio filter. */
+  episodes: { total: number; matching: number | null } | null;
+}
+
+export interface EpisodeDetail {
+  id: string;
+  name: string;
+  episode: number | null;
+  resolution: Resolution | null;
+  dynamicRange: DynamicRange | null;
+  audio: AudioTrack[];
+  /** Null without an audio filter. */
+  matches: boolean | null;
+}
+
+export interface SeasonDetail {
+  season: number | null;
+  episodes: EpisodeDetail[];
+}
+
+export interface MediaDetail {
+  summary: MediaSummary;
+  originalTitle: string | null;
+  overview: string | null;
+  backdrop: ImageRef | null;
+  /** Movies: the files with their tracks. */
+  versions: MediaVersion[];
+  /** Series: episodes grouped by season. */
+  seasons: SeasonDetail[];
+}
+
+export interface MediaIndexStatus {
+  state: 'empty' | 'building' | 'ready' | 'error';
+  builtAt: string | null;
+  counts: { movies: number; series: number; episodes: number } | null;
+  /** While building: items loaded so far. */
+  progress: { loaded: number; total: number } | null;
+  error: string | null;
+}
+
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export interface MediaFacets {
+  genres: FacetValue[];
+  officialRatings: FacetValue[];
+  years: { min: number | null; max: number | null };
+  audioLanguages: FacetValue[];
+  audioFormats: FacetValue[];
+  resolutions: FacetValue[];
+  dynamicRanges: FacetValue[];
+  libraries: Array<FacetValue & { name: string }>;
+}
+
+export interface MediaFacetsResponse {
+  facets: MediaFacets | null;
+  index: MediaIndexStatus;
+}
+
+export interface MediaSearchResponse {
+  items: MediaSummary[];
+  total: number;
+  offset: number;
+  index: MediaIndexStatus;
+}

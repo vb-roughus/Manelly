@@ -1,0 +1,19 @@
+services:
+  manelly:
+    build: .
+    image: manelly:latest
+    container_name: manelly
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    volumes:
+      # Hier speichert Manelly die in der Oberfläche eingetragene Jellyfin-Verbindung.
+      - manelly-data:/data
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Optional: Verbindung vorgeben statt sie in der Oberfläche einzutragen.
+      # JELLYFIN_URL: http://192.168.1.10:8096
+      # JELLYFIN_API_KEY: dein-api-schlüssel
+
+volumes:
+  manelly-data:

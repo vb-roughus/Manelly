@@ -1,0 +1,103 @@
+// The subset of Jellyfin's API types Manelly reads.
+// Field names follow the Jellyfin OpenAPI spec (PascalCase); every field is
+// optional because Jellyfin omits empty values from its responses.
+
+export type JfPlayMethod = 'Transcode' | 'DirectStream' | 'DirectPlay';
+
+export interface JfSystemInfo {
+  Id?: string;
+  ServerName?: string;
+  Version?: string;
+  OperatingSystem?: string;
+  OperatingSystemDisplayName?: string;
+  HasPendingRestart?: boolean;
+  HasUpdateAvailable?: boolean;
+}
+
+export interface JfMediaStream {
+  Type?: 'Audio' | 'Video' | 'Subtitle' | 'EmbeddedImage' | 'Data' | 'Lyric';
+  Index?: number;
+  Codec?: string;
+  Profile?: string;
+  Language?: string;
+  DisplayTitle?: string;
+  IsDefault?: boolean;
+  IsExternal?: boolean;
+  BitRate?: number;
+  BitDepth?: number;
+  Width?: number;
+  Height?: number;
+  AverageFrameRate?: number;
+  RealFrameRate?: number;
+  Channels?: number;
+  ChannelLayout?: string;
+  VideoRange?: string;
+  VideoRangeType?: string;
+}
+
+export interface JfBaseItem {
+  Id?: string;
+  Name?: string;
+  Type?: string;
+  Container?: string;
+  RunTimeTicks?: number;
+  ProductionYear?: number;
+  IndexNumber?: number;
+  ParentIndexNumber?: number;
+  SeriesName?: string;
+  SeriesId?: string;
+  SeriesPrimaryImageTag?: string;
+  Album?: string;
+  AlbumId?: string;
+  AlbumPrimaryImageTag?: string;
+  AlbumArtist?: string;
+  Artists?: string[];
+  ImageTags?: Record<string, string>;
+  BackdropImageTags?: string[];
+  ParentBackdropItemId?: string;
+  ParentBackdropImageTags?: string[];
+  PrimaryImageAspectRatio?: number;
+  MediaStreams?: JfMediaStream[];
+}
+
+export interface JfPlayerState {
+  PositionTicks?: number;
+  IsPaused?: boolean;
+  IsMuted?: boolean;
+  PlayMethod?: JfPlayMethod;
+  AudioStreamIndex?: number;
+  SubtitleStreamIndex?: number;
+  MediaSourceId?: string;
+}
+
+export interface JfTranscodingInfo {
+  AudioCodec?: string;
+  VideoCodec?: string;
+  Container?: string;
+  IsVideoDirect?: boolean;
+  IsAudioDirect?: boolean;
+  Bitrate?: number;
+  Framerate?: number;
+  CompletionPercentage?: number;
+  Width?: number;
+  Height?: number;
+  AudioChannels?: number;
+  HardwareAccelerationType?: string;
+  TranscodeReasons?: string[];
+}
+
+export interface JfSessionInfo {
+  Id?: string;
+  UserId?: string;
+  UserName?: string;
+  UserPrimaryImageTag?: string;
+  Client?: string;
+  DeviceName?: string;
+  DeviceId?: string;
+  ApplicationVersion?: string;
+  RemoteEndPoint?: string;
+  LastActivityDate?: string;
+  NowPlayingItem?: JfBaseItem;
+  PlayState?: JfPlayerState;
+  TranscodingInfo?: JfTranscodingInfo;
+}

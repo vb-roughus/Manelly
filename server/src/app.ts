@@ -3,17 +3,21 @@ import fastifyStatic from '@fastify/static';
 import type { AppConfig } from './config.js';
 import type { JellyfinConnection } from './connection.js';
 import { errorBody, handleError } from './errors.js';
+import { createMediaIndexStore, type MediaIndexStore } from './media/store.js';
 import { apiRoutes } from './routes/api.js';
 import { imageRoutes } from './routes/images.js';
+import { mediaRoutes } from './routes/media.js';
 import { settingsRoutes } from './routes/settings.js';
 
 export interface AppOptions {
   config: Pick<AppConfig, 'staticDir'>;
   connection: JellyfinConnection;
+  /** Defaults to an index of the connection's libraries, built on first use. */
+  mediaStore?: MediaIndexStore;
   logger?: FastifyServerOptions['logger'];
 }
 
-export async function buildApp({ config, connection, logger = false }: AppOptions) {
+export async function buildApp({ config, connection, mediaStore, logger = false }: AppOptions) {
   const app = Fastify({
     logger,
     // The dashboard polls every few seconds; logging each request would drown everything else.
@@ -31,6 +35,11 @@ export async function buildApp({ config, connection, logger = false }: AppOption
   await app.register(apiRoutes, { prefix: '/api', connection });
   await app.register(settingsRoutes, { prefix: '/api/settings', connection });
   await app.register(imageRoutes, { prefix: '/api/images', connection });
+  await app.register(mediaRoutes, {
+    prefix: '/api/media',
+    connection,
+    store: mediaStore ?? createMediaIndexStore(connection, { log: app.log }),
+  });
 
   if (config.staticDir) {
     await app.register(fastifyStatic, {

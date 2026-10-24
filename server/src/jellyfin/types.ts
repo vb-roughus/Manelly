@@ -20,6 +20,7 @@ export interface JfMediaStream {
   Codec?: string;
   Profile?: string;
   Language?: string;
+  Title?: string;
   DisplayTitle?: string;
   IsDefault?: boolean;
   IsExternal?: boolean;
@@ -35,11 +36,26 @@ export interface JfMediaStream {
   VideoRangeType?: string;
 }
 
+export interface JfMediaSource {
+  Id?: string;
+  Name?: string;
+  Container?: string;
+  MediaStreams?: JfMediaStream[];
+}
+
 export interface JfBaseItem {
   Id?: string;
   Name?: string;
+  SortName?: string;
+  OriginalTitle?: string;
+  Overview?: string;
   Type?: string;
   Container?: string;
+  Genres?: string[];
+  OfficialRating?: string;
+  CommunityRating?: number;
+  DateCreated?: string;
+  EndDate?: string;
   RunTimeTicks?: number;
   ProductionYear?: number;
   IndexNumber?: number;
@@ -58,6 +74,19 @@ export interface JfBaseItem {
   ParentBackdropImageTags?: string[];
   PrimaryImageAspectRatio?: number;
   MediaStreams?: JfMediaStream[];
+  MediaSources?: JfMediaSource[];
+}
+
+export interface JfItemsResult {
+  Items?: JfBaseItem[];
+  TotalRecordCount?: number;
+}
+
+export interface JfVirtualFolder {
+  Name?: string;
+  ItemId?: string;
+  /** movies, tvshows, music, mixed, ...; missing for older mixed libraries. */
+  CollectionType?: string | null;
 }
 
 export interface JfPlayerState {

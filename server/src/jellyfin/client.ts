@@ -1,10 +1,12 @@
 import type { JellyfinConfig } from '../config.js';
 import { AppError } from '../errors.js';
-import type { JfSessionInfo, JfSystemInfo } from './types.js';
+import type { JfItemsResult, JfSessionInfo, JfSystemInfo, JfVirtualFolder } from './types.js';
 
 const CLIENT_NAME = 'Manelly';
 const CLIENT_VERSION = '0.1.0';
 const DEFAULT_TIMEOUT_MS = 8000;
+// Pages of library items with all media streams can take a while on small servers.
+const ITEMS_TIMEOUT_MS = 60_000;
 
 /** Jellyfin could not be reached or answered with an error. */
 export class JellyfinError extends AppError {
@@ -21,6 +23,9 @@ export interface JellyfinClient {
   readonly baseUrl: string;
   getSystemInfo(): Promise<JfSystemInfo>;
   getSessions(): Promise<JfSessionInfo[]>;
+  getLibraries(): Promise<JfVirtualFolder[]>;
+  /** GET /Items with the given query; API keys see all libraries without a user id. */
+  getItems(query: URLSearchParams): Promise<JfItemsResult>;
   /** Returns the raw upstream response so the caller can stream it. */
   getImage(request: ImageRequest): Promise<Response>;
 }
@@ -40,17 +45,17 @@ export function createJellyfinClient(
     `MediaBrowser Client="${CLIENT_NAME}", Device="${CLIENT_NAME} Server", ` +
     `DeviceId="manelly-server", Version="${CLIENT_VERSION}", Token="${config.apiKey}"`;
 
-  async function request(path: string, accept: string): Promise<Response> {
+  async function request(path: string, accept: string, requestTimeoutMs = timeoutMs): Promise<Response> {
     const url = `${config.url}${path}`;
     let response: Response;
     try {
       response = await fetchImpl(url, {
         headers: { Authorization: authorization, Accept: accept },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'TimeoutError') {
-        throw new JellyfinError('TIMEOUT', `Jellyfin hat nicht innerhalb von ${timeoutMs / 1000} s geantwortet (${config.url}).`);
+        throw new JellyfinError('TIMEOUT', `Jellyfin hat nicht innerhalb von ${requestTimeoutMs / 1000} s geantwortet (${config.url}).`);
       }
       const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error);
       throw new JellyfinError('UNREACHABLE', `Jellyfin ist unter ${config.url} nicht erreichbar: ${cause}`);
@@ -62,8 +67,8 @@ export function createJellyfinClient(
     return response;
   }
 
-  async function getJson<T>(path: string): Promise<T> {
-    const response = await request(path, 'application/json');
+  async function getJson<T>(path: string, requestTimeoutMs?: number): Promise<T> {
+    const response = await request(path, 'application/json', requestTimeoutMs);
     if (!response.ok) {
       throw new JellyfinError('UPSTREAM_ERROR', `Jellyfin antwortete auf ${path} mit HTTP ${response.status}.`, response.status);
     }
@@ -79,6 +84,8 @@ export function createJellyfinClient(
     getSystemInfo: () => getJson<JfSystemInfo>('/System/Info'),
     // 960 s matches the window Jellyfin's own dashboard uses for "active" devices.
     getSessions: () => getJson<JfSessionInfo[]>('/Sessions?activeWithinSeconds=960'),
+    getLibraries: () => getJson<JfVirtualFolder[]>('/Library/VirtualFolders'),
+    getItems: (query) => getJson<JfItemsResult>(`/Items?${query}`, ITEMS_TIMEOUT_MS),
     getImage: ({ path, query }) => {
       const search = query.toString();
       return request(search ? `${path}?${search}` : path, 'image/*');

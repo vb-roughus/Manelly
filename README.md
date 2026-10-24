@@ -19,6 +19,21 @@ Troubleshooting an einem Ort.
 Geplant: Medien durchsuchen, Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und Troubleshooting (Logs,
 Wiedergabe-Analyse).
 
+## Schnellstart auf dem Mac
+
+Im Manelly-Ordner:
+
+```bash
+./scripts/start-mac.sh
+```
+
+Das Skript installiert bei Bedarf Node.js 22 über [Homebrew](https://brew.sh) (und bietet an, Homebrew selbst zu
+installieren, falls es fehlt), installiert die Abhängigkeiten, baut Manelly, startet es und öffnet
+<http://localhost:3000> im Browser. Dort richtest du beim ersten Start die Verbindung zu Jellyfin ein. Beenden mit
+`Ctrl+C`, ein anderer Port mit `PORT=3001 ./scripts/start-mac.sh`.
+
+Update: `git pull`, dann das Skript erneut starten. Die Einstellungen liegen in `data/` und bleiben erhalten.
+
 ## Schnellstart mit Docker
 
 1. Starten:
@@ -57,7 +72,7 @@ Update später: `git pull`, dann `docker rm -f manelly` und die beiden Befehle e
 
 ## Ohne Docker
 
-Voraussetzung: Node.js 22 oder neuer.
+Voraussetzung: Node.js 22.12 oder neuer.
 
 ```bash
 npm ci

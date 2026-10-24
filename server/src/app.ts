@@ -1,4 +1,4 @@
-import Fastify, { type FastifyServerOptions } from 'fastify';
+import Fastify, { LogController, type FastifyServerOptions } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import type { AppConfig } from './config.js';
 import type { JellyfinConnection } from './connection.js';
@@ -14,7 +14,11 @@ export interface AppOptions {
 }
 
 export async function buildApp({ config, connection, logger = false }: AppOptions) {
-  const app = Fastify({ logger });
+  const app = Fastify({
+    logger,
+    // The dashboard polls every few seconds; logging each request would drown everything else.
+    logController: new LogController({ disableRequestLogging: true }),
+  });
 
   app.setErrorHandler(handleError);
 

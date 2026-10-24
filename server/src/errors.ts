@@ -42,7 +42,9 @@ export function errorBody(code: ApiErrorCode, message: string): ApiErrorBody {
 
 export function handleError(error: FastifyError | AppError | ConfigError, request: FastifyRequest, reply: FastifyReply) {
   if (error instanceof AppError) {
-    request.log.warn({ code: error.code, upstreamStatus: error.status }, error.message);
+    // Not being set up yet is expected on first start, not worth a warning on every poll.
+    const level = error.code === 'NOT_CONFIGURED' ? 'debug' : 'warn';
+    request.log[level]({ code: error.code, upstreamStatus: error.status }, error.message);
     return reply.status(STATUS_BY_CODE[error.code]).send(errorBody(error.code, error.message));
   }
   if (error instanceof ConfigError) {

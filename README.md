@@ -36,7 +36,24 @@ Die Einstellungen liegen im Docker-Volume `manelly-data` und bleiben bei Updates
 
 > **Tipp:** Die Server-Adresse muss aus dem Container heraus erreichbar sein. `localhost` zeigt dort auf den Container
 > selbst – verwende die IP-Adresse des Hosts (z. B. `http://192.168.1.10:8096`) oder, wenn beide Container im selben
-> Docker-Netzwerk laufen, den Container-Namen (z. B. `http://jellyfin:8096`).
+> Docker-Netzwerk laufen, den Container-Namen (z. B. `http://jellyfin:8096`). Läuft Jellyfin direkt auf demselben Mac
+> oder Windows-PC, funktioniert `http://host.docker.internal:8096`.
+
+### Wenn `docker compose` fehlt
+
+Meldet Docker `unknown shorthand flag: 'd' in -d`, ist das Compose-Plugin nicht installiert (`docker compose version`
+prüft das). Entweder Docker Desktop installieren bzw. aktualisieren – es bringt Compose mit –, oder bei einer
+Homebrew-Installation `brew install docker-compose` ausführen und den Hinweis von Homebrew zu `cliPluginsExtraDirs` in
+`~/.docker/config.json` übernehmen.
+
+Es geht auch ganz ohne Compose:
+
+```bash
+docker build -t manelly .
+docker run -d --name manelly --restart unless-stopped -p 3000:3000 -v manelly-data:/data manelly
+```
+
+Update später: `git pull`, dann `docker rm -f manelly` und die beiden Befehle erneut ausführen.
 
 ## Ohne Docker
 

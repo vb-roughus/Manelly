@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { JellyfinConnection } from '../connection.js';
 import type { ImageRequest, JellyfinClient } from '../jellyfin/client.js';
 import { errorBody, requireClient } from '../errors.js';
 
@@ -24,8 +25,8 @@ interface ImageQuery {
   quality?: number;
 }
 
-export async function imageRoutes(app: FastifyInstance, opts: { client: JellyfinClient | null }) {
-  const { client } = opts;
+export async function imageRoutes(app: FastifyInstance, opts: { connection: JellyfinConnection }) {
+  const { connection } = opts;
 
   app.get<{ Params: { itemId: string; type: string }; Querystring: ImageQuery }>(
     '/items/:itemId/:type',
@@ -44,7 +45,7 @@ export async function imageRoutes(app: FastifyInstance, opts: { client: Jellyfin
     },
     async (request, reply) => {
       const { itemId, type } = request.params;
-      return proxyImage(reply, requireClient(client), {
+      return proxyImage(reply, requireClient(connection.client), {
         path: `/Items/${itemId}/Images/${type}`,
         query: toSearchParams(request.query),
       }, request.query.tag);
@@ -64,7 +65,7 @@ export async function imageRoutes(app: FastifyInstance, opts: { client: Jellyfin
       },
     },
     async (request, reply) => {
-      return proxyImage(reply, requireClient(client), {
+      return proxyImage(reply, requireClient(connection.client), {
         path: `/Users/${request.params.userId}/Images/Primary`,
         query: toSearchParams(request.query),
       }, request.query.tag);

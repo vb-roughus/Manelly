@@ -1,18 +1,19 @@
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import type { AppConfig } from './config.js';
-import type { JellyfinClient } from './jellyfin/client.js';
+import type { JellyfinConnection } from './connection.js';
 import { errorBody, handleError } from './errors.js';
 import { apiRoutes } from './routes/api.js';
 import { imageRoutes } from './routes/images.js';
+import { settingsRoutes } from './routes/settings.js';
 
 export interface AppOptions {
   config: Pick<AppConfig, 'staticDir'>;
-  client: JellyfinClient | null;
+  connection: JellyfinConnection;
   logger?: FastifyServerOptions['logger'];
 }
 
-export async function buildApp({ config, client, logger = false }: AppOptions) {
+export async function buildApp({ config, connection, logger = false }: AppOptions) {
   const app = Fastify({ logger });
 
   app.setErrorHandler(handleError);
@@ -23,8 +24,9 @@ export async function buildApp({ config, client, logger = false }: AppOptions) {
     reply.header('x-frame-options', 'DENY');
   });
 
-  await app.register(apiRoutes, { prefix: '/api', client });
-  await app.register(imageRoutes, { prefix: '/api/images', client });
+  await app.register(apiRoutes, { prefix: '/api', connection });
+  await app.register(settingsRoutes, { prefix: '/api/settings', connection });
+  await app.register(imageRoutes, { prefix: '/api/images', connection });
 
   if (config.staticDir) {
     await app.register(fastifyStatic, {

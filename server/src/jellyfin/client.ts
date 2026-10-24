@@ -1,20 +1,14 @@
-import type { ApiErrorCode } from '@manelly/shared';
 import type { JellyfinConfig } from '../config.js';
+import { AppError } from '../errors.js';
 import type { JfSessionInfo, JfSystemInfo } from './types.js';
 
 const CLIENT_NAME = 'Manelly';
 const CLIENT_VERSION = '0.1.0';
 const DEFAULT_TIMEOUT_MS = 8000;
 
-export class JellyfinError extends Error {
-  constructor(
-    readonly code: ApiErrorCode,
-    message: string,
-    readonly status?: number,
-  ) {
-    super(message);
-    this.name = 'JellyfinError';
-  }
+/** Jellyfin could not be reached or answered with an error. */
+export class JellyfinError extends AppError {
+  override name = 'JellyfinError';
 }
 
 export interface ImageRequest {

@@ -1,43 +1,34 @@
 import type { ReactNode } from 'react';
-import { KeyRound, Plug, ServerCrash, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { Link } from 'react-router';
+import { KeyRound, Plug, ServerCrash, Settings, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { ApiError, type ClientErrorCode } from '../lib/api';
 
 interface Guide {
   icon: LucideIcon;
   title: string;
   steps: ReactNode[];
+  /** Offer a shortcut to the connection settings. */
+  settings?: boolean;
 }
 
 const GUIDES: Partial<Record<ClientErrorCode, Guide>> = {
   NOT_CONFIGURED: {
     icon: Plug,
     title: 'Jellyfin ist noch nicht verbunden',
-    steps: [
-      <>
-        Öffne in Jellyfin <b>Dashboard → API-Schlüssel</b> und erstelle einen neuen Schlüssel, z. B. mit dem Namen
-        «Manelly».
-      </>,
-      <>
-        Trage die Adresse deines Servers und den Schlüssel in die Datei <Code>.env</Code> (oder die
-        Docker-Umgebung) ein:
-        <pre className="mt-2 overflow-x-auto rounded-lg bg-card-2 p-3 text-xs ring-1 ring-line ring-inset">
-          JELLYFIN_URL=http://192.168.1.10:8096{'\n'}JELLYFIN_API_KEY=dein-api-schlüssel
-        </pre>
-      </>,
-      <>Starte Manelly neu.</>,
-    ],
+    steps: [<>Trage die Adresse deines Jellyfin-Servers und einen API-Schlüssel in den Einstellungen ein.</>],
+    settings: true,
   },
   UNAUTHORIZED: {
     icon: KeyRound,
     title: 'Jellyfin lehnt den API-Schlüssel ab',
     steps: [
       <>
-        Prüfe unter <b>Dashboard → API-Schlüssel</b> in Jellyfin, ob der Schlüssel noch existiert.
+        Prüfe unter <b>Dashboard → API-Schlüssel</b> in Jellyfin, ob der Schlüssel noch existiert, oder erstelle einen
+        neuen.
       </>,
-      <>
-        Kopiere ihn erneut in <Code>JELLYFIN_API_KEY</Code> und starte Manelly neu.
-      </>,
+      <>Trage ihn in den Einstellungen ein.</>,
     ],
+    settings: true,
   },
   UNREACHABLE: {
     icon: ServerCrash,
@@ -45,15 +36,22 @@ const GUIDES: Partial<Record<ClientErrorCode, Guide>> = {
     steps: [
       <>Läuft Jellyfin? Öffne die Weboberfläche von Jellyfin im Browser.</>,
       <>
-        Stimmt <Code>JELLYFIN_URL</Code>? Die Adresse muss vom Manelly-Server aus erreichbar sein. In Docker zeigt{' '}
+        Stimmt die Server-Adresse in den Einstellungen? Sie muss vom Manelly-Server aus erreichbar sein. In Docker zeigt{' '}
         <Code>localhost</Code> auf den Container selbst – nutze die IP des Hosts oder den Container-Namen.
       </>,
     ],
+    settings: true,
   },
   TIMEOUT: {
     icon: ServerCrash,
     title: 'Jellyfin antwortet nicht rechtzeitig',
     steps: [<>Jellyfin ist erreichbar, reagiert aber sehr langsam. Prüfe die Auslastung des Servers.</>],
+  },
+  UPSTREAM_ERROR: {
+    icon: ServerCrash,
+    title: 'Unerwartete Antwort von Jellyfin',
+    steps: [<>Prüfe, ob die Server-Adresse in den Einstellungen wirklich auf Jellyfin zeigt (Port und Pfad).</>],
+    settings: true,
   },
   NETWORK: {
     icon: ServerCrash,
@@ -91,6 +89,15 @@ export function ErrorPanel({ error }: { error: unknown }) {
             </li>
           ))}
         </ol>
+      )}
+      {guide?.settings && (
+        <Link
+          to="/settings"
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-card-2 px-3 py-2 text-sm font-medium ring-1 ring-line transition hover:bg-card hover:ring-accent/40"
+        >
+          <Settings className="size-4" aria-hidden />
+          Verbindung bearbeiten
+        </Link>
       )}
     </section>
   );

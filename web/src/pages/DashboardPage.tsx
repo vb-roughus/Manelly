@@ -3,10 +3,12 @@ import { Activity, CircleCheck, Cpu, Gauge, MonitorPlay, RefreshCw, Shuffle, Tri
 import clsx from 'clsx';
 import type { SessionsResponse } from '@manelly/shared';
 import { ErrorPanel } from '../components/ErrorPanel';
+import { SetupPanel } from '../components/SetupPanel';
 import { StatTile } from '../components/StatTile';
 import { StreamCard } from '../components/StreamCard';
 import { SESSIONS_REFRESH_MS, useSessions } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
+import { ApiError } from '../lib/api';
 import { formatAgo, formatBitrate } from '../lib/format';
 
 export function DashboardPage() {
@@ -44,7 +46,11 @@ export function DashboardPage() {
         {isPending ? (
           <LoadingState />
         ) : !data ? (
-          <ErrorPanel error={error} />
+          error instanceof ApiError && error.code === 'NOT_CONFIGURED' ? (
+            <SetupPanel />
+          ) : (
+            <ErrorPanel error={error} />
+          )
         ) : (
           <>
             {error && <StaleBanner error={error} />}

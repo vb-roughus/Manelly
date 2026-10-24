@@ -1,16 +1,23 @@
 import { buildApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
+import { createConnection } from './connection.js';
 import { createJellyfinClient } from './jellyfin/client.js';
+import { createFileSettingsStore } from './settings.js';
 
 async function main() {
   const config = loadConfig();
-  const client = config.jellyfin ? createJellyfinClient(config.jellyfin) : null;
-  const app = await buildApp({ config, client, logger: { level: config.logLevel } });
+  const connection = await createConnection({
+    store: createFileSettingsStore(config.dataDir),
+    envSettings: config.jellyfin,
+    createClient: (settings) => createJellyfinClient(settings),
+  });
+  const app = await buildApp({ config, connection, logger: { level: config.logLevel } });
 
-  if (!config.jellyfin) {
-    app.log.warn('JELLYFIN_URL und/oder JELLYFIN_API_KEY fehlen – das Dashboard zeigt eine Einrichtungsanleitung.');
+  if (!connection.settings) {
+    app.log.warn('Noch keine Jellyfin-Verbindung eingerichtet – das Dashboard zeigt das Einrichtungsformular.');
   } else {
-    app.log.info(`Verbinde mit Jellyfin unter ${config.jellyfin.url}`);
+    const origin = connection.source === 'ui' ? 'Einstellungen' : 'Umgebungsvariablen';
+    app.log.info(`Verbinde mit Jellyfin unter ${connection.settings.url} (aus ${origin})`);
   }
   if (!config.staticDir) {
     app.log.info('Kein gebautes Frontend gefunden (web/dist) – nur die API wird ausgeliefert.');

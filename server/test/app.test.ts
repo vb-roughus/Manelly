@@ -2,13 +2,16 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { SessionsResponse } from '@manelly/shared';
+import type { ConnectionSettings, SaveSettingsResponse, SessionsResponse } from '@manelly/shared';
 import { buildApp } from '../src/app.js';
+import type { JellyfinConfig } from '../src/config.js';
+import { createConnection } from '../src/connection.js';
 import { createJellyfinClient } from '../src/jellyfin/client.js';
 import type { JfSessionInfo } from '../src/jellyfin/types.js';
+import type { SettingsStore } from '../src/settings.js';
 
 const JELLYFIN_URL = 'http://jellyfin.test';
-const API_KEY = 'test-key';
+const API_KEY = '0123456789abcdef0123456789abcd42';
 const ITEM_ID = '0123456789abcdef0123456789abcdef';
 
 const sessions: JfSessionInfo[] = [
@@ -28,9 +31,12 @@ const sessions: JfSessionInfo[] = [
   { Id: 'idle', UserName: 'Lea' },
 ];
 
-/** Answers like Jellyfin for the few endpoints Manelly calls. */
+/** Answers like Jellyfin at http://jellyfin.test; every other host is unreachable. */
 const fakeJellyfin: typeof fetch = async (input, init) => {
   const url = new URL(String(input));
+  if (url.host !== 'jellyfin.test') {
+    throw new TypeError('fetch failed', { cause: new Error(`getaddrinfo ENOTFOUND ${url.hostname}`) });
+  }
   const authorization = new Headers(init?.headers).get('authorization') ?? '';
   if (!authorization.includes(`Token="${API_KEY}"`)) {
     return new Response(null, { status: 401 });
@@ -50,9 +56,39 @@ const fakeJellyfin: typeof fetch = async (input, init) => {
   return new Response(null, { status: 404 });
 };
 
-function appWith({ apiKey = API_KEY, staticDir = null as string | null } = {}) {
-  const client = createJellyfinClient({ url: JELLYFIN_URL, apiKey }, { fetch: fakeJellyfin });
-  return buildApp({ config: { staticDir }, client });
+function memoryStore(initial: JellyfinConfig | null = null): SettingsStore & { saved: () => JellyfinConfig | null } {
+  let saved = initial;
+  return {
+    saved: () => saved,
+    load: async () => saved,
+    save: async (settings) => {
+      saved = settings;
+    },
+  };
+}
+
+interface SetupOptions {
+  saved?: JellyfinConfig | null;
+  /** Replaces the in-memory store, e.g. to simulate write errors. */
+  store?: SettingsStore;
+  env?: JellyfinConfig | null;
+  staticDir?: string | null;
+  fetch?: typeof fetch;
+}
+
+async function setup({ saved = null, store, env = { url: JELLYFIN_URL, apiKey: API_KEY }, staticDir = null, fetch = fakeJellyfin }: SetupOptions = {}) {
+  const memory = memoryStore(saved);
+  const connection = await createConnection({
+    store: store ?? memory,
+    envSettings: env,
+    createClient: (settings) => createJellyfinClient(settings, { fetch }),
+  });
+  const app = await buildApp({ config: { staticDir }, connection });
+  return { app, store: memory, connection };
+}
+
+async function appWith({ apiKey = API_KEY, staticDir = null as string | null } = {}) {
+  return (await setup({ env: { url: JELLYFIN_URL, apiKey }, staticDir })).app;
 }
 
 describe('API', () => {
@@ -81,21 +117,126 @@ describe('API', () => {
   });
 
   it('reports an unreachable server', async () => {
-    const app = await buildApp({
-      config: { staticDir: null },
-      client: createJellyfinClient({ url: 'http://127.0.0.1:1', apiKey: 'x' }),
-    });
+    const { app } = await setup({ env: { url: 'http://127.0.0.1:1', apiKey: 'x' }, fetch: globalThis.fetch });
     const response = await app.inject('/api/sessions');
     expect(response.statusCode).toBe(502);
     expect(response.json()).toMatchObject({ error: { code: 'UNREACHABLE' } });
   });
 
   it('explains how to configure Manelly when Jellyfin is not set up', async () => {
-    const app = await buildApp({ config: { staticDir: null }, client: null });
+    const { app } = await setup({ env: null });
     const response = await app.inject('/api/sessions');
     expect(response.statusCode).toBe(503);
     expect(response.json()).toMatchObject({ error: { code: 'NOT_CONFIGURED' } });
     expect((await app.inject('/api/health')).json()).toEqual({ status: 'ok' });
+  });
+});
+
+describe('settings', () => {
+  it('shows the active connection without revealing the API key', async () => {
+    const { app } = await setup();
+    const response = await app.inject('/api/settings');
+    expect(response.json<ConnectionSettings>()).toEqual({
+      jellyfinUrl: JELLYFIN_URL,
+      apiKeyConfigured: true,
+      apiKeyHint: 'cd42',
+      source: 'env',
+    });
+    expect(response.body).not.toContain(API_KEY);
+  });
+
+  it('reports a missing connection', async () => {
+    const { app } = await setup({ env: null });
+    expect((await app.inject('/api/settings')).json()).toEqual({
+      jellyfinUrl: null,
+      apiKeyConfigured: false,
+      apiKeyHint: null,
+      source: null,
+    });
+  });
+
+  it('tests, saves and immediately uses a new connection', async () => {
+    const { app, store } = await setup({ env: null });
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      payload: { jellyfinUrl: 'http://jellyfin.test/', apiKey: ` ${API_KEY} ` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<SaveSettingsResponse>();
+    expect(body.server).toMatchObject({ name: 'Heimkino', url: JELLYFIN_URL });
+    expect(body.settings).toMatchObject({ jellyfinUrl: JELLYFIN_URL, source: 'ui', apiKeyHint: 'cd42' });
+    expect(response.body).not.toContain(API_KEY);
+    expect(store.saved()).toEqual({ url: JELLYFIN_URL, apiKey: API_KEY });
+    expect((await app.inject('/api/sessions')).statusCode).toBe(200);
+  });
+
+  it('keeps the saved API key when only the address changes', async () => {
+    const { app, store } = await setup();
+    const response = await app.inject({ method: 'PUT', url: '/api/settings', payload: { jellyfinUrl: JELLYFIN_URL, apiKey: '' } });
+    expect(response.statusCode).toBe(200);
+    expect(store.saved()?.apiKey).toBe(API_KEY);
+  });
+
+  it('does not save settings that Jellyfin rejects', async () => {
+    const { app, store, connection } = await setup({ env: null });
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      payload: { jellyfinUrl: JELLYFIN_URL, apiKey: 'wrong-key' },
+    });
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({ error: { code: 'UNAUTHORIZED' } });
+    expect(store.saved()).toBeNull();
+    expect(connection.settings).toBeNull();
+  });
+
+  it('does not save an unreachable address', async () => {
+    const { app, store } = await setup();
+    const response = await app.inject({ method: 'PUT', url: '/api/settings', payload: { jellyfinUrl: 'http://down.test:8096' } });
+    expect(response.json()).toMatchObject({ error: { code: 'UNREACHABLE' } });
+    expect(store.saved()).toBeNull();
+  });
+
+  it('explains when the settings cannot be written', async () => {
+    const readOnly: SettingsStore = {
+      load: async () => null,
+      save: async () => {
+        throw new Error('EACCES: permission denied');
+      },
+    };
+    const { app, connection } = await setup({ env: null, store: readOnly });
+    const response = await app.inject({ method: 'PUT', url: '/api/settings', payload: { jellyfinUrl: JELLYFIN_URL, apiKey: API_KEY } });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: { code: 'INTERNAL_ERROR' } });
+    expect(response.json().error.message).toContain('DATA_DIR');
+    expect(connection.settings).toBeNull();
+  });
+
+  it('rejects invalid input', async () => {
+    const { app } = await setup({ env: null });
+    const put = (payload: object) => app.inject({ method: 'PUT', url: '/api/settings', payload });
+
+    const badUrl = await put({ jellyfinUrl: 'ftp://jellyfin.test', apiKey: API_KEY });
+    expect(badUrl.statusCode).toBe(400);
+    expect(badUrl.json().error.message).toContain('Server-Adresse');
+
+    const noKey = await put({ jellyfinUrl: JELLYFIN_URL });
+    expect(noKey.statusCode).toBe(400);
+    expect(noKey.json().error.message).toContain('API-Schlüssel');
+
+    expect((await put({})).statusCode).toBe(400);
+  });
+
+  it('prefers settings saved in the UI over environment variables', async () => {
+    const { app, connection } = await setup({
+      saved: { url: JELLYFIN_URL, apiKey: API_KEY },
+      env: { url: 'http://down.test', apiKey: 'old' },
+    });
+    expect(connection.source).toBe('ui');
+    expect((await app.inject('/api/sessions')).statusCode).toBe(200);
   });
 });
 

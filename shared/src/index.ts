@@ -19,7 +19,8 @@ export type ApiErrorCode =
   | 'TIMEOUT'
   | 'UPSTREAM_ERROR'
   | 'BAD_REQUEST'
-  | 'NOT_FOUND';
+  | 'NOT_FOUND'
+  | 'INTERNAL_ERROR';
 
 export interface ApiErrorBody {
   error: {
@@ -170,4 +171,27 @@ export interface SessionsResponse {
   idleSessions: number;
   summary: SessionsSummary;
   fetchedAt: string;
+}
+
+/** Where the active Jellyfin connection comes from. */
+export type SettingsSource = 'ui' | 'env';
+
+/** The saved connection; the API key itself never leaves the server. */
+export interface ConnectionSettings {
+  jellyfinUrl: string | null;
+  apiKeyConfigured: boolean;
+  /** Last characters of the key, so it can be recognised. */
+  apiKeyHint: string | null;
+  source: SettingsSource | null;
+}
+
+export interface SaveSettingsRequest {
+  jellyfinUrl: string;
+  /** Omit or leave empty to keep the saved key. */
+  apiKey?: string;
+}
+
+export interface SaveSettingsResponse {
+  settings: ConnectionSettings;
+  server: ServerStatus;
 }

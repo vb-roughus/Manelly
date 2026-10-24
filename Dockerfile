@@ -14,7 +14,8 @@ RUN npm run build
 # Runtime stage: only the server's production dependencies plus the built files.
 FROM node:22-alpine
 ENV NODE_ENV=production \
-    PORT=3000
+    PORT=3000 \
+    DATA_DIR=/data
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY shared/package.json shared/
@@ -23,6 +24,10 @@ COPY web/package.json web/
 RUN npm ci --omit=dev --workspace=server && npm cache clean --force
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/web/dist web/dist
+
+# Settings entered in the UI are stored here; mount a volume to keep them across updates.
+RUN mkdir -p /data && chown node:node /data
+VOLUME /data
 
 USER node
 EXPOSE 3000

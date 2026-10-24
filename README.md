@@ -13,30 +13,28 @@ Troubleshooting an einem Ort.
 - Kennzahlen: aktive Streams, Direct Play / Direct Stream / Transcodes, geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
 - Hell- und Dunkelmodus (folgt dem System, umschaltbar)
-- Verständliche Einrichtungs- und Fehlerhinweise, wenn Jellyfin nicht erreichbar ist oder der API-Schlüssel nicht stimmt
+- Jellyfin-Verbindung (Adresse und API-Schlüssel) direkt in der Oberfläche einrichten – Manelly testet sie vor dem Speichern
+- Verständliche Fehlerhinweise, wenn Jellyfin nicht erreichbar ist oder der API-Schlüssel nicht stimmt
 
 Geplant: Medien durchsuchen, Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und Troubleshooting (Logs,
 Wiedergabe-Analyse).
 
 ## Schnellstart mit Docker
 
-1. In Jellyfin unter **Dashboard → API-Schlüssel** einen neuen Schlüssel erstellen (z. B. «Manelly»).
-2. Konfiguration anlegen:
-
-   ```bash
-   cp .env.example .env
-   # JELLYFIN_URL und JELLYFIN_API_KEY in .env eintragen
-   ```
-
-3. Starten:
+1. Starten:
 
    ```bash
    docker compose up -d --build
    ```
 
-4. Öffnen: <http://localhost:3000>
+2. <http://localhost:3000> öffnen.
+3. In Jellyfin unter **Dashboard → API-Schlüssel** einen neuen Schlüssel erstellen (z. B. «Manelly»).
+4. Server-Adresse und Schlüssel im Einrichtungsformular eintragen. Später lässt sich beides unter **Einstellungen**
+   ändern.
 
-> **Tipp:** `JELLYFIN_URL` muss aus dem Container heraus erreichbar sein. `localhost` zeigt dort auf den Container
+Die Einstellungen liegen im Docker-Volume `manelly-data` und bleiben bei Updates erhalten.
+
+> **Tipp:** Die Server-Adresse muss aus dem Container heraus erreichbar sein. `localhost` zeigt dort auf den Container
 > selbst – verwende die IP-Adresse des Hosts (z. B. `http://192.168.1.10:8096`) oder, wenn beide Container im selben
 > Docker-Netzwerk laufen, den Container-Namen (z. B. `http://jellyfin:8096`).
 
@@ -46,16 +44,14 @@ Voraussetzung: Node.js 22 oder neuer.
 
 ```bash
 npm ci
-cp .env.example .env   # Werte eintragen
 npm run build
-npm start
+npm start              # dann http://localhost:3000 öffnen und die Verbindung einrichten
 ```
 
 ## Entwicklung
 
 ```bash
 npm install
-cp .env.example .env   # Werte deines Jellyfin-Servers eintragen
 npm run dev
 ```
 
@@ -72,13 +68,20 @@ npm run dev
 
 ## Konfiguration
 
-| Variable           | Standard  | Beschreibung                                               |
-| ------------------ | --------- | ---------------------------------------------------------- |
-| `JELLYFIN_URL`     | –         | Adresse des Jellyfin-Servers, z. B. `http://192.168.1.10:8096` |
-| `JELLYFIN_API_KEY` | –         | API-Schlüssel aus Jellyfin (Dashboard → API-Schlüssel)      |
-| `PORT`             | `3000`    | Port von Manelly                                            |
-| `HOST`             | `0.0.0.0` | Netzwerk-Interface, auf dem Manelly lauscht                 |
-| `LOG_LEVEL`        | `info`    | `debug`, `info`, `warn`, `error`                            |
+Die Jellyfin-Verbindung richtest du in der Oberfläche ein. Manelly speichert sie in `DATA_DIR/settings.json` (nur für
+den Besitzer lesbar). Der API-Schlüssel wird nie an den Browser zurückgegeben; angezeigt werden nur die letzten Zeichen.
+
+Optional lässt sich alles über Umgebungsvariablen (oder eine `.env`-Datei, Vorlage: `.env.example`) vorgeben.
+**In der Oberfläche gespeicherte Einstellungen haben Vorrang** vor `JELLYFIN_URL` und `JELLYFIN_API_KEY`.
+
+| Variable           | Standard                    | Beschreibung                                               |
+| ------------------ | --------------------------- | ---------------------------------------------------------- |
+| `JELLYFIN_URL`     | –                           | Adresse des Jellyfin-Servers, z. B. `http://192.168.1.10:8096` |
+| `JELLYFIN_API_KEY` | –                           | API-Schlüssel aus Jellyfin (Dashboard → API-Schlüssel)      |
+| `DATA_DIR`         | `./data` (Docker: `/data`)  | Ordner für die gespeicherten Einstellungen                  |
+| `PORT`             | `3000`                      | Port von Manelly                                            |
+| `HOST`             | `0.0.0.0`                   | Netzwerk-Interface, auf dem Manelly lauscht                 |
+| `LOG_LEVEL`        | `info`                      | `debug`, `info`, `warn`, `error`                            |
 
 ## Aufbau
 
@@ -93,6 +96,6 @@ Server, und Jellyfin muss vom Browser aus nicht erreichbar sein (auch Cover-Bild
 
 ## Sicherheit
 
-Ein Jellyfin-API-Schlüssel hat Administratorrechte. Manelly hat **noch keine eigene Anmeldung** – betreibe es daher
-nur im Heimnetz oder hinter einem Reverse Proxy mit Authentifizierung und mache es nicht direkt im Internet
-erreichbar.
+Ein Jellyfin-API-Schlüssel hat Administratorrechte. Manelly hat **noch keine eigene Anmeldung** – wer die Oberfläche
+öffnen kann, kann auch die Jellyfin-Verbindung ändern. Betreibe Manelly daher nur im Heimnetz oder hinter einem Reverse
+Proxy mit Authentifizierung und mache es nicht direkt im Internet erreichbar.

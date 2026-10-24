@@ -14,12 +14,20 @@ export class ApiError extends Error {
   }
 }
 
-export async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+export function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { signal });
+}
+
+export function sendJson<T>(method: 'POST' | 'PUT', path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
+}
+
+async function request<T>(path: string, init: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, { headers: { Accept: 'application/json' }, signal });
+    response = await fetch(path, { ...init, headers: { Accept: 'application/json', ...init.headers } });
   } catch (error) {
-    if (signal?.aborted) throw error;
+    if (init.signal?.aborted) throw error;
     throw new ApiError('NETWORK', 'Der Manelly-Server antwortet nicht.');
   }
 

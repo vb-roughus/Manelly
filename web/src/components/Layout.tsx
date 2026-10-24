@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
-import { NavLink } from 'react-router';
+import { Link, NavLink } from 'react-router';
 import {
   LayoutDashboard,
   Library,
   Monitor,
   Moon,
   Server,
+  Settings,
   Stethoscope,
   Sun,
   type LucideIcon,
@@ -29,13 +30,28 @@ const NAV: NavItem[] = [
   { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope, soon: true },
 ];
 
+const SETTINGS: NavItem = { to: '/settings', label: 'Einstellungen', icon: Settings };
+
 export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[15rem_1fr]">
       <aside className="border-line lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:border-r">
         <div className="flex items-center justify-between gap-4 px-4 pt-4 lg:px-5 lg:pt-6">
           <Logo />
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            {/* On small screens the settings live up here; the sidebar footer is hidden. */}
+            <NavLink
+              to={SETTINGS.to}
+              aria-label={SETTINGS.label}
+              title={SETTINGS.label}
+              className={({ isActive }) =>
+                clsx(iconButtonClass, 'lg:hidden', isActive && 'bg-card text-ink')
+              }
+            >
+              <Settings className="size-4" aria-hidden />
+            </NavLink>
+            <ThemeToggle />
+          </div>
         </div>
         <nav aria-label="Hauptnavigation" className="mt-3 overflow-x-auto px-2 lg:mt-8 lg:px-3">
           <ul className="flex gap-1 lg:flex-col">
@@ -46,7 +62,8 @@ export function Layout({ children }: { children: ReactNode }) {
             ))}
           </ul>
         </nav>
-        <div className="hidden px-3 pb-4 lg:mt-auto lg:block">
+        <div className="hidden space-y-3 px-3 pb-4 lg:mt-auto lg:block">
+          <NavEntry item={SETTINGS} />
           <ServerCard />
         </div>
       </aside>
@@ -97,7 +114,11 @@ function ServerCard() {
   const state = isPending ? 'pending' : error ? 'error' : 'ok';
 
   return (
-    <div className="rounded-xl border border-line bg-card p-3 text-sm">
+    <Link
+      to="/settings"
+      title="Verbindung bearbeiten"
+      className="block rounded-xl border border-line bg-card p-3 text-sm transition hover:border-accent/40"
+    >
       <div className="flex items-center gap-2">
         <span
           aria-hidden
@@ -125,9 +146,12 @@ function ServerCard() {
           )}
         </>
       )}
-    </div>
+    </Link>
   );
 }
+
+const iconButtonClass =
+  'grid size-9 place-items-center rounded-lg text-ink-2 ring-1 ring-line transition hover:bg-card hover:text-ink';
 
 const THEME_ORDER: Theme[] = ['system', 'light', 'dark'];
 const THEME_META: Record<Theme, { icon: LucideIcon; label: string }> = {
@@ -146,7 +170,7 @@ function ThemeToggle() {
       onClick={() => setTheme(next)}
       title={`${label} – klicken zum Wechseln`}
       aria-label={label}
-      className="grid size-9 place-items-center rounded-lg text-ink-2 ring-1 ring-line transition hover:bg-card hover:text-ink"
+      className={iconButtonClass}
     >
       <Icon className="size-4" aria-hidden />
     </button>

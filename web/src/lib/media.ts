@@ -112,3 +112,24 @@ export function activeFilterCount(filters: MediaFilters): number {
     return Array.isArray(value) ? value.length > 0 : value !== undefined;
   }).length;
 }
+
+/** "Deutsch · Dolby Atmos", "ohne Deutsch", …; null without an audio condition. */
+export function describeAudioFilter(filters: MediaFilters): string | null {
+  if (!hasAudioCondition(filters)) return null;
+  const channels: Record<number, string> = { 2: 'Stereo', 6: '5.1', 8: '7.1' };
+  const parts = [
+    filters.audioLanguage?.map(audioLanguageName).join(' / '),
+    filters.audioFormat?.map((format) => AUDIO_FORMAT_LABELS[format]).join(' / '),
+    filters.audioMinChannels && `mind. ${channels[filters.audioMinChannels] ?? `${filters.audioMinChannels} Kanäle`}`,
+  ].filter(Boolean);
+  const text = parts.join(' · ');
+  return [filters.audioMode === 'lacks' ? `ohne ${text}` : text, filters.audioCoverage === 'all' && 'alle Folgen']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** "4K · Dolby Vision"; null when no video filter is set. */
+export function describeVideoFilter(filters: MediaFilters): string | null {
+  const parts = [...(filters.resolution ?? []), ...(filters.dynamicRange ?? []).map((range) => DYNAMIC_RANGE_LABELS[range])];
+  return parts.length ? parts.join(' · ') : null;
+}

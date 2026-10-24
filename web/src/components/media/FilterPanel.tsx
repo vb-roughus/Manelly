@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AudioFormat, MediaFacets } from '@manelly/shared';
-import { AudioLines, RotateCcw, Sparkles } from 'lucide-react';
+import { AudioLines, RotateCcw, Sparkles, Video } from 'lucide-react';
 import clsx from 'clsx';
 import {
   AUDIO_FORMAT_LABELS,
@@ -8,10 +8,13 @@ import {
   DYNAMIC_RANGE_LABELS,
   RESOLUTION_ORDER,
   audioLanguageName,
+  describeAudioFilter,
+  describeVideoFilter,
   hasAudioCondition,
   type MediaFilters,
 } from '../../lib/media';
 import { ChipGroup } from './ChipGroup';
+import { FilterCard } from './FilterCard';
 
 interface FilterPanelProps {
   facets: MediaFacets | null;
@@ -20,6 +23,15 @@ interface FilterPanelProps {
 }
 
 const AUDIO_KEYS = ['audioLanguage', 'audioFormat', 'audioMinChannels', 'audioMode', 'audioCoverage'] as const;
+const VIDEO_KEYS = ['resolution', 'dynamicRange'] as const;
+
+/** The filters without the given keys. */
+function without(filters: MediaFilters, keys: readonly string[]): MediaFilters {
+  return Object.fromEntries(Object.entries(filters).filter(([key]) => !keys.includes(key)));
+}
+
+const facetOptions = (values: MediaFacets['genres'] | undefined, label: (value: string) => string = (value) => value) =>
+  (values ?? []).map((facet) => ({ value: facet.value, label: label(facet.value), count: facet.count }));
 
 const AUDIO_PRESETS: Array<{ label: string; hint: string; filters: Partial<MediaFilters> }> = [
   {
@@ -36,16 +48,13 @@ const AUDIO_PRESETS: Array<{ label: string; hint: string; filters: Partial<Media
 
 export function FilterPanel({ facets, filters, onChange }: FilterPanelProps) {
   const update = (patch: Partial<MediaFilters>) => onChange({ ...filters, ...patch });
-  const facetOptions = (values: MediaFacets['genres'] | undefined, label: (value: string) => string = (value) => value) =>
-    (values ?? []).map((facet) => ({ value: facet.value, label: label(facet.value), count: facet.count }));
-
-  const resolutions = [...(facets?.resolutions ?? [])].sort(
-    (a, b) => RESOLUTION_ORDER.indexOf(a.value as never) - RESOLUTION_ORDER.indexOf(b.value as never),
-  );
 
   return (
     <div className="space-y-6">
-      <AudioFilter facets={facets} filters={filters} onChange={onChange} />
+      <div className="space-y-3">
+        <AudioFilter facets={facets} filters={filters} onChange={onChange} />
+        <VideoFilter facets={facets} filters={filters} onChange={onChange} />
+      </div>
 
       <Section title="Genre">
         <ChipGroup options={facetOptions(facets?.genres)} selected={filters.genre ?? []} onChange={(genre) => update({ genre })} initialVisible={10} />
@@ -87,18 +96,6 @@ export function FilterPanel({ facets, filters, onChange }: FilterPanelProps) {
         </Section>
       )}
 
-      <Section title="Auflösung">
-        <ChipGroup options={facetOptions(resolutions)} selected={filters.resolution ?? []} onChange={(value) => update({ resolution: value as MediaFilters['resolution'] })} />
-      </Section>
-
-      <Section title="Dynamikumfang">
-        <ChipGroup
-          options={facetOptions(facets?.dynamicRanges, (value) => DYNAMIC_RANGE_LABELS[value as keyof typeof DYNAMIC_RANGE_LABELS] ?? value)}
-          selected={filters.dynamicRange ?? []}
-          onChange={(value) => update({ dynamicRange: value as MediaFilters['dynamicRange'] })}
-        />
-      </Section>
-
       {(facets?.libraries.length ?? 0) > 1 && (
         <Section title="Bibliothek">
           <ChipGroup
@@ -112,14 +109,39 @@ export function FilterPanel({ facets, filters, onChange }: FilterPanelProps) {
   );
 }
 
+function VideoFilter({ facets, filters, onChange }: FilterPanelProps) {
+  const update = (patch: Partial<MediaFilters>) => onChange({ ...filters, ...patch });
+  const resolutions = [...(facets?.resolutions ?? [])].sort(
+    (a, b) => RESOLUTION_ORDER.indexOf(a.value as never) - RESOLUTION_ORDER.indexOf(b.value as never),
+  );
+
+  return (
+    <FilterCard id="video" title="Video" icon={Video} summary={describeVideoFilter(filters)} onClear={() => onChange(without(filters, VIDEO_KEYS))}>
+      <div className="space-y-3">
+        <Field label="Auflösung">
+          <ChipGroup
+            options={facetOptions(resolutions)}
+            selected={filters.resolution ?? []}
+            onChange={(value) => update({ resolution: value.length ? (value as MediaFilters['resolution']) : undefined })}
+          />
+        </Field>
+        <Field label="Dynamikumfang">
+          <ChipGroup
+            options={facetOptions(facets?.dynamicRanges, (value) => DYNAMIC_RANGE_LABELS[value as keyof typeof DYNAMIC_RANGE_LABELS] ?? value)}
+            selected={filters.dynamicRange ?? []}
+            onChange={(value) => update({ dynamicRange: value.length ? (value as MediaFilters['dynamicRange']) : undefined })}
+          />
+        </Field>
+      </div>
+    </FilterCard>
+  );
+}
+
 function AudioFilter({ facets, filters, onChange }: FilterPanelProps) {
   const active = hasAudioCondition(filters);
   const update = (patch: Partial<MediaFilters>) => onChange({ ...filters, ...patch });
-  const clearAudio = () => onChange(Object.fromEntries(Object.entries(filters).filter(([key]) => !(AUDIO_KEYS as readonly string[]).includes(key))));
-  const applyPreset = (preset: Partial<MediaFilters>) => {
-    const base = Object.fromEntries(Object.entries(filters).filter(([key]) => !(AUDIO_KEYS as readonly string[]).includes(key)));
-    onChange({ ...base, ...preset });
-  };
+  const clearAudio = () => onChange(without(filters, AUDIO_KEYS));
+  const applyPreset = (preset: Partial<MediaFilters>) => onChange({ ...without(filters, AUDIO_KEYS), ...preset });
   const presetActive = (preset: Partial<MediaFilters>) =>
     AUDIO_KEYS.every((key) => JSON.stringify(filters[key] ?? null) === JSON.stringify(preset[key] ?? null));
 
@@ -128,20 +150,8 @@ function AudioFilter({ facets, filters, onChange }: FilterPanelProps) {
     .map((facet) => ({ value: facet.value, label: AUDIO_FORMAT_LABELS[facet.value as AudioFormat] ?? facet.value, count: facet.count }));
 
   return (
-    <section aria-labelledby="audio-filter-heading" className="rounded-2xl border border-accent/30 bg-accent/5 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 id="audio-filter-heading" className="flex items-center gap-2 text-sm font-semibold">
-          <AudioLines className="size-4 text-accent" aria-hidden />
-          Tonspur
-        </h2>
-        {active && (
-          <button type="button" onClick={clearAudio} className="text-xs font-medium text-accent hover:underline">
-            Entfernen
-          </button>
-        )}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
+    <FilterCard id="audio" title="Tonspur" icon={AudioLines} summary={describeAudioFilter(filters)} onClear={clearAudio}>
+      <div className="flex flex-wrap gap-1.5">
         {AUDIO_PRESETS.map((preset) => {
           const on = presetActive(preset.filters);
           return (
@@ -236,7 +246,7 @@ function AudioFilter({ facets, filters, onChange }: FilterPanelProps) {
           es, hilft ein neuer Medien-Scan in Jellyfin.
         </p>
       </div>
-    </section>
+    </FilterCard>
   );
 }
 

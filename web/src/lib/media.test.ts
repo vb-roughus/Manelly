@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeFilterCount, hasAudioCondition, readFilters, toSearchParams } from './media';
+import { activeFilterCount, describeAudioFilter, describeVideoFilter, hasAudioCondition, readFilters, toSearchParams } from './media';
 
 describe('media filters in the URL', () => {
   it('round-trips filters through query parameters', () => {
@@ -31,5 +31,16 @@ describe('media filters in the URL', () => {
     expect(hasAudioCondition({ audioMode: 'lacks' })).toBe(false);
     expect(hasAudioCondition({ audioLanguage: ['de'] })).toBe(true);
     expect(activeFilterCount({ q: 'x', type: 'Series', genre: ['Drama'], audioLanguage: ['de'], audioFormat: ['atmos'], yearTo: 2000 })).toBe(4);
+  });
+
+  it('summarizes the audio and video filters for collapsed panels', () => {
+    expect(describeAudioFilter({ audioLanguage: ['de'], audioFormat: ['atmos'] })).toBe('Deutsch · Dolby Atmos');
+    expect(describeAudioFilter({ audioLanguage: ['de'], audioMode: 'lacks' })).toBe('ohne Deutsch');
+    expect(describeAudioFilter({ audioFormat: ['truehd', 'dts-hd-ma'], audioMinChannels: 8, audioCoverage: 'all' })).toBe(
+      'Dolby TrueHD / DTS-HD MA · mind. 7.1 · alle Folgen',
+    );
+    expect(describeAudioFilter({ audioMode: 'lacks' })).toBeNull();
+    expect(describeVideoFilter({ resolution: ['4K'], dynamicRange: ['DV', 'HDR10'] })).toBe('4K · Dolby Vision · HDR10');
+    expect(describeVideoFilter({})).toBeNull();
   });
 });

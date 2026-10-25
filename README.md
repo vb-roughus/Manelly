@@ -35,8 +35,9 @@ Filme und Serien durchsuchen und filtern:
 - Tonspur- und Video-Filter sind einklappbar und zeigen eingeklappt eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
 - Filter stehen in der URL – eine Suche lässt sich als Lesezeichen speichern
 - **«Titel fehlt?»** sucht einen Titel direkt in Jellyfin und erklärt, warum er in Manelly nicht erscheint: von aktiven
-  Filtern ausgeblendet, neuer als der Index, falscher Bibliothekstyp (z. B. «Heimvideos»), von Jellyfin als «Video» statt
-  als Film geführt oder von Jellyfin bei der Abfrage seiner Bibliothek nicht ausgeliefert
+  Filtern ausgeblendet, noch nicht eingelesen, falscher Bibliothekstyp (z. B. «Heimvideos»), von Jellyfin als «Video»
+  statt als Film geführt oder von Jellyfin bei der Abfrage seiner Bibliothek nicht ausgeliefert. Dazu liest die Prüfung
+  die Bibliothek genau so wie Manelly beim Einlesen; ein «Hinzugefügt»-Datum in der Zukunft wird angezeigt
 
 Manelly liest dafür einmal alle Filme, Serien und Folgen samt Tonspuren aus Jellyfin ein und frischt diesen Index im
 Hintergrund auf, wenn er älter als 15 Minuten ist (oder sofort mit «Neu einlesen»). Kann Jellyfin die Medieninfos eines

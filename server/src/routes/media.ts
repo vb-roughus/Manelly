@@ -92,8 +92,10 @@ export async function mediaRoutes(app: FastifyInstance, opts: { connection: Jell
     async (request): Promise<MediaDiagnosisResponse> => {
       const client = requireClient(connection.client);
       const { title, ...filters } = request.query;
-      const results = await diagnoseTitle(client, store.get(), title.trim(), filters);
-      return { title: title.trim(), index: store.status(), results };
+      const index = store.get();
+      const status = store.status();
+      const results = await diagnoseTitle(client, index, title.trim(), filters, { building: status.state === 'building' });
+      return { title: title.trim(), index: status, results };
     },
   );
 

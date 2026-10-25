@@ -179,13 +179,31 @@ async function fetchRange(client: JellyfinClient, job: Job, start: number, size:
   }
 }
 
+/**
+ * The ids Jellyfin lists for a library and item type, paged exactly like the
+ * index build – used to check whether a title is part of that listing at all.
+ */
+export async function listLibraryIds(client: JellyfinClient, libraryId: string, type: string): Promise<{ total: number; ids: Set<string> }> {
+  const pageSize = 1000;
+  const ids = new Set<string>();
+  let total = 0;
+  for (let start = 0; start === 0 || start < total; start += pageSize) {
+    const page = await client.getItems(itemsQuery(libraryId, type, start, pageSize, ''));
+    total = page.TotalRecordCount ?? 0;
+    for (const item of page.Items ?? []) if (item.Id) ids.add(item.Id);
+    if (!page.Items?.length) break;
+  }
+  return { total, ids };
+}
+
 function itemsQuery(libraryId: string, type: string, startIndex: number, limit: number, fields = FIELDS[type] ?? ''): URLSearchParams {
   return new URLSearchParams({
     parentId: libraryId,
     includeItemTypes: type,
     recursive: 'true',
-    // Episodes Jellyfin only knows from metadata have no files to inspect.
-    isMissing: 'false',
+    // Episodes Jellyfin only knows from metadata have no files to inspect. Not for
+    // movies and series: a title Jellyfin shows and plays belongs in the index.
+    ...(type === 'Episode' ? { isMissing: 'false' } : {}),
     fields,
     enableImageTypes: 'Primary,Backdrop',
     imageTypeLimit: '1',

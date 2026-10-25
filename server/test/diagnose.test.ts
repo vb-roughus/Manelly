@@ -40,9 +40,11 @@ function fakeLibrary() {
     item(7, 'Lost', 'Movie', '/mnt/usb/lost.mkv'),
   ];
 
+  const queries: URLSearchParams[] = [];
   const fetch: typeof globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     const params = url.searchParams;
+    queries.push(params);
     if (url.pathname === '/Library/VirtualFolders') return Response.json(libraries);
     if (url.pathname !== '/Items') return new Response(null, { status: 404 });
 
@@ -51,10 +53,14 @@ function fakeLibrary() {
       const hits = searchable.filter((entry) => entry.Name!.toLowerCase().includes(term.toLowerCase()));
       return Response.json({ Items: hits, TotalRecordCount: hits.length });
     }
-    const type = params.get('includeItemTypes');
-    let items = params.get('parentId') === FILME && type === 'Movie' ? listed : [];
+    // Like Jellyfin: with ids, the parent is ignored.
     const ids = params.get('ids');
-    if (ids) items = items.filter((entry) => entry.Id === ids);
+    if (ids) {
+      const hits = searchable.filter((entry) => entry.Id === ids);
+      return Response.json({ Items: hits, TotalRecordCount: hits.length });
+    }
+    const type = params.get('includeItemTypes');
+    const items = params.get('parentId') === FILME && type === 'Movie' ? listed : [];
     const start = Number(params.get('startIndex') ?? 0);
     const limit = Number(params.get('limit') ?? items.length);
     return Response.json({ Items: items.slice(start, start + limit), TotalRecordCount: items.length });
@@ -65,7 +71,7 @@ function fakeLibrary() {
     listed.push(entry);
     searchable.push(entry);
   };
-  return { fetch, add };
+  return { fetch, add, queries };
 }
 
 async function setup() {
@@ -100,18 +106,40 @@ describe('missing title diagnosis', () => {
 
   it('explains titles Manelly does not read', async () => {
     const { client, index } = await setup();
-    const results = await Promise.all(['Urlaub', 'Konzert', 'Lost', 'Ghost'].map((title) => diagnoseTitle(client, index, title, {})));
-    expect(results.map(([result]) => result?.verdict)).toEqual(['unsupportedType', 'unsupportedLibrary', 'noLibrary', 'notInLibraryQuery']);
+    const results = await Promise.all(['Urlaub', 'Konzert', 'Lost'].map((title) => diagnoseTitle(client, index, title, {})));
+    expect(results.map(([result]) => result?.verdict)).toEqual(['unsupportedType', 'unsupportedLibrary', 'noLibrary']);
   });
 
-  it('tells new titles apart from ones the index is missing', async () => {
+  it('checks the actual library listing instead of trusting a lookup by id', async () => {
+    const { client, index } = await setup();
+    // Jellyfin finds "Ghost" by search and by id, but its library listing does not contain it.
+    expect((await diagnoseTitle(client, index, 'ghost', {}))[0]).toMatchObject({
+      verdict: 'notInLibraryQuery',
+      listing: { libraryTotal: 1 },
+    });
+  });
+
+  it('reports titles Jellyfin lists but the index lacks, without trusting dates', async () => {
     const { fake, client, index } = await setup();
-    fake.add(item(2, 'Neuer Film', 'Movie', '/media/filme/neu.mkv', { DateCreated: new Date(Date.now() + 60_000).toISOString() }));
+    const inAnHour = new Date(Date.now() + 3_600_000).toISOString();
+    fake.add(item(2, 'Neuer Film', 'Movie', '/media/filme/neu.mkv', { DateCreated: inAnHour }));
     fake.add(item(4, 'Verpasst', 'Movie', '/media/filme/verpasst.mkv'));
 
-    expect((await diagnoseTitle(client, index, 'neuer', {}))[0]?.verdict).toBe('newerThanIndex');
-    expect((await diagnoseTitle(client, index, 'verpasst', {}))[0]?.verdict).toBe('missingFromIndex');
+    expect((await diagnoseTitle(client, index, 'neuer', {}))[0]).toMatchObject({ verdict: 'notIndexed', dateCreatedInFuture: true });
+    expect((await diagnoseTitle(client, index, 'verpasst', {}))[0]).toMatchObject({ verdict: 'notIndexed', dateCreatedInFuture: false });
     expect((await diagnoseTitle(client, null, 'verpasst', {}))[0]?.verdict).toBe('indexNotReady');
+    expect((await diagnoseTitle(client, index, 'verpasst', {}, { building: true }))[0]?.verdict).toBe('indexNotReady');
+
+    // After a rebuild both are found – the future date does not matter.
+    const rebuilt = await buildMediaIndex(client);
+    expect((await diagnoseTitle(client, rebuilt, 'neuer', {}))[0]?.verdict).toBe('visible');
+  });
+
+  it('does not restrict movies to non-missing items when indexing', async () => {
+    const { fake } = await setup();
+    const movieQueries = fake.queries.filter((params) => params.get('includeItemTypes') === 'Movie');
+    expect(movieQueries.length).toBeGreaterThan(0);
+    expect(movieQueries.every((params) => !params.has('isMissing'))).toBe(true);
   });
 
   it('is available through the API with the current filters', async () => {

@@ -43,10 +43,14 @@ function DialogBody({ onClose, filters, onResetFilters, onShow }: Omit<MissingTi
   const refresh = useRefreshMedia();
   const { data: server } = useServerStatus();
   const index = diagnosis.data?.index;
+  // The index version "Neu einlesen" was clicked on; once a newer one is ready, the refresh is done.
+  const [refreshedFrom, setRefreshedFrom] = useState<string | null>();
+  const refreshed = refreshedFrom !== undefined && index?.state === 'ready' && index.builtAt !== refreshedFrom;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     setTitle(text.trim());
+    setRefreshedFrom(undefined);
   }
 
   const actions = {
@@ -55,8 +59,13 @@ function DialogBody({ onClose, filters, onResetFilters, onShow }: Omit<MissingTi
       onShow(id);
     },
     resetFilters: onResetFilters,
-    refresh: () => refresh.mutate(),
+    refresh: () => {
+      setRefreshedFrom(index?.builtAt ?? null);
+      refresh.mutate();
+    },
     refreshing: refresh.isPending || index?.state === 'building',
+    refreshed,
+    progress: index?.state === 'building' ? index.progress : null,
     jellyfinLink: (id: string) => (server ? `${server.url}/web/#/details?id=${id}&serverId=${server.id}` : null),
   };
 
@@ -131,6 +140,9 @@ interface Actions {
   resetFilters: () => void;
   refresh: () => void;
   refreshing: boolean;
+  /** "Neu einlesen" was clicked in this dialog and the new index is ready. */
+  refreshed: boolean;
+  progress: { loaded: number; total: number } | null;
   jellyfinLink: (id: string) => string | null;
 }
 
@@ -140,7 +152,7 @@ function ResultCard({ result, actions }: { result: TitleDiagnosis; actions: Acti
     ? `Bibliothek «${library.name}» (${LIBRARY_TYPE_LABELS[library.collectionType ?? 'mixed'] ?? library.collectionType})`
     : 'keine Bibliothek';
   const link = actions.jellyfinLink(result.id);
-  const { tone, text, action } = explain(result, libraryText, actions);
+  const { tone, text, action, details } = explain(result, libraryText, actions);
 
   return (
     <article className="rounded-xl p-4 ring-1 ring-line">
@@ -156,6 +168,13 @@ function ResultCard({ result, actions }: { result: TitleDiagnosis; actions: Acti
       <div className="mt-3">
         <Message tone={tone}>{text}</Message>
       </div>
+      {result.dateCreatedInFuture && result.dateCreated && (
+        <p className="mt-2 text-xs text-ink-2">
+          Jellyfin meldet als «hinzugefügt» den {formatDate(result.dateCreated)} – das liegt in der Zukunft. Vermutlich stimmt
+          die Uhrzeit oder Zeitzone des Jellyfin-Servers nicht, oder Jellyfin hat ein falsches Dateidatum übernommen. In Jellyfin
+          kann das die Sortierung «Zuletzt hinzugefügt» durcheinanderbringen; für Manelly spielt es keine Rolle.
+        </p>
+      )}
       {result.incompleteMedia && (
         <p className="mt-2 text-xs text-ink-2">
           Jellyfin konnte die Medieninfos dieses Titels nicht liefern – er steht ohne Tonspuren im Index und fehlt deshalb bei
@@ -172,25 +191,40 @@ function ResultCard({ result, actions }: { result: TitleDiagnosis; actions: Acti
           )}
         </div>
       )}
-      {(result.verdict === 'missingFromIndex' || result.verdict === 'noLibrary') && (
+      {details && (
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-card-2 p-3 text-xs">
           <dt className="text-ink-3">ID</dt>
           <dd className="font-mono break-all">{result.id}</dd>
           <dt className="text-ink-3">Pfad</dt>
           <dd className="font-mono break-all">{result.path ?? '–'}</dd>
           <dt className="text-ink-3">Hinzugefügt</dt>
-          <dd>{result.dateCreated ? new Date(result.dateCreated).toLocaleString('de-CH') : '–'}</dd>
+          <dd>{result.dateCreated ? formatDate(result.dateCreated) : '–'}</dd>
+          {result.listing && (
+            <>
+              <dt className="text-ink-3">Bibliothek liefert</dt>
+              <dd>{countOf(result.listing.libraryTotal, result.type)}</dd>
+            </>
+          )}
         </dl>
       )}
     </article>
   );
 }
 
-function explain(result: TitleDiagnosis, libraryText: string, actions: Actions): { tone: Tone; text: ReactNode; action?: ReactNode } {
+interface Explanation {
+  tone: Tone;
+  text: ReactNode;
+  action?: ReactNode;
+  /** Show ID, path and the like, e.g. to look into it in Jellyfin or to report a bug. */
+  details?: boolean;
+}
+
+function explain(result: TitleDiagnosis, libraryText: string, actions: Actions): Explanation {
+  const progress = actions.progress?.total ? ` ${Math.round((actions.progress.loaded / actions.progress.total) * 100)} %` : '';
   const refreshButton = (
     <button type="button" onClick={actions.refresh} disabled={actions.refreshing} className={primaryButton}>
       {actions.refreshing && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
-      {actions.refreshing ? 'Wird eingelesen …' : 'Neu einlesen'}
+      {actions.refreshing ? `Wird eingelesen …${progress}` : 'Neu einlesen'}
     </button>
   );
 
@@ -220,14 +254,29 @@ function explain(result: TitleDiagnosis, libraryText: string, actions: Actions):
           </button>
         ),
       };
-    case 'newerThanIndex':
+    case 'notIndexed':
+      return actions.refreshed
+        ? {
+            tone: 'critical',
+            text: (
+              <>
+                <b>Fehler in Manelly:</b> Jellyfin liefert den Titel in seiner {libraryText} aus, doch auch nach dem erneuten
+                Einlesen fehlt er im Index. Bitte melde die Angaben unten.
+              </>
+            ),
+            details: true,
+          }
+        : {
+            tone: 'info',
+            text: 'Jellyfin liefert den Titel in seiner Bibliothek aus, im Index von Manelly ist er aber noch nicht – meist, weil er nach dem letzten Einlesen dazugekommen ist. «Neu einlesen» holt ihn; die Prüfung läuft danach von selbst noch einmal.',
+            action: refreshButton,
+            details: true,
+          };
+    case 'indexNotReady':
       return {
         tone: 'info',
-        text: 'Der Titel ist neuer als der letzte Stand des Index. «Neu einlesen» holt ihn – die Prüfung läuft danach von selbst noch einmal.',
-        action: refreshButton,
+        text: `Der Medien-Index wird gerade aufgebaut${progress ? ` (${progress.trim()})` : ''}. Die Prüfung läuft danach von selbst noch einmal.`,
       };
-    case 'indexNotReady':
-      return { tone: 'info', text: 'Der Medien-Index wird gerade aufgebaut. Die Prüfung läuft danach von selbst noch einmal.' };
     case 'unsupportedType':
       return {
         tone: 'warning',
@@ -253,26 +302,31 @@ function explain(result: TitleDiagnosis, libraryText: string, actions: Actions):
       return {
         tone: 'warning',
         text: 'Der Pfad des Titels gehört zu keinem Ordner einer Jellyfin-Bibliothek. Prüfe in Jellyfin unter Dashboard → Bibliotheken, ob der Ordner eingebunden ist.',
+        details: true,
       };
     case 'notInLibraryQuery':
       return {
         tone: 'warning',
         text: (
           <>
-            Jellyfin zeigt den Titel zwar an, liefert ihn aber nicht aus, wenn man seine {libraryText} abfragt – genau so liest
-            Manelly ein. Meist ist ein Bibliotheksscan in Jellyfin nicht sauber durchgelaufen. Starte in Jellyfin unter Dashboard
-            → Bibliotheken einen Scan dieser Bibliothek und danach hier «Neu einlesen».
+            Jellyfin findet den Titel, liefert ihn aber nicht aus, wenn man seine {libraryText} abfragt – genau so liest Manelly
+            ein
+            {result.listing && <> (die Bibliothek liefert {countOf(result.listing.libraryTotal, result.type)}, dieser ist nicht dabei)</>}
+            . Meist ist der Bibliotheksscan in Jellyfin nicht sauber durchgelaufen. Starte in Jellyfin unter Dashboard →
+            Bibliotheken einen Scan dieser Bibliothek und danach hier «Neu einlesen».
           </>
         ),
         action: refreshButton,
-      };
-    case 'missingFromIndex':
-      return {
-        tone: 'critical',
-        text: 'Jellyfin liefert den Titel in seiner Bibliothek aus, trotzdem fehlt er im Index. Das sieht nach einem Fehler in Manelly aus – versuche «Neu einlesen»; hilft das nicht, melde bitte die Angaben unten.',
-        action: refreshButton,
+        details: true,
       };
   }
+}
+
+const formatDate = (iso: string) => new Date(iso).toLocaleString('de-CH');
+
+function countOf(count: number, type: string) {
+  const [one, many] = type === 'Series' ? ['Serie', 'Serien'] : ['Film', 'Filme'];
+  return `${count.toLocaleString('de-CH')} ${count === 1 ? one : many}`;
 }
 
 type Tone = keyof typeof MESSAGE_TONES;

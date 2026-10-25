@@ -1,10 +1,12 @@
 import type { MediaSearchParams, TitleDiagnosis, TitleVerdict } from '@manelly/shared';
 import type { JellyfinClient } from '../jellyfin/client.js';
 import type { JfBaseItem, JfVirtualFolder } from '../jellyfin/types.js';
-import { VIDEO_LIBRARIES, type MediaIndex } from './indexer.js';
+import { listLibraryIds, VIDEO_LIBRARIES, type MediaIndex } from './indexer.js';
 import { failingFilters } from './search.js';
 
 const INDEXED_TYPES = new Set(['Movie', 'Series']);
+// Small clock differences between Jellyfin and Manelly are not worth a remark.
+const FUTURE_TOLERANCE_MS = 10 * 60_000;
 
 /**
  * Explains why titles named like `title` do or do not show up in the media
@@ -15,7 +17,9 @@ export async function diagnoseTitle(
   index: MediaIndex | null,
   title: string,
   filters: MediaSearchParams,
+  options: { building?: boolean; now?: number } = {},
 ): Promise<TitleDiagnosis[]> {
+  const now = options.now ?? Date.now();
   const [libraries, found] = await Promise.all([
     client.getLibraries(),
     client.getItems(
@@ -31,12 +35,39 @@ export async function diagnoseTitle(
     ),
   ]);
 
+  // Listing a library is the expensive part; do it once per library and type.
+  const listings = new Map<string, Promise<{ total: number; ids: Set<string> }>>();
+  const listing = (libraryId: string, type: string) => {
+    const key = `${libraryId}|${type}`;
+    if (!listings.has(key)) listings.set(key, listLibraryIds(client, libraryId, type));
+    return listings.get(key)!;
+  };
+
   const results: TitleDiagnosis[] = [];
   for (const raw of found.Items ?? []) {
     if (!raw.Id) continue;
     const library = libraryOf(raw.Path, libraries);
     const indexed = index?.byId.get(raw.Id);
     const failing = indexed ? failingFilters(indexed, filters) : [];
+    let libraryTotal: number | null = null;
+    let verdict: TitleVerdict;
+    if (indexed) {
+      verdict = failing.length ? 'filtered' : 'visible';
+    } else {
+      const unsupported = unsupportedVerdict(raw, library);
+      if (unsupported) {
+        verdict = unsupported;
+      } else if (!index || options.building) {
+        verdict = 'indexNotReady';
+      } else {
+        // Read the library the way the index build does, instead of trusting dates.
+        const listed = await listing(library!.ItemId!, raw.Type!);
+        libraryTotal = listed.total;
+        verdict = listed.ids.has(raw.Id) ? 'notIndexed' : 'notInLibraryQuery';
+      }
+    }
+
+    const created = raw.DateCreated ? Date.parse(raw.DateCreated) : NaN;
     results.push({
       id: raw.Id,
       name: raw.Name ?? 'Unbekannter Titel',
@@ -45,7 +76,9 @@ export async function diagnoseTitle(
       library: library ? { name: library.Name ?? 'Bibliothek', collectionType: library.CollectionType ?? null } : null,
       path: raw.Path ?? null,
       dateCreated: raw.DateCreated ?? null,
-      verdict: indexed ? (failing.length ? 'filtered' : 'visible') : await missingVerdict(client, raw, library, index),
+      dateCreatedInFuture: created > now + FUTURE_TOLERANCE_MS,
+      listing: libraryTotal === null ? null : { libraryTotal },
+      verdict,
       failingFilters: failing,
       incompleteMedia: index?.skipped.some((skipped) => skipped.id === raw.Id) ?? false,
     });
@@ -53,31 +86,12 @@ export async function diagnoseTitle(
   return results;
 }
 
-async function missingVerdict(
-  client: JellyfinClient,
-  item: JfBaseItem,
-  library: JfVirtualFolder | null,
-  index: MediaIndex | null,
-): Promise<TitleVerdict> {
+/** Why Manelly never reads the title; null when it belongs in the index. */
+function unsupportedVerdict(item: JfBaseItem, library: JfVirtualFolder | null): TitleVerdict | null {
   if (!INDEXED_TYPES.has(item.Type ?? '')) return 'unsupportedType';
   if (!library?.ItemId) return 'noLibrary';
   if (!VIDEO_LIBRARIES[library.CollectionType ?? 'mixed']) return 'unsupportedLibrary';
-  if (!index) return 'indexNotReady';
-  if (item.DateCreated && Date.parse(item.DateCreated) > index.builtAt) return 'newerThanIndex';
-
-  // Ask exactly the way the index does: is the title part of its library's listing?
-  const listed = await client.getItems(
-    new URLSearchParams({
-      parentId: library.ItemId,
-      recursive: 'true',
-      includeItemTypes: item.Type!,
-      isMissing: 'false',
-      ids: item.Id!,
-      enableImages: 'false',
-      enableUserData: 'false',
-    }),
-  );
-  return listed.Items?.some((entry) => entry.Id === item.Id) ? 'missingFromIndex' : 'notInLibraryQuery';
+  return null;
 }
 
 /** The library whose folder contains `path` (the most specific one if folders are nested). */

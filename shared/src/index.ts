@@ -404,12 +404,13 @@ export type TitleVerdict =
   /** Its path belongs to none of the libraries. */
   | 'noLibrary'
   | 'indexNotReady'
-  /** Added to Jellyfin after the index was built. */
-  | 'newerThanIndex'
-  /** Jellyfin does not return it when its library is queried. */
+  /** Jellyfin does not return it when its library is listed – the way the index reads it. */
   | 'notInLibraryQuery'
-  /** Should be in the index but is not; points to a bug in Manelly. */
-  | 'missingFromIndex';
+  /**
+   * Jellyfin lists it in its library, but the index does not have it: either
+   * the index predates the title, or – after a fresh "Neu einlesen" – a bug.
+   */
+  | 'notIndexed';
 
 export interface TitleDiagnosis {
   id: string;
@@ -420,6 +421,10 @@ export interface TitleDiagnosis {
   library: { name: string; collectionType: string | null } | null;
   path: string | null;
   dateCreated: string | null;
+  /** Jellyfin's "date added" lies in the future (wrong clock or time zone in Jellyfin, or a file date). */
+  dateCreatedInFuture: boolean;
+  /** How many entries Jellyfin listed for the title's library when checked. */
+  listing: { libraryTotal: number } | null;
   verdict: TitleVerdict;
   failingFilters: FilterKey[];
   /** Listed without audio and video details because Jellyfin could not deliver them. */

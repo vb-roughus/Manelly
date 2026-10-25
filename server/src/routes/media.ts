@@ -23,6 +23,7 @@ export const searchQuerySchema = {
     officialRating: list(),
     resolution: list({ type: 'string', enum: ['4K', '1080p', '720p', 'SD'] }),
     dynamicRange: list({ type: 'string', enum: ['DV', 'HDR10+', 'HDR10', 'HLG', 'SDR'] }),
+    videoCodec: list({ type: 'string', enum: ['hevc', 'h264', 'av1', 'vp9', 'mpeg4', 'mpeg2', 'vc1', 'other'] }),
     library: list(),
     audioLanguage: list({ type: 'string', maxLength: 20 }),
     audioFormat: list({ type: 'string', enum: AUDIO_FORMATS }),

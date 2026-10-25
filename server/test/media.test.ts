@@ -7,7 +7,7 @@ import type { JfBaseItem, JfMediaStream } from '../src/jellyfin/types.js';
 import { buildMediaIndex } from '../src/media/indexer.js';
 import { searchMedia } from '../src/media/search.js';
 import { createMediaIndexStore } from '../src/media/store.js';
-import { audioFormats, canonicalLanguage, dynamicRangeOf, resolutionOf } from '../src/media/streams.js';
+import { audioFormats, canonicalLanguage, dynamicRangeOf, resolutionOf, videoCodecFamily } from '../src/media/streams.js';
 
 const audio = (Language: string, Codec: string, Profile?: string, Channels = 6, Title?: string): JfMediaStream => ({
   Type: 'Audio',
@@ -54,6 +54,18 @@ describe('stream classification', () => {
     expect(dynamicRangeOf({ VideoRangeType: 'DOVIWithHDR10' })).toBe('DV');
     expect(dynamicRangeOf({ VideoRangeType: 'HDR10Plus' })).toBe('HDR10+');
     expect(dynamicRangeOf({ VideoRange: 'HDR' })).toBe('HDR10');
+    expect(['hevc', 'H265', 'h264', 'avc', 'av1', 'msmpeg4v3', 'mpeg2video', 'wmv3', 'prores', undefined].map(videoCodecFamily)).toEqual([
+      'hevc',
+      'hevc',
+      'h264',
+      'h264',
+      'av1',
+      'mpeg4',
+      'mpeg2',
+      'vc1',
+      'other',
+      null,
+    ]);
   });
 });
 
@@ -204,6 +216,13 @@ describe('media search', async () => {
     expect(names({ minRating: 8 })).toEqual(['German TrueHD Atmos']);
     expect(names({ resolution: ['4K'], dynamicRange: ['DV'] })).toEqual(['German TrueHD Atmos', 'Mixed Tracks', 'Two Versions']);
     expect(names({ library: [SHOWS_LIB] })).toEqual(['Complete Atmos', 'Partial Atmos']);
+    // A movie counts for every codec among its versions; series for those of their episodes.
+    expect(names({ videoCodec: ['hevc'] })).toEqual(['German TrueHD Atmos', 'Mixed Tracks', 'Two Versions']);
+    expect(names({ videoCodec: ['h264'], type: 'Series' })).toEqual(['Complete Atmos', 'Partial Atmos']);
+    expect(index.facets.videoCodecs).toEqual([
+      { value: 'h264', count: 5 },
+      { value: 'hevc', count: 3 },
+    ]);
   });
 
   it('sorts and pages', () => {

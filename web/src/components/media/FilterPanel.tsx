@@ -7,6 +7,8 @@ import {
   AUDIO_FORMAT_ORDER,
   DYNAMIC_RANGE_LABELS,
   RESOLUTION_ORDER,
+  VIDEO_CODEC_LABELS,
+  VIDEO_CODEC_ORDER,
   audioLanguageName,
   describeAudioFilter,
   describeVideoFilter,
@@ -23,7 +25,7 @@ interface FilterPanelProps {
 }
 
 const AUDIO_KEYS = ['audioLanguage', 'audioFormat', 'audioMinChannels', 'audioMode', 'audioCoverage'] as const;
-const VIDEO_KEYS = ['resolution', 'dynamicRange'] as const;
+const VIDEO_KEYS = ['resolution', 'dynamicRange', 'videoCodec'] as const;
 
 /** The filters without the given keys. */
 function without(filters: MediaFilters, keys: readonly string[]): MediaFilters {
@@ -114,6 +116,9 @@ function VideoFilter({ facets, filters, onChange }: FilterPanelProps) {
   const resolutions = [...(facets?.resolutions ?? [])].sort(
     (a, b) => RESOLUTION_ORDER.indexOf(a.value as never) - RESOLUTION_ORDER.indexOf(b.value as never),
   );
+  const codecs = [...(facets?.videoCodecs ?? [])].sort(
+    (a, b) => VIDEO_CODEC_ORDER.indexOf(a.value as never) - VIDEO_CODEC_ORDER.indexOf(b.value as never),
+  );
 
   return (
     <FilterCard id="video" title="Video" icon={Video} summary={describeVideoFilter(filters)} onClear={() => onChange(without(filters, VIDEO_KEYS))}>
@@ -130,6 +135,13 @@ function VideoFilter({ facets, filters, onChange }: FilterPanelProps) {
             options={facetOptions(facets?.dynamicRanges, (value) => DYNAMIC_RANGE_LABELS[value as keyof typeof DYNAMIC_RANGE_LABELS] ?? value)}
             selected={filters.dynamicRange ?? []}
             onChange={(value) => update({ dynamicRange: value.length ? (value as MediaFilters['dynamicRange']) : undefined })}
+          />
+        </Field>
+        <Field label="Codec">
+          <ChipGroup
+            options={facetOptions(codecs, (value) => VIDEO_CODEC_LABELS[value as keyof typeof VIDEO_CODEC_LABELS] ?? value)}
+            selected={filters.videoCodec ?? []}
+            onChange={(value) => update({ videoCodec: value.length ? (value as MediaFilters['videoCodec']) : undefined })}
           />
         </Field>
       </div>

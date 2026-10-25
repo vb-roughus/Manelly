@@ -8,6 +8,7 @@ describe('media filters in the URL', () => {
       type: 'Movie' as const,
       genre: ['Action', 'Science Fiction'],
       yearFrom: 2010,
+      videoCodec: ['hevc' as const, 'av1' as const],
       audioLanguage: ['de'],
       audioFormat: ['atmos' as const],
       audioMinChannels: 8,
@@ -41,6 +42,7 @@ describe('media filters in the URL', () => {
     );
     expect(describeAudioFilter({ audioMode: 'lacks' })).toBeNull();
     expect(describeVideoFilter({ resolution: ['4K'], dynamicRange: ['DV', 'HDR10'] })).toBe('4K · Dolby Vision · HDR10');
+    expect(describeVideoFilter({ resolution: ['4K'], videoCodec: ['hevc', 'h264'] })).toBe('4K · HEVC · H.264');
     expect(describeVideoFilter({})).toBeNull();
   });
 });

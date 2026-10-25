@@ -17,6 +17,7 @@ const emptyIndex = (label: string): MediaIndex => ({
     audioFormats: [],
     resolutions: [],
     dynamicRanges: [],
+    videoCodecs: [],
     libraries: [],
   },
   counts: { movies: 0, series: 0, episodes: 0 },

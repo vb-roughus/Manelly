@@ -1,4 +1,4 @@
-import type { AudioFormat, DynamicRange, MediaSearchParams, MediaSort, MediaType, Resolution } from '@manelly/shared';
+import type { AudioFormat, DynamicRange, MediaSearchParams, MediaSort, MediaType, Resolution, VideoCodec } from '@manelly/shared';
 import { languageLabel } from './format';
 
 export const AUDIO_FORMAT_LABELS: Record<AudioFormat, string> = {
@@ -40,6 +40,21 @@ export const DYNAMIC_RANGE_LABELS: Record<DynamicRange, string> = {
 
 export const RESOLUTION_ORDER: Resolution[] = ['4K', '1080p', '720p', 'SD'];
 
+export const VIDEO_CODEC_LABELS: Record<VideoCodec, string> = {
+  hevc: 'HEVC (H.265)',
+  h264: 'H.264 (AVC)',
+  av1: 'AV1',
+  vp9: 'VP9',
+  mpeg4: 'MPEG-4 (XviD/DivX)',
+  mpeg2: 'MPEG-2',
+  vc1: 'VC-1',
+  other: 'Andere',
+};
+
+export const VIDEO_CODEC_ORDER = Object.keys(VIDEO_CODEC_LABELS) as VideoCodec[];
+
+const VIDEO_CODEC_SHORT: Record<VideoCodec, string> = { ...VIDEO_CODEC_LABELS, hevc: 'HEVC', h264: 'H.264', mpeg4: 'MPEG-4' };
+
 /** "de" → "Deutsch"; "und" or null → "Unbekannt". */
 export function audioLanguageName(code: string | null): string {
   return (code && code !== 'und' && languageLabel(code)) || 'Unbekannt';
@@ -58,7 +73,7 @@ export const SORT_OPTIONS: Array<{ label: string; sort: MediaSort; order: 'asc' 
   { label: 'Zuletzt hinzugefügt', sort: 'added', order: 'desc' },
 ];
 
-const LIST_KEYS = ['genre', 'officialRating', 'resolution', 'dynamicRange', 'library', 'audioLanguage', 'audioFormat'] as const;
+const LIST_KEYS = ['genre', 'officialRating', 'resolution', 'dynamicRange', 'videoCodec', 'library', 'audioLanguage', 'audioFormat'] as const;
 const NUMBER_KEYS = ['yearFrom', 'yearTo', 'minRating', 'audioMinChannels'] as const;
 
 export type MediaFilters = Omit<MediaSearchParams, 'offset' | 'limit'>;
@@ -128,8 +143,12 @@ export function describeAudioFilter(filters: MediaFilters): string | null {
     .join(' · ');
 }
 
-/** "4K · Dolby Vision"; null when no video filter is set. */
+/** "4K · Dolby Vision · HEVC"; null when no video filter is set. */
 export function describeVideoFilter(filters: MediaFilters): string | null {
-  const parts = [...(filters.resolution ?? []), ...(filters.dynamicRange ?? []).map((range) => DYNAMIC_RANGE_LABELS[range])];
+  const parts = [
+    ...(filters.resolution ?? []),
+    ...(filters.dynamicRange ?? []).map((range) => DYNAMIC_RANGE_LABELS[range]),
+    ...(filters.videoCodec ?? []).map((codec) => VIDEO_CODEC_SHORT[codec]),
+  ];
   return parts.length ? parts.join(' · ') : null;
 }

@@ -63,6 +63,7 @@ function passes(item: IndexedItem, params: MediaSearchParams, terms: string[], a
   if (!anyOf(params.library, item.libraryIds)) return false;
   if (!anyOf(params.resolution, item.resolutions)) return false;
   if (!anyOf(params.dynamicRange, item.dynamicRanges)) return false;
+  if (!anyOf(params.videoCodec, item.videoCodecs)) return false;
   if (params.yearFrom !== undefined && (item.year === null || item.year < params.yearFrom)) return false;
   if (params.yearTo !== undefined && (item.year === null || item.year > params.yearTo)) return false;
   if (params.minRating !== undefined && (item.communityRating ?? 0) < params.minRating) return false;

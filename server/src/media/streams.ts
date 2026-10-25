@@ -1,4 +1,4 @@
-import type { AudioFormat, AudioTrack, DynamicRange, MediaVersion, Resolution } from '@manelly/shared';
+import type { AudioFormat, AudioTrack, DynamicRange, MediaVersion, Resolution, VideoCodec } from '@manelly/shared';
 import type { JfBaseItem, JfMediaStream } from '../jellyfin/types.js';
 
 // Codes that say "no particular language": undetermined, no linguistic content, private use.
@@ -92,6 +92,30 @@ export function dynamicRangeOf(stream: Pick<JfMediaStream, 'VideoRange' | 'Video
   if (stream.VideoRange === 'HDR') return 'HDR10';
   if (stream.VideoRange === 'SDR') return 'SDR';
   return null;
+}
+
+const VIDEO_CODECS: Record<string, VideoCodec> = {
+  hevc: 'hevc',
+  h265: 'hevc',
+  h264: 'h264',
+  avc: 'h264',
+  av1: 'av1',
+  vp9: 'vp9',
+  mpeg4: 'mpeg4',
+  msmpeg4v3: 'mpeg4',
+  msmpeg4v2: 'mpeg4',
+  xvid: 'mpeg4',
+  divx: 'mpeg4',
+  mpeg2video: 'mpeg2',
+  mpeg2: 'mpeg2',
+  vc1: 'vc1',
+  wmv3: 'vc1',
+};
+
+/** The codec family of a video stream, e.g. "hevc" for Jellyfin's "hevc" or "h265". */
+export function videoCodecFamily(codec: string | null | undefined): VideoCodec | null {
+  if (!codec) return null;
+  return VIDEO_CODECS[codec.toLowerCase()] ?? 'other';
 }
 
 /** All versions (files) of an item; falls back to the item's own streams. */

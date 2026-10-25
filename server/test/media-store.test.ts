@@ -21,6 +21,7 @@ const emptyIndex = (label: string): MediaIndex => ({
     libraries: [],
   },
   counts: { movies: 0, series: 0, episodes: 0 },
+  skipped: [],
 });
 
 /** A build function whose runs are resolved or rejected by the test. */

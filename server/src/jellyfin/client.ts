@@ -76,7 +76,8 @@ export function createJellyfinClient(
   async function getJson<T>(path: string, requestTimeoutMs?: number, method?: string): Promise<T> {
     const response = await request(path, 'application/json', requestTimeoutMs, method);
     if (!response.ok) {
-      throw new JellyfinError('UPSTREAM_ERROR', `Jellyfin antwortete auf ${path} mit HTTP ${response.status}.`, response.status);
+      // The path without its (long) query is enough to tell which request failed.
+      throw new JellyfinError('UPSTREAM_ERROR', `Jellyfin antwortete auf ${path.split('?')[0]} mit HTTP ${response.status}.`, response.status);
     }
     try {
       return (await response.json()) as T;

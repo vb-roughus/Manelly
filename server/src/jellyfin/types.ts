@@ -46,6 +46,7 @@ export interface JfMediaSource {
 export interface JfBaseItem {
   Id?: string;
   Name?: string;
+  Path?: string;
   SortName?: string;
   OriginalTitle?: string;
   Overview?: string;
@@ -93,6 +94,7 @@ export interface JfUser {
 export interface JfVirtualFolder {
   Name?: string;
   ItemId?: string;
+  Locations?: string[];
   /** movies, tvshows, music, mixed, ...; missing for older mixed libraries. */
   CollectionType?: string | null;
 }

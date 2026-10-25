@@ -6,6 +6,7 @@ import type {
   CollectionsResponse,
   ConnectionSettings,
   MediaDetail,
+  MediaDiagnosisResponse,
   MediaFacetsResponse,
   MediaIndexStatus,
   MediaSearchResponse,
@@ -107,6 +108,18 @@ export function useMediaDetail(id: string | null, filters: MediaFilters) {
     queryKey: ['media', 'detail', id, query],
     queryFn: ({ signal }) => fetchJson<MediaDetail>(`/api/media/items/${encodeURIComponent(id!)}?${query}`, signal),
     enabled: id !== null,
+  });
+}
+
+/** Why titles named like `title` are (not) in the search; re-checks on its own while the index is rebuilt. */
+export function useMediaDiagnosis(title: string, filters: MediaFilters) {
+  const query = toSearchParams({ ...filters }).toString();
+  return useQuery({
+    queryKey: ['media', 'diagnose', title, query],
+    queryFn: ({ signal }) =>
+      fetchJson<MediaDiagnosisResponse>(`/api/media/diagnose?${new URLSearchParams({ title })}&${query}`, signal),
+    enabled: title.length > 0,
+    refetchInterval: (q) => whileBuilding(q.state.data?.index.state),
   });
 }
 

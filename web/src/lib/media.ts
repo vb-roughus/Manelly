@@ -1,4 +1,4 @@
-import type { AudioFormat, DynamicRange, MediaSearchParams, MediaSort, MediaType, Resolution, VideoCodec } from '@manelly/shared';
+import type { AudioFormat, DynamicRange, FilterKey, MediaSearchParams, MediaSort, MediaType, Resolution, VideoCodec } from '@manelly/shared';
 import { languageLabel } from './format';
 
 export const AUDIO_FORMAT_LABELS: Record<AudioFormat, string> = {
@@ -152,3 +152,39 @@ export function describeVideoFilter(filters: MediaFilters): string | null {
   ];
   return parts.length ? parts.join(' · ') : null;
 }
+
+export const FILTER_LABELS: Record<FilterKey, string> = {
+  q: 'Suchtext',
+  type: 'Filme/Serien',
+  genre: 'Genre',
+  year: 'Erscheinungsjahr',
+  rating: 'Bewertung',
+  officialRating: 'Altersfreigabe',
+  library: 'Bibliothek',
+  resolution: 'Auflösung',
+  dynamicRange: 'Dynamikumfang',
+  videoCodec: 'Codec',
+  audio: 'Tonspur',
+};
+
+/** Jellyfin item types in words. */
+export const ITEM_TYPE_LABELS: Record<string, string> = {
+  Movie: 'Film',
+  Series: 'Serie',
+  Video: 'Video',
+  MusicVideo: 'Musikvideo',
+};
+
+/** Jellyfin library types as the Jellyfin dashboard names them. */
+export const LIBRARY_TYPE_LABELS: Record<string, string> = {
+  movies: 'Filme',
+  tvshows: 'Serien',
+  mixed: 'Gemischte Inhalte',
+  homevideos: 'Heimvideos und Fotos',
+  musicvideos: 'Musikvideos',
+  music: 'Musik',
+  books: 'Bücher',
+  boxsets: 'Sammlungen',
+  playlists: 'Wiedergabelisten',
+  livetv: 'Live-TV',
+};

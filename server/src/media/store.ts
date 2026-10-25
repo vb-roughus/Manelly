@@ -89,6 +89,7 @@ export function createMediaIndexStore(connection: JellyfinConnection, options: M
         counts: index ? index.counts : null,
         progress: job ? { loaded: job.loaded, total: job.total } : null,
         error,
+        skipped: index ? index.skipped.slice(0, 50) : [],
       };
     },
   };

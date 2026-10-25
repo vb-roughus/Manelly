@@ -34,9 +34,14 @@ Filme und Serien durchsuchen und filtern:
   hinzufügen oder eine neue anlegen. Manelly zeigt vorher, wie viele schon drin sind, und fügt nur die fehlenden hinzu
 - Tonspur- und Video-Filter sind einklappbar und zeigen eingeklappt eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
 - Filter stehen in der URL – eine Suche lässt sich als Lesezeichen speichern
+- **«Titel fehlt?»** sucht einen Titel direkt in Jellyfin und erklärt, warum er in Manelly nicht erscheint: von aktiven
+  Filtern ausgeblendet, neuer als der Index, falscher Bibliothekstyp (z. B. «Heimvideos»), von Jellyfin als «Video» statt
+  als Film geführt oder von Jellyfin bei der Abfrage seiner Bibliothek nicht ausgeliefert
 
 Manelly liest dafür einmal alle Filme, Serien und Folgen samt Tonspuren aus Jellyfin ein und frischt diesen Index im
-Hintergrund auf, wenn er älter als 15 Minuten ist (oder sofort mit «Neu einlesen»). Dolby Atmos und DTS:X erkennt Jellyfin
+Hintergrund auf, wenn er älter als 15 Minuten ist (oder sofort mit «Neu einlesen»). Kann Jellyfin die Medieninfos eines
+einzelnen Titels nicht liefern (etwa weil eine neue Datei noch analysiert wird), nimmt Manelly ihn ohne Tonspuren auf und
+zeigt «ohne Medieninfos» an, statt das ganze Einlesen abzubrechen. Dolby Atmos und DTS:X erkennt Jellyfin
 am Codec-Profil der Tonspur (z. B. «Dolby TrueHD + Dolby Atmos»). Wurde eine Datei mit einer älteren Jellyfin-Version
 gescannt, fehlt das Profil eventuell. Dann bei den betroffenen Titeln in Jellyfin «Metadaten aktualisieren» mit «Alle
 Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metadaten) und danach in Manelly «Neu einlesen».

@@ -38,7 +38,8 @@ Live-Übersicht der laufenden Streams:
 Filme und Serien durchsuchen und filtern:
 
 - Titelsuche, Filme/Serien, Genre, Erscheinungsjahr, Bewertung, Altersfreigabe und Bibliothek
-- **Video-Filter:** Auflösung, Dynamikumfang (Dolby Vision, HDR10, …) und Codec (HEVC, H.264, AV1, VP9, MPEG-4, …)
+- **Video-Filter:** Auflösung, Dynamikumfang (Dolby Vision, Dolby Vision P7, HDR10, …) und Codec (HEVC, H.264, AV1, VP9,
+  MPEG-4, …)
 - **Tonspur-Filter** nach Sprache, Format (Dolby Atmos, DTS:X, TrueHD, DTS-HD MA, Dolby Digital Plus, …) und Kanälen. Die
   Bedingungen gelten für **dieselbe Spur**: «Deutsch in Dolby Atmos» findet nur Titel mit einer deutschen Atmos-Spur, nicht
   solche mit deutscher DTS- und englischer Atmos-Spur
@@ -62,6 +63,25 @@ zeigt «ohne Medieninfos» an, statt das ganze Einlesen abzubrechen. Dolby Atmos
 am Codec-Profil der Tonspur (z. B. «Dolby TrueHD + Dolby Atmos»). Wurde eine Datei mit einer älteren Jellyfin-Version
 gescannt, fehlt das Profil eventuell. Dann bei den betroffenen Titeln in Jellyfin «Metadaten aktualisieren» mit «Alle
 Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metadaten) und danach in Manelly «Neu einlesen».
+
+### Umwandlungen (mit Agent)
+
+Dolby Vision **Profil 7** (UHD-Blu-ray-Remuxe) spielen viele Geräte nicht ab, Profil 8.1 schon. Ein kleiner Agent auf dem
+Jellyfin-Server wandelt solche Dateien direkt dort um:
+
+- In den Medien mit dem Filter **«Dolby Vision P7»** die Kandidaten finden, Titel öffnen, **«In Profil 8.1 umwandeln»**
+- Speicherort wählen: **neben dem Original** (Jellyfin zeigt beide als Versionen), **Original ersetzen** (das Original
+  wandert in einen Backup-Ordner `.manelly-backup`, den Jellyfin ignoriert) oder **ein anderer Ordner** einer
+  Jellyfin-Bibliothek (z. B. eine UHD-Bibliothek), mit Unterordner und Dateiname
+- Der Agent löst die Videospur heraus (ffmpeg), wandelt die Dolby-Vision-Daten um (`dovi_tool -m 2 convert --discard`) und
+  setzt die Datei mit allen Ton- und Untertitelspuren, Kapiteln und Anhängen neu zusammen (mkvmerge). Das Bild wird nicht
+  neu kodiert; der Enhancement Layer fällt weg (bei «FEL»-Dateien geht dessen Zusatzinformation verloren)
+- Seite **Umwandlungen** mit Fortschritt, Abbrechen und der Ausgabe des Werkzeugs bei Fehlern; danach meldet Manelly die
+  neue Datei an Jellyfin
+- Manelly nennt dem Agent jede Datei und jeden Zielordner (aus Jellyfin) – der Agent durchsucht keine Laufwerke, prüft
+  vorher den freien Platz (etwa doppelte Dateigrösse) und überschreibt nie eine Datei
+
+Einrichtung: siehe [Agent auf dem Jellyfin-Server](#agent-auf-dem-jellyfin-server-windows).
 
 ### Allgemein
 
@@ -107,6 +127,31 @@ Windows fragt dabei eventuell nach Administratorrechten), installiert die Abhän
   Geräten zulassen; nur auf diesem PC funktioniert Manelly auch ohne.
 
 Update: `git pull`, dann das Skript erneut starten. Die Einstellungen liegen in `data\` und bleiben erhalten.
+
+## Agent auf dem Jellyfin-Server (Windows)
+
+Nur nötig für die [Umwandlungen](#umwandlungen-mit-agent). Auf dem Windows-PC, auf dem Jellyfin läuft:
+
+1. Manelly herunterladen (`git clone https://github.com/vb-roughus/Manelly.git`) und im Manelly-Ordner eine
+   PowerShell **als Administrator** öffnen, dann den Agent mit Autostart einrichten:
+
+   ```powershell
+   .\scripts\start-agent.ps1 -Install
+   ```
+
+   Das Skript installiert bei Bedarf Node.js und MKVToolNix mit `winget`, lädt
+   [dovi_tool](https://github.com/quietvoid/dovi_tool) (feste Version, Prüfsumme wird kontrolliert) nach `agent\tools`,
+   verwendet das ffmpeg von Jellyfin, baut den Agent, gibt Port 8790 in der Windows-Firewall (privates Netzwerk) frei und
+   richtet den Autostart bei der Anmeldung ein. Ohne `-Install` läuft der Agent einfach in diesem Fenster.
+2. Das Skript zeigt **Adresse** und **Schlüssel** an. Beides in Manelly unter **Einstellungen → Agent auf dem
+   Jellyfin-Server** eintragen; Manelly zeigt dann, welche Werkzeuge gefunden wurden.
+
+- Konfiguration in `agent\data\agent.json`: `port`, `token` (der Schlüssel), `tools` (Pfade, falls ein Werkzeug nicht
+  gefunden wird) und `roots` – eine Liste von Ordnern, auf die der Agent sich beschränken soll (leer: jeder Ordner, den
+  Manelly nennt). Nach Änderungen den Agent neu starten.
+- Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
+  Firewall-Regel).
+- Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen.
 
 ## Schnellstart mit Docker
 
@@ -167,7 +212,7 @@ npm run dev
 | Befehl              | Zweck                                   |
 | ------------------- | --------------------------------------- |
 | `npm run dev`       | Server und Frontend im Watch-Modus      |
-| `npm run build`     | Produktions-Build von Frontend und Server |
+| `npm run build`     | Produktions-Build von Frontend, Server und Agent |
 | `npm start`         | Gebauten Server starten (liest `.env`)  |
 | `npm test`          | Tests (Vitest)                          |
 | `npm run typecheck` | TypeScript-Prüfung aller Pakete         |
@@ -192,9 +237,10 @@ Optional lässt sich alles über Umgebungsvariablen (oder eine `.env`-Datei, Vor
 ## Aufbau
 
 ```
-shared/   API-Typen, die Server und Frontend gemeinsam nutzen
-server/   Fastify-Server: spricht mit der Jellyfin-API, liefert das Frontend aus
+shared/   API-Typen, die Server, Frontend und Agent gemeinsam nutzen
+server/   Fastify-Server: spricht mit der Jellyfin-API und dem Agent, liefert das Frontend aus
 web/      React-Frontend (Vite, Tailwind CSS, TanStack Query)
+agent/    Agent für den Jellyfin-Server: wandelt Dateien um (ffmpeg, dovi_tool, mkvmerge), ohne Abhängigkeiten
 ```
 
 Der Browser spricht nur mit dem Manelly-Server, nie direkt mit Jellyfin. Dadurch bleibt der API-Schlüssel auf dem
@@ -206,3 +252,7 @@ Ein Jellyfin-API-Schlüssel hat Administratorrechte. Manelly hat **noch keine ei
 öffnen kann, kann auch die Jellyfin-Verbindung ändern und Sammlungen in Jellyfin bearbeiten. (Sammlungen liest Manelly
 mit der Sicht eines Jellyfin-Administrators, weil Jellyfin deren Inhalt nur für einen Benutzer auflöst.) Betreibe Manelly daher nur im Heimnetz oder hinter einem Reverse
 Proxy mit Authentifizierung und mache es nicht direkt im Internet erreichbar.
+
+Der Agent verlangt bei jeder Anfrage seinen Schlüssel, spricht aber unverschlüsseltes HTTP – gib seinen Port nur im
+Heimnetz frei. Er liest und schreibt nur die Dateien und Ordner, die Manelly ihm nennt (auf Wunsch zusätzlich beschränkt
+mit `roots`), legt nur eigene Unterordner an und löscht keine Originale.

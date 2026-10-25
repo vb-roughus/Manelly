@@ -1,12 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AudioTrack, MediaDetail, MediaVersion, SeasonDetail } from '@manelly/shared';
-import { Check, ExternalLink, Star, X } from 'lucide-react';
+import { Check, ExternalLink, Star, WandSparkles, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useMediaDetail, useServerStatus } from '../../hooks/queries';
 import { itemImageUrl } from '../../lib/api';
 import { channelsLabel, codecLabel, joinParts } from '../../lib/format';
 import { AUDIO_FORMAT_LABELS, AUDIO_FORMAT_SHORT, DYNAMIC_RANGE_LABELS, audioLanguageName, hasAudioCondition, type MediaFilters } from '../../lib/media';
 import { ErrorPanel } from '../ErrorPanel';
+import { ConvertDialog } from './ConvertDialog';
 
 interface MediaDetailDialogProps {
   id: string | null;
@@ -62,6 +63,8 @@ function DetailContent({ detail, audioFilterActive }: { detail: MediaDetail; aud
   const backdrop = detail.backdrop ?? summary.poster;
   const jellyfinLink = server ? `${server.url}/web/#/details?id=${summary.id}&serverId=${server.id}` : null;
   const years = summary.type === 'Series' && summary.endYear && summary.endYear !== summary.year ? `${summary.year}–${summary.endYear}` : summary.year;
+  // The version to convert; undefined while the dialog is closed.
+  const [convert, setConvert] = useState<{ mediaSourceId: string | null }>();
 
   return (
     <article>
@@ -118,7 +121,14 @@ function DetailContent({ detail, audioFilterActive }: { detail: MediaDetail; aud
       <div className="space-y-6 px-5 pb-6 sm:px-7">
         {summary.type === 'Movie' ? (
           detail.versions.length ? (
-            detail.versions.map((version, index) => <VersionTracks key={index} version={version} showName={detail.versions.length > 1} />)
+            detail.versions.map((version, index) => (
+              <VersionTracks
+                key={index}
+                version={version}
+                showName={detail.versions.length > 1}
+                onConvert={isDolbyVisionProfile7(version) ? () => setConvert({ mediaSourceId: version.id }) : undefined}
+              />
+            ))
           ) : (
             <p className="text-sm text-ink-2">Jellyfin hat für diesen Film keine Medieninformationen.</p>
           )
@@ -126,23 +136,41 @@ function DetailContent({ detail, audioFilterActive }: { detail: MediaDetail; aud
           <Seasons seasons={detail.seasons} audioFilterActive={audioFilterActive} />
         )}
       </div>
+      <ConvertDialog open={convert !== undefined} itemId={summary.id} mediaSourceId={convert?.mediaSourceId ?? null} onClose={() => setConvert(undefined)} />
     </article>
   );
 }
 
-function VersionTracks({ version, showName }: { version: MediaVersion; showName: boolean }) {
+function isDolbyVisionProfile7(version: MediaVersion): boolean {
+  return version.dvProfile === 7 || (version.videoRangeType ?? '').startsWith('DOVIWithEL');
+}
+
+function VersionTracks({ version, showName, onConvert }: { version: MediaVersion; showName: boolean; onConvert?: () => void }) {
   const video = joinParts([
     version.resolution,
     codecLabel(version.videoCodec),
-    version.dynamicRange && DYNAMIC_RANGE_LABELS[version.dynamicRange],
+    isDolbyVisionProfile7(version) ? DYNAMIC_RANGE_LABELS.DV7 : version.dynamicRange && DYNAMIC_RANGE_LABELS[version.dynamicRange],
     version.container?.toUpperCase(),
   ]);
   return (
     <section>
-      <h3 className="mb-2 flex flex-wrap items-baseline gap-x-2 text-sm font-semibold">
-        {showName ? version.name || 'Version' : 'Tonspuren'}
-        {video && <span className="text-xs font-normal text-ink-2">{video}</span>}
-      </h3>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold">
+          {showName ? version.name || 'Version' : 'Tonspuren'}
+          {video && <span className="text-xs font-normal text-ink-2">{video}</span>}
+        </h3>
+        {onConvert && (
+          <button
+            type="button"
+            onClick={onConvert}
+            title="Viele Geräte spielen Profil 8.1 direkt, Profil 7 aber nicht"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-card px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-line transition hover:bg-card-2"
+          >
+            <WandSparkles className="size-3.5 text-accent" aria-hidden />
+            In Profil 8.1 umwandeln
+          </button>
+        )}
+      </div>
       <TrackTable tracks={version.audio} />
     </section>
   );

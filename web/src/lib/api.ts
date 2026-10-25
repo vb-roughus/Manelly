@@ -18,7 +18,8 @@ export function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return request<T>(path, { signal });
 }
 
-export function sendJson<T>(method: 'POST' | 'PUT', path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+export function sendJson<T>(method: 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  if (body === undefined) return request<T>(path, { method, signal });
   return request<T>(path, { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, signal });
 }
 

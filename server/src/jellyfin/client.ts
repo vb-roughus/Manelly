@@ -41,6 +41,8 @@ export interface JellyfinClient {
   createCollection(name: string, itemIds: string[]): Promise<string>;
   /** Adds items to a collection; Jellyfin skips the ones already in it. */
   addToCollection(collectionId: string, itemIds: string[]): Promise<void>;
+  /** Tells Jellyfin that files changed, so it scans just them instead of waiting for the next library scan. */
+  notifyMediaUpdated(updates: Array<{ path: string; updateType: 'Created' | 'Modified' | 'Deleted' }>): Promise<void>;
   /** Returns the raw upstream response so the caller can stream it. */
   getImage(request: ImageRequest): Promise<Response>;
 }
@@ -60,13 +62,14 @@ export function createJellyfinClient(
     `MediaBrowser Client="${CLIENT_NAME}", Device="${CLIENT_NAME} Server", ` +
     `DeviceId="manelly-server", Version="${CLIENT_VERSION}", Token="${config.apiKey}"`;
 
-  async function request(path: string, accept: string, requestTimeoutMs = timeoutMs, method = 'GET'): Promise<Response> {
+  async function request(path: string, accept: string, requestTimeoutMs = timeoutMs, method = 'GET', body?: unknown): Promise<Response> {
     const url = `${config.url}${path}`;
     let response: Response;
     try {
       response = await fetchImpl(url, {
         method,
-        headers: { Authorization: authorization, Accept: accept },
+        headers: { Authorization: authorization, Accept: accept, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+        body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(requestTimeoutMs),
       });
     } catch (error) {
@@ -119,6 +122,13 @@ export function createJellyfinClient(
       const response = await request(path, 'application/json', ITEMS_TIMEOUT_MS, 'POST');
       if (!response.ok) {
         throw new JellyfinError('UPSTREAM_ERROR', `Jellyfin konnte die Titel nicht zur Sammlung hinzufügen (HTTP ${response.status}).`, response.status);
+      }
+    },
+    notifyMediaUpdated: async (updates) => {
+      const body = { Updates: updates.map(({ path, updateType }) => ({ Path: path, UpdateType: updateType })) };
+      const response = await request('/Library/Media/Updated', 'application/json', DEFAULT_TIMEOUT_MS, 'POST', body);
+      if (!response.ok) {
+        throw new JellyfinError('UPSTREAM_ERROR', `Jellyfin antwortete auf /Library/Media/Updated mit HTTP ${response.status}.`, response.status);
       }
     },
     getImage: ({ path, query }) => {

@@ -11,7 +11,7 @@ import type {
 } from '@manelly/shared';
 import { JellyfinError, type JellyfinClient } from '../jellyfin/client.js';
 import type { JfBaseItem } from '../jellyfin/types.js';
-import { toVersions, videoCodecFamily } from './streams.js';
+import { isDolbyVisionProfile7, toVersions, videoCodecFamily } from './streams.js';
 
 export interface IndexedEpisode {
   id: string;
@@ -281,6 +281,7 @@ function finalize(item: IndexedItem) {
   item.tracks = versions.flatMap((version) => version.audio);
   item.resolutions = unique(versions.map((version) => version.resolution));
   item.dynamicRanges = unique(versions.map((version) => version.dynamicRange));
+  if (versions.some(isDolbyVisionProfile7)) item.dynamicRanges.push('DV7');
   item.videoCodecs = unique(versions.map((version) => videoCodecFamily(version.videoCodec)));
 }
 

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { MediaPage } from './pages/MediaPage';
+import { ConversionsPage } from './pages/ConversionsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import './index.css';
 
@@ -26,6 +27,7 @@ createRoot(document.getElementById('root')!).render(
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/media" element={<MediaPage />} />
+            <Route path="/conversions" element={<ConversionsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

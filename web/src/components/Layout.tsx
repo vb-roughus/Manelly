@@ -11,6 +11,7 @@ import {
   Settings,
   Stethoscope,
   Sun,
+  WandSparkles,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -30,6 +31,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/media', label: 'Medien', icon: Library },
+  { to: '/conversions', label: 'Umwandlungen', icon: WandSparkles },
   { to: '/server', label: 'Server', icon: Server, soon: true },
   { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope, soon: true },
 ];

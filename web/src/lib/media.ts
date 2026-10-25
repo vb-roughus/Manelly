@@ -32,6 +32,7 @@ export const AUDIO_FORMAT_ORDER = Object.keys(AUDIO_FORMAT_LABELS) as AudioForma
 
 export const DYNAMIC_RANGE_LABELS: Record<DynamicRange, string> = {
   DV: 'Dolby Vision',
+  DV7: 'Dolby Vision P7',
   'HDR10+': 'HDR10+',
   HDR10: 'HDR10',
   HLG: 'HLG',

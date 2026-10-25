@@ -5,3 +5,6 @@ dist/
 .DS_Store
 coverage/
 data/
+
+# Tools the agent install script downloads (dovi_tool)
+agent/tools/

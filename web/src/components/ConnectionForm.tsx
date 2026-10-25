@@ -135,11 +135,11 @@ function ConnectionFields({ settings }: { settings: ConnectionSettings }) {
   );
 }
 
-const inputClass =
+export const inputClass =
   'block w-full rounded-lg border border-line bg-card px-3 py-2.5 text-sm text-ink shadow-xs outline-none transition ' +
   'placeholder:text-ink-3 focus:border-accent focus:ring-3 focus:ring-accent/20';
 
-function Field({ id, label, hint, children }: { id: string; label: string; hint: ReactNode; children: ReactNode }) {
+export function Field({ id, label, hint, children }: { id: string; label: string; hint: ReactNode; children: ReactNode }) {
   return (
     <div>
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
@@ -157,7 +157,7 @@ const MESSAGE_TONES = {
   critical: { icon: TriangleAlert, className: 'bg-critical/10 ring-critical/25', iconClass: 'text-critical' },
 } as const;
 
-function Message({ tone, children }: { tone: keyof typeof MESSAGE_TONES; children: ReactNode }) {
+export function Message({ tone, children }: { tone: keyof typeof MESSAGE_TONES; children: ReactNode }) {
   const { icon: Icon, className, iconClass } = MESSAGE_TONES[tone];
   return (
     <div role={tone === 'critical' ? 'alert' : 'status'} className={`flex gap-3 rounded-lg px-3 py-2.5 text-sm ring-1 ring-inset ${className}`}>
@@ -167,6 +167,6 @@ function Message({ tone, children }: { tone: keyof typeof MESSAGE_TONES; childre
   );
 }
 
-function Code({ children }: { children: ReactNode }) {
+export function Code({ children }: { children: ReactNode }) {
   return <code className="rounded bg-card-2 px-1 py-0.5 ring-1 ring-line ring-inset">{children}</code>;
 }

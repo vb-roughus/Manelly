@@ -1,6 +1,12 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AddToCollectionRequest,
+  AgentOverview,
+  AgentSettingsView,
+  ConversionJob,
+  ConversionOptions,
+  SaveAgentSettingsRequest,
+  StartConversionRequest,
   AddToCollectionResponse,
   CollectionPreview,
   CollectionsResponse,
@@ -155,5 +161,84 @@ export function useAddToCollection() {
   return useMutation({
     mutationFn: (request: AddToCollectionRequest) => sendJson<AddToCollectionResponse>('POST', '/api/collections/add', request),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['collections'] }),
+  });
+}
+
+// --- Agent -------------------------------------------------------------------
+
+export function useAgent(enabled = true) {
+  return useQuery({
+    queryKey: ['agent'],
+    queryFn: ({ signal }) => fetchJson<AgentOverview>('/api/agent', signal),
+    refetchInterval: 30_000,
+    enabled,
+  });
+}
+
+export function useAgentSettings() {
+  return useQuery({
+    queryKey: ['agent-settings'],
+    queryFn: ({ signal }) => fetchJson<AgentSettingsView>('/api/agent/settings', signal),
+  });
+}
+
+export function useSaveAgentSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: SaveAgentSettingsRequest) => sendJson<AgentOverview>('PUT', '/api/agent/settings', request),
+    onSuccess: (overview) => {
+      queryClient.setQueryData(['agent'], overview);
+      void queryClient.invalidateQueries({ queryKey: ['agent-settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['conversions'] });
+    },
+  });
+}
+
+const isActive = (job: ConversionJob) => job.state === 'queued' || job.state === 'running';
+
+/** Polls quickly while something converts, slowly otherwise. */
+export function useConversions(enabled = true) {
+  return useQuery({
+    queryKey: ['conversions'],
+    queryFn: ({ signal }) => fetchJson<ConversionJob[]>('/api/agent/jobs', signal),
+    refetchInterval: (query) => (query.state.data?.some(isActive) ? 2_000 : 15_000),
+    enabled,
+  });
+}
+
+export function useConversionOptions(itemId: string, mediaSourceId: string | null, enabled: boolean) {
+  const params = new URLSearchParams({ itemId, ...(mediaSourceId ? { mediaSourceId } : {}) });
+  return useQuery({
+    queryKey: ['conversion-options', itemId, mediaSourceId],
+    queryFn: ({ signal }) => fetchJson<ConversionOptions>(`/api/agent/conversions/options?${params}`, signal),
+    enabled,
+    // Free space changes; always ask again when the dialog opens.
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+export function useStartConversion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: StartConversionRequest) => sendJson<ConversionJob>('POST', '/api/agent/jobs', request),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
+  });
+}
+
+export function useCancelConversion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sendJson<ConversionJob>('POST', `/api/agent/jobs/${encodeURIComponent(id)}/cancel`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
+  });
+}
+
+export function useRemoveConversion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sendJson<null>('DELETE', `/api/agent/jobs/${encodeURIComponent(id)}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
   });
 }

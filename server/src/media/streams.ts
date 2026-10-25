@@ -82,6 +82,11 @@ export function resolutionOf(width: number | undefined, height: number | undefin
   return 'SD';
 }
 
+/** Dolby Vision profile 7: UHD Blu-ray style, with an enhancement layer that many players cannot handle. */
+export function isDolbyVisionProfile7(version: Pick<MediaVersion, 'videoRangeType' | 'dvProfile'>): boolean {
+  return version.dvProfile === 7 || (version.videoRangeType ?? '').startsWith('DOVIWithEL');
+}
+
 export function dynamicRangeOf(stream: Pick<JfMediaStream, 'VideoRange' | 'VideoRangeType'>): DynamicRange | null {
   const type = stream.VideoRangeType ?? '';
   if (type.startsWith('DOVI')) return 'DV';
@@ -131,10 +136,13 @@ export function toVersions(item: JfBaseItem): MediaVersion[] {
     const video = streams.find((stream) => stream.Type === 'Video');
     return {
       // A single version is just the file; its name would only repeat the title.
+      id: source.Id ?? null,
       name: sources.length > 1 ? (source.Name ?? null) : null,
       container: source.Container ?? null,
       resolution: video ? resolutionOf(video.Width, video.Height) : null,
       dynamicRange: video ? dynamicRangeOf(video) : null,
+      videoRangeType: video?.VideoRangeType ?? null,
+      dvProfile: video?.DvProfile ?? null,
       videoCodec: video?.Codec ?? null,
       audio: streams.filter((stream) => stream.Type === 'Audio').map(toAudioTrack),
     };

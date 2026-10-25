@@ -47,6 +47,10 @@ export interface JfMediaStream {
 export interface JfMediaSource {
   Id?: string;
   Name?: string;
+  /** The file, as Jellyfin's server sees it. */
+  Path?: string;
+  /** File size in bytes. */
+  Size?: number;
   Container?: string;
   MediaStreams?: JfMediaStream[];
 }

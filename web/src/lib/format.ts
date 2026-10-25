@@ -23,6 +23,14 @@ export function formatBitrate(bps: number): string {
   return `${number(bps, 0)} bit/s`;
 }
 
+/** 52 000 000 000 → "48.4 GB". */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 4) return `${number(bytes / 1024 ** 4, 2)} TB`;
+  if (bytes >= 1024 ** 3) return `${number(bytes / 1024 ** 3, 1)} GB`;
+  if (bytes >= 1024 ** 2) return `${number(bytes / 1024 ** 2, 0)} MB`;
+  return `${number(bytes / 1024, 0)} KB`;
+}
+
 /** "vor 4 s", "vor 3 min" – for timestamps in the recent past. */
 export function formatAgo(timestamp: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - timestamp) / 1000));

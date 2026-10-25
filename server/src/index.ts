@@ -1,3 +1,4 @@
+import { createAgentConnection, createFileAgentSettingsStore } from './agent/connection.js';
 import { buildApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { createConnection } from './connection.js';
@@ -11,7 +12,8 @@ async function main() {
     envSettings: config.jellyfin,
     createClient: (settings) => createJellyfinClient(settings),
   });
-  const app = await buildApp({ config, connection, logger: { level: config.logLevel } });
+  const agent = await createAgentConnection({ store: createFileAgentSettingsStore(config.dataDir) });
+  const app = await buildApp({ config, connection, agent, logger: { level: config.logLevel } });
 
   if (!connection.settings) {
     app.log.warn('Noch keine Jellyfin-Verbindung eingerichtet – das Dashboard zeigt das Einrichtungsformular.');

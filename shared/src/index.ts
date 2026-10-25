@@ -277,7 +277,8 @@ export type AudioFormat =
 export type Resolution = '4K' | '1080p' | '720p' | 'SD';
 
 /** DV = Dolby Vision. */
-export type DynamicRange = 'DV' | 'HDR10+' | 'HDR10' | 'HLG' | 'SDR';
+/** DV7: Dolby Vision profile 7 (with enhancement layer); such titles also count as DV. */
+export type DynamicRange = 'DV' | 'DV7' | 'HDR10+' | 'HDR10' | 'HLG' | 'SDR';
 
 /** Video codec families; mpeg4 includes XviD and DivX. */
 export type VideoCodec = 'hevc' | 'h264' | 'av1' | 'vp9' | 'mpeg4' | 'mpeg2' | 'vc1' | 'other';
@@ -299,10 +300,16 @@ export interface AudioTrack {
 
 /** One file of an item; movies can have several versions (e.g. 4K and 1080p). */
 export interface MediaVersion {
+  /** Jellyfin media source id. */
+  id: string | null;
   name: string | null;
   container: string | null;
   resolution: Resolution | null;
   dynamicRange: DynamicRange | null;
+  /** Jellyfin's VideoRangeType, e.g. DOVIWithEL. */
+  videoRangeType: string | null;
+  /** Dolby Vision profile, e.g. 7 or 8. */
+  dvProfile: number | null;
   videoCodec: string | null;
   audio: AudioTrack[];
 }
@@ -535,4 +542,124 @@ export interface AddToCollectionResponse {
   alreadyIn: number;
   /** Titles Jellyfin no longer knows, e.g. deleted since the last index refresh. */
   failed: number;
+}
+
+// --- Agent ---------------------------------------------------------------------
+// The Manelly agent runs on the Jellyfin server and rewrites files there. Manelly
+// always tells it which file to read and where to write; it never browses drives.
+
+/** Where the converted file goes: next to the original, in its place, or into another folder. */
+export type ConversionOutputMode = 'alongside' | 'replace' | 'folder';
+
+/** POST /api/jobs on the agent. */
+export interface ConversionRequest {
+  /** Absolute path of the source file, as Jellyfin reports it. */
+  source: string;
+  output: {
+    mode: ConversionOutputMode;
+    /** folder mode: an existing folder, e.g. a library folder. */
+    directory?: string;
+    /** folder mode: a subfolder of `directory`, created when missing. */
+    subfolder?: string;
+    /** Defaults to "<name> - DV P8.mkv" (alongside) or the original name (replace, folder). */
+    fileName?: string;
+  };
+  title?: string;
+  /** From Jellyfin; the agent prefers what ffprobe reads from the file. */
+  hints?: { durationMs?: number | null; frameRate?: number | null };
+}
+
+export type ConversionJobState = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
+export type ConversionStep = 'probe' | 'extract' | 'convert' | 'mux' | 'finalize';
+
+export interface ConversionJob {
+  id: string;
+  title: string;
+  source: string;
+  mode: ConversionOutputMode;
+  /** Final path of the converted file. */
+  output: string;
+  /** replace mode: where the original was moved to. */
+  backup: string | null;
+  state: ConversionJobState;
+  step: ConversionStep | null;
+  /** 0–1 over all steps; null while unknown. */
+  progress: number | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+  /** Last lines of the failing tool's output. */
+  log: string | null;
+  /** Finished, but differently than asked, e.g. the original could not be replaced. */
+  warning: string | null;
+}
+
+export interface AgentTool {
+  path: string | null;
+  version: string | null;
+}
+
+/** GET /api/status on the agent. */
+export interface AgentStatus {
+  version: string;
+  hostname: string;
+  platform: string;
+  tools: { ffmpeg: AgentTool; ffprobe: AgentTool; mkvmerge: AgentTool; doviTool: AgentTool };
+  /** Folders the agent may work in; empty means any folder Manelly names. */
+  roots: string[];
+  /** Whether everything needed for a conversion is installed. */
+  ready: boolean;
+}
+
+/** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */
+export interface AgentCheckRequest {
+  source: string;
+  directories: string[];
+}
+
+export interface AgentCheckResponse {
+  sourceBytes: number | null;
+  /** Free space per requested directory; null when it does not exist. */
+  directories: Array<{ path: string; freeBytes: number | null }>;
+}
+
+/** GET/PUT /api/agent/settings in Manelly; the token itself never leaves the server. */
+export interface AgentSettingsView {
+  url: string | null;
+  hasToken: boolean;
+}
+
+export interface SaveAgentSettingsRequest {
+  url: string;
+  /** Omit to keep the saved token. */
+  token?: string;
+}
+
+/** GET /api/agent in Manelly. */
+export interface AgentOverview {
+  configured: boolean;
+  status: AgentStatus | null;
+  /** Why the agent could not be reached. */
+  error: string | null;
+}
+
+/** GET /api/agent/conversions/options in Manelly: everything the conversion dialog offers. */
+export interface ConversionOptions {
+  item: { id: string; name: string; year: number | null };
+  source: { mediaSourceId: string | null; path: string; bytes: number | null; videoRangeType: string | null; dvProfile: number | null };
+  /** About twice the file size is needed while converting. */
+  requiredBytes: number | null;
+  alongside: { directory: string; fileName: string; freeBytes: number | null };
+  replace: { path: string; backup: string };
+  /** Folders of Jellyfin's movie and mixed libraries. */
+  folders: Array<{ library: string; path: string; freeBytes: number | null }>;
+  /** Suggested subfolder for folder mode: the folder the original lives in. */
+  subfolder: string;
+}
+
+export interface StartConversionRequest {
+  itemId: string;
+  mediaSourceId?: string;
+  output: ConversionRequest['output'];
 }

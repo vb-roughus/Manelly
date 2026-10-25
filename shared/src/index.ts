@@ -227,6 +227,9 @@ export type Resolution = '4K' | '1080p' | '720p' | 'SD';
 /** DV = Dolby Vision. */
 export type DynamicRange = 'DV' | 'HDR10+' | 'HDR10' | 'HLG' | 'SDR';
 
+/** Video codec families; mpeg4 includes XviD and DivX. */
+export type VideoCodec = 'hevc' | 'h264' | 'av1' | 'vp9' | 'mpeg4' | 'mpeg2' | 'vc1' | 'other';
+
 export interface AudioTrack {
   /** BCP 47 language, e.g. "de"; null when the file does not say. */
   language: string | null;
@@ -267,6 +270,7 @@ export interface MediaSearchParams {
   officialRating?: string[];
   resolution?: Resolution[];
   dynamicRange?: DynamicRange[];
+  videoCodec?: VideoCodec[];
   library?: string[];
   /** Language, format and channel conditions must all hold for the same track. Use "und" for unknown. */
   audioLanguage?: string[];
@@ -356,6 +360,7 @@ export interface MediaFacets {
   audioFormats: FacetValue[];
   resolutions: FacetValue[];
   dynamicRanges: FacetValue[];
+  videoCodecs: FacetValue[];
   libraries: Array<FacetValue & { name: string }>;
 }
 

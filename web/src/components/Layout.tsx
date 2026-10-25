@@ -65,7 +65,8 @@ export function Layout({ children }: { children: ReactNode }) {
             >
               <Settings className="size-4" aria-hidden />
             </NavLink>
-            <ThemeToggle className={clsx(collapsed && 'lg:hidden')} />
+            {/* On large screens the theme toggle sits in the sidebar footer. */}
+            <ThemeToggle className="lg:hidden" />
             <button
               type="button"
               onClick={() => setCollapsed(!collapsed)}
@@ -89,9 +90,23 @@ export function Layout({ children }: { children: ReactNode }) {
           </ul>
         </nav>
         <div className={clsx('hidden pb-4 lg:mt-auto', collapsed ? 'lg:flex lg:flex-col lg:items-center lg:gap-2' : 'space-y-3 px-3 lg:block')}>
-          <NavEntry item={SETTINGS} compact={collapsed} />
-          <ServerCard compact={collapsed} />
-          {collapsed && <ThemeToggle />}
+          {collapsed ? (
+            <>
+              <NavEntry item={SETTINGS} compact />
+              <ServerCard compact />
+              <ThemeToggle />
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <NavEntry item={SETTINGS} compact={false} />
+                </div>
+                <ThemeToggle />
+              </div>
+              <ServerCard compact={false} />
+            </>
+          )}
         </div>
       </aside>
       <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">{children}</main>

@@ -21,8 +21,8 @@ Live-Übersicht der laufenden Streams:
 
 Filme und Serien durchsuchen und filtern:
 
-- Titelsuche, Filme/Serien, Genre, Erscheinungsjahr, Bewertung, Altersfreigabe, Auflösung, Dynamikumfang (Dolby Vision,
-  HDR10, …) und Bibliothek
+- Titelsuche, Filme/Serien, Genre, Erscheinungsjahr, Bewertung, Altersfreigabe und Bibliothek
+- **Video-Filter:** Auflösung, Dynamikumfang (Dolby Vision, HDR10, …) und Codec (HEVC, H.264, AV1, VP9, MPEG-4, …)
 - **Tonspur-Filter** nach Sprache, Format (Dolby Atmos, DTS:X, TrueHD, DTS-HD MA, Dolby Digital Plus, …) und Kanälen. Die
   Bedingungen gelten für **dieselbe Spur**: «Deutsch in Dolby Atmos» findet nur Titel mit einer deutschen Atmos-Spur, nicht
   solche mit deutscher DTS- und englischer Atmos-Spur
@@ -32,7 +32,7 @@ Filme und Serien durchsuchen und filtern:
 - Detailansicht mit allen Tonspuren jeder Version bzw. jeder Folge und Link zum Titel in Jellyfin
 - **Treffer in eine Sammlung übernehmen:** alle Titel der aktuellen Suche zu einer bestehenden Jellyfin-Sammlung
   hinzufügen oder eine neue anlegen. Manelly zeigt vorher, wie viele schon drin sind, und fügt nur die fehlenden hinzu
-- Tonspur- und Video-Filter (Auflösung, Dynamikumfang) sind einklappbar und zeigen eingeklappt eine Zusammenfassung
+- Tonspur- und Video-Filter sind einklappbar und zeigen eingeklappt eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
 - Filter stehen in der URL – eine Suche lässt sich als Lesezeichen speichern
 
 Manelly liest dafür einmal alle Filme, Serien und Folgen samt Tonspuren aus Jellyfin ein und frischt diesen Index im

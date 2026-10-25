@@ -1,7 +1,7 @@
-import type { AudioTrack, DynamicRange, ImageRef, MediaFacets, MediaType, MediaVersion, Resolution } from '@manelly/shared';
+import type { AudioTrack, DynamicRange, ImageRef, MediaFacets, MediaType, MediaVersion, Resolution, VideoCodec } from '@manelly/shared';
 import type { JellyfinClient } from '../jellyfin/client.js';
 import type { JfBaseItem } from '../jellyfin/types.js';
-import { toVersions } from './streams.js';
+import { toVersions, videoCodecFamily } from './streams.js';
 
 export interface IndexedEpisode {
   id: string;
@@ -38,6 +38,7 @@ export interface IndexedItem {
   tracks: AudioTrack[];
   resolutions: Resolution[];
   dynamicRanges: DynamicRange[];
+  videoCodecs: VideoCodec[];
 }
 
 export interface MediaIndex {
@@ -190,6 +191,7 @@ function toItem(raw: JfBaseItem, type: MediaType, libraryId: string): IndexedIte
     tracks: [],
     resolutions: [],
     dynamicRanges: [],
+    videoCodecs: [],
   };
 }
 
@@ -212,6 +214,7 @@ function finalize(item: IndexedItem) {
   item.tracks = versions.flatMap((version) => version.audio);
   item.resolutions = unique(versions.map((version) => version.resolution));
   item.dynamicRanges = unique(versions.map((version) => version.dynamicRange));
+  item.videoCodecs = unique(versions.map((version) => videoCodecFamily(version.videoCodec)));
 }
 
 function unique<T>(values: Array<T | null>): T[] {
@@ -226,6 +229,7 @@ function buildFacets(items: IndexedItem[], libraries: Array<{ id: string; name: 
   const formats = counter();
   const resolutions = counter();
   const ranges = counter();
+  const codecs = counter();
   const libraryCounts = counter();
   let minYear: number | null = null;
   let maxYear: number | null = null;
@@ -242,6 +246,7 @@ function buildFacets(items: IndexedItem[], libraries: Array<{ id: string; name: 
     add(formats, item.tracks.flatMap((track) => track.formats));
     add(resolutions, item.resolutions);
     add(ranges, item.dynamicRanges);
+    add(codecs, item.videoCodecs);
     add(libraryCounts, item.libraryIds);
     if (item.year !== null) {
       minYear = minYear === null ? item.year : Math.min(minYear, item.year);
@@ -260,6 +265,7 @@ function buildFacets(items: IndexedItem[], libraries: Array<{ id: string; name: 
     audioFormats: sorted(formats),
     resolutions: sorted(resolutions),
     dynamicRanges: sorted(ranges),
+    videoCodecs: sorted(codecs),
     libraries: libraries
       .map((library) => ({ value: library.id, name: library.name, count: libraryCounts.get(library.id) ?? 0 }))
       .filter((library) => library.count > 0),

@@ -84,6 +84,27 @@ installieren, falls es fehlt), installiert die Abhängigkeiten, baut Manelly, st
 
 Update: `git pull`, dann das Skript erneut starten. Die Einstellungen liegen in `data/` und bleiben erhalten.
 
+## Schnellstart unter Windows
+
+Im Manelly-Ordner `scripts\start-windows.cmd` doppelklicken oder in PowerShell ausführen:
+
+```powershell
+.\scripts\start-windows.ps1
+```
+
+Das Skript installiert bei Bedarf Node.js (LTS) mit `winget` (in Windows 10 und 11 über den «App Installer» enthalten;
+Windows fragt dabei eventuell nach Administratorrechten), installiert die Abhängigkeiten, baut Manelly, startet es und
+öffnet <http://localhost:3000> im Browser. Beenden mit `Ctrl+C`, ein anderer Port mit
+`.\scripts\start-windows.ps1 -Port 3001` (oder `scripts\start-windows.cmd -Port 3001`).
+
+- Blockiert PowerShell das Skript («Die Ausführung von Skripts ist auf diesem System deaktiviert»), `start-windows.cmd`
+  verwenden – es erlaubt die Ausführung nur für dieses eine Skript.
+- Fehlt `winget`, Node.js (LTS) von <https://nodejs.org> installieren und das Skript erneut starten.
+- Beim ersten Start fragt die Windows-Firewall eventuell, ob Node.js Netzwerkzugriff erhält. Für den Zugriff von anderen
+  Geräten zulassen; nur auf diesem PC funktioniert Manelly auch ohne.
+
+Update: `git pull`, dann das Skript erneut starten. Die Einstellungen liegen in `data\` und bleiben erhalten.
+
 ## Schnellstart mit Docker
 
 1. Starten:

@@ -129,6 +129,7 @@ describe('buildSessionsResponse', () => {
       directStream: 1,
       transcode: 1,
       hardwareTranscodes: 1,
+      struggling: 0,
       estimatedBandwidth: 20_192_000 + 4_000_000 + 1_000_000,
     });
     expect(response.fetchedAt).toBe('2026-01-01T00:00:00.000Z');

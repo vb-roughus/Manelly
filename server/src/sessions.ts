@@ -14,14 +14,15 @@ import type {
   VideoStreamInfo,
 } from '@manelly/shared';
 import type { JfBaseItem, JfMediaStream, JfSessionInfo, JfTranscodingInfo } from './jellyfin/types.js';
+import { assessStream, type StreamContext } from './streamHealth.js';
 
 /** Jellyfin measures time in ticks of 100 ns. */
 const TICKS_PER_MS = 10_000;
 
-export function buildSessionsResponse(sessions: JfSessionInfo[], now = new Date()): SessionsResponse {
+export function buildSessionsResponse(sessions: JfSessionInfo[], now = new Date(), context: StreamContext | null = null): SessionsResponse {
   const playing = sessions.filter((session) => session.NowPlayingItem);
   const streams = playing
-    .map(toStreamSession)
+    .map((session) => toStreamSession(session, context))
     .sort((a, b) => a.user.name.localeCompare(b.user.name) || a.device.localeCompare(b.device) || a.id.localeCompare(b.id));
 
   return {
@@ -32,14 +33,14 @@ export function buildSessionsResponse(sessions: JfSessionInfo[], now = new Date(
   };
 }
 
-export function toStreamSession(session: JfSessionInfo): StreamSession {
+export function toStreamSession(session: JfSessionInfo, context: StreamContext | null = null): StreamSession {
   const item = session.NowPlayingItem ?? {};
   const playState = session.PlayState ?? {};
   const source = selectSourceMedia(item, playState.AudioStreamIndex, playState.SubtitleStreamIndex);
   const transcoding = session.TranscodingInfo ? toTranscodingDetails(session.TranscodingInfo) : null;
   const remoteAddress = session.RemoteEndPoint ? normalizeAddress(session.RemoteEndPoint) : null;
 
-  return {
+  const stream = {
     id: session.Id ?? session.DeviceId ?? '',
     user: {
       id: session.UserId ?? null,
@@ -63,6 +64,7 @@ export function toStreamSession(session: JfSessionInfo): StreamSession {
     transcoding,
     estimatedBitrate: estimateBitrate(source, transcoding),
   };
+  return { ...stream, health: assessStream(stream, context) };
 }
 
 /** Mirrors the play method shown by Jellyfin's dashboard (jellyfin-web `getDisplayPlayMethod`). */
@@ -218,6 +220,7 @@ function summarize(sessions: StreamSession[]): SessionsSummary {
     directStream: count((s) => s.playback.method === 'Remux' || s.playback.method === 'DirectStream'),
     transcode: count((s) => s.playback.method === 'Transcode'),
     hardwareTranscodes: count((s) => s.playback.method === 'Transcode' && s.transcoding?.hardwareAcceleration != null),
+    struggling: count((s) => s.health.findings.some((f) => f.kind === 'throughput' && f.severity === 'critical')),
     estimatedBandwidth: sessions.reduce((sum, s) => sum + (s.estimatedBitrate ?? 0), 0),
   };
 }

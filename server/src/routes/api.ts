@@ -4,9 +4,11 @@ import type { JellyfinConnection } from '../connection.js';
 import { requireClient } from '../errors.js';
 import { buildSessionsResponse } from '../sessions.js';
 import { fetchServerStatus } from '../status.js';
+import { createStreamContextCache } from '../streamHealth.js';
 
 export async function apiRoutes(app: FastifyInstance, opts: { connection: JellyfinConnection }) {
   const { connection } = opts;
+  const streamContext = createStreamContextCache();
 
   // Liveness of Manelly itself, independent of Jellyfin (used by the Docker health check).
   app.get('/health', async () => ({ status: 'ok' }));
@@ -17,6 +19,8 @@ export async function apiRoutes(app: FastifyInstance, opts: { connection: Jellyf
 
   app.get('/sessions', async (): Promise<SessionsResponse> => {
     const jellyfin = requireClient(connection.client);
-    return buildSessionsResponse(await jellyfin.getSessions());
+    // The settings for the stream diagnosis are cached and never fail the request.
+    const [sessions, context] = await Promise.all([jellyfin.getSessions(), streamContext.get(jellyfin)]);
+    return buildSessionsResponse(sessions, new Date(), context);
   });
 }

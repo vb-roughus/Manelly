@@ -88,7 +88,27 @@ export interface JfItemsResult {
 export interface JfUser {
   Id?: string;
   Name?: string;
-  Policy?: { IsAdministrator?: boolean; IsDisabled?: boolean };
+  Policy?: { IsAdministrator?: boolean; IsDisabled?: boolean; RemoteClientBitrateLimit?: number };
+}
+
+/** GET /System/Configuration/encoding (the parts Manelly uses). */
+export interface JfEncodingOptions {
+  /** none, qsv, vaapi, nvenc, amf, videotoolbox, v4l2m2m, rkmpp. */
+  HardwareAccelerationType?: string;
+  EnableHardwareEncoding?: boolean;
+  /** Source codecs decoded in hardware, e.g. h264, hevc, vp9, av1. */
+  HardwareDecodingCodecs?: string[];
+  EnableDecodingColorDepth10Hevc?: boolean;
+  EnableDecodingColorDepth10Vp9?: boolean;
+  EnableTonemapping?: boolean;
+  EnableVppTonemapping?: boolean;
+  EnableVideoToolboxTonemapping?: boolean;
+}
+
+/** GET /System/Configuration (the parts Manelly uses). */
+export interface JfServerConfiguration {
+  /** Bits per second for clients outside the local network; 0 means no limit. */
+  RemoteClientBitrateLimit?: number;
 }
 
 export interface JfVirtualFolder {

@@ -109,12 +109,14 @@ function Summary({ data }: { data: SessionsResponse }) {
           caption={
             summary.transcode === 0
               ? 'Kein Video wird neu codiert'
-              : softwareTranscodes > 0
-                ? `${softwareTranscodes} ohne Hardware-Beschleunigung`
-                : 'Alle hardwarebeschleunigt'
+              : summary.struggling > 0
+                ? `${summary.struggling} ${summary.struggling === 1 ? 'kommt' : 'kommen'} nicht nach – siehe Diagnose`
+                : softwareTranscodes > 0
+                  ? `${softwareTranscodes} ohne Hardware-Beschleunigung`
+                  : 'Hardware-Beschleunigung eingerichtet'
           }
           icon={Cpu}
-          tone="bg-warning/15 text-warning"
+          tone={summary.struggling > 0 ? 'bg-critical/12 text-critical' : 'bg-warning/15 text-warning'}
         />
         <StatTile
           label="Bandbreite"

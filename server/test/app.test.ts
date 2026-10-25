@@ -101,6 +101,8 @@ describe('API', () => {
     expect(body.sessions.map((s) => s.user.name)).toEqual(['Anna', 'Marco']);
     expect(body.idleSessions).toBe(1);
     expect(body.summary).toMatchObject({ total: 2, directPlay: 1, transcode: 1, hardwareTranscodes: 1 });
+    // Without access to the transcoding settings the dashboard still works, with fewer findings.
+    expect(body.sessions[1]?.health.settingsKnown).toBe(false);
   });
 
   it('returns server info', async () => {

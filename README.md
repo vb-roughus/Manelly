@@ -10,11 +10,24 @@ Troubleshooting an einem Ort.
 Live-Übersicht der laufenden Streams:
 
 - Alle aktiven Wiedergaben mit Cover, Benutzer, Gerät, Client und Fortschritt (läuft flüssig mit, Aktualisierung alle 5 s)
-- Wiedergabeart wie im Jellyfin-Dashboard: **Direct Play**, **Remux**, **Direct Stream** oder **Transcode**, inklusive Hardware-Beschleunigung
+- Wiedergabeart wie im Jellyfin-Dashboard: **Direct Play**, **Remux**, **Direct Stream** oder **Transcode**, inklusive der
+  eingestellten Hardware-Beschleunigung
 - Quelle → Ziel für Video, Audio, Untertitel und Container, z. B. `4K · HEVC · HDR10 → 1080p · H.264`
 - **Transcode-Gründe auf Deutsch erklärt** (Tooltip mit Hinweis, was man dagegen tun kann)
 - Fortschritt des Transcoders als Puffer im Fortschrittsbalken
-- Kennzahlen: aktive Streams, Direct Play / Direct Stream / Transcodes, geschätzte Bandbreite
+- **Stream-Diagnose** pro Wiedergabe, jeweils mit konkretem Tipp, wo man in Jellyfin ansetzt:
+  - Kommt der Server mit dem Transcoding nach? Tempo im Verhältnis zur Bildrate (z. B. 0.7× Echtzeit) und Vorlauf
+    gegenüber der Wiedergabe
+  - Transcoding ganz ohne Hardware-Beschleunigung, Codecs, die trotz Hardware-Beschleunigung in Software dekodiert
+    werden (z. B. HEVC oder HEVC 10 bit nicht aktiviert), ausgeschaltete Hardware-Kodierung
+  - HDR, das ohne Tone-Mapping (blasse Farben) oder in Software (sehr rechenintensiv) in SDR umgewandelt wird
+  - Welches Limit die Bitrate drückt: Benutzer- oder Server-Limit für den Fernzugriff oder die Qualitätseinstellung im Client
+  - Hohe Bitraten über das Internet
+
+  Dafür liest Manelly die Transcoding-Einstellungen, das Fernzugriff-Limit und die Benutzer-Limits aus Jellyfin (höchstens
+  einmal pro Minute; der API-Schlüssel braucht Administratorrechte, was bei im Dashboard erstellten Schlüsseln der Fall ist)
+- Kennzahlen: aktive Streams, Direct Play / Direct Stream / Transcodes (inkl. wie viele nicht nachkommen), geschätzte
+  Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
 
 ### Medien

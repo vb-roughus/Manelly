@@ -34,6 +34,7 @@ import {
 import { describeTranscodeReason } from '../lib/transcodeReasons';
 import { PlayMethodBadge } from './PlayMethodBadge';
 import { PlaybackProgress } from './PlaybackProgress';
+import { StreamDiagnosis } from './StreamDiagnosis';
 
 export function StreamCard({ session, sampledAt }: { session: StreamSession; sampledAt: number }) {
   const { item, playback, transcoding } = session;
@@ -41,7 +42,12 @@ export function StreamCard({ session, sampledAt }: { session: StreamSession; sam
   const backdrop = item.backdrop ?? item.poster;
 
   return (
-    <article className="relative isolate overflow-hidden rounded-2xl border border-line bg-card shadow-sm shadow-black/5">
+    <article
+      className={clsx(
+        'relative isolate overflow-hidden rounded-2xl border bg-card shadow-sm shadow-black/5',
+        session.health.severity === 'critical' ? 'border-critical/50' : 'border-line',
+      )}
+    >
       {backdrop && (
         <div aria-hidden className="absolute inset-0 -z-10">
           <img
@@ -88,6 +94,8 @@ export function StreamCard({ session, sampledAt }: { session: StreamSession; sam
       </div>
 
       <StreamDetails session={session} />
+
+      <StreamDiagnosis session={session} />
 
       {transcoding && transcoding.reasons.length > 0 && (
         <div className="border-t border-line px-4 py-3">

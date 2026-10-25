@@ -152,6 +152,44 @@ export interface StreamSession {
   transcoding: TranscodingDetails | null;
   /** Bits per second sent to the client; transcoder output or source stream bitrates. */
   estimatedBitrate: number | null;
+  health: StreamHealth;
+}
+
+export type FindingSeverity = 'good' | 'info' | 'warning' | 'critical';
+
+/** Something worth knowing about a stream, with the facts the UI needs to explain it. */
+export type StreamFinding = { severity: FindingSeverity } & (
+  | {
+      /** Whether the transcoder keeps up with playback. */
+      kind: 'throughput';
+      /** Transcoder frames per second relative to the source frame rate; below 1 it falls behind. */
+      speed: number | null;
+      transcodeFps: number | null;
+      sourceFps: number | null;
+      /** How far the transcoder is ahead of the playback position. */
+      bufferAheadMs: number | null;
+    }
+  /** Video is transcoded, but Jellyfin has no hardware acceleration set up. */
+  | { kind: 'softwareTranscoding' }
+  /** Hardware acceleration is set up, but not enabled for decoding this video. */
+  | { kind: 'softwareDecoding'; hardware: string; codec: string; bitDepth: number | null; cause: 'codecDisabled' | 'tenBitDisabled' }
+  /** Hardware acceleration is set up, but hardware encoding is switched off. */
+  | { kind: 'softwareEncoding'; hardware: string }
+  /** HDR is converted to SDR without tone mapping (pale colors) or in software (very slow). */
+  | { kind: 'toneMapping'; videoRangeType: string | null; cause: 'disabled' | 'software' }
+  /** The bitrate is too high for a limit: the user's or the server's remote limit, or the client's quality setting. */
+  | { kind: 'bitrateLimit'; limitedBy: 'user' | 'server' | 'client' | 'unknown'; limit: number | null; sourceBitrate: number | null }
+  /** A high bitrate goes over the internet. */
+  | { kind: 'remoteBitrate'; bitrate: number }
+);
+
+export interface StreamHealth {
+  /** Worst severity of the findings; null without findings. */
+  severity: FindingSeverity | null;
+  /** Most severe first. */
+  findings: StreamFinding[];
+  /** Whether Jellyfin's transcoding settings and user limits could be read. */
+  settingsKnown: boolean;
 }
 
 export interface SessionsSummary {
@@ -161,6 +199,8 @@ export interface SessionsSummary {
   directStream: number;
   transcode: number;
   hardwareTranscodes: number;
+  /** Streams whose transcoder does not keep up with playback. */
+  struggling: number;
   /** Sum of all known stream bitrates in bits per second. */
   estimatedBandwidth: number;
 }

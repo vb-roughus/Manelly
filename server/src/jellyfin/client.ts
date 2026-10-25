@@ -1,6 +1,14 @@
 import type { JellyfinConfig } from '../config.js';
 import { AppError } from '../errors.js';
-import type { JfItemsResult, JfSessionInfo, JfSystemInfo, JfUser, JfVirtualFolder } from './types.js';
+import type {
+  JfEncodingOptions,
+  JfItemsResult,
+  JfServerConfiguration,
+  JfSessionInfo,
+  JfSystemInfo,
+  JfUser,
+  JfVirtualFolder,
+} from './types.js';
 
 const CLIENT_NAME = 'Manelly';
 const CLIENT_VERSION = '0.1.0';
@@ -27,6 +35,8 @@ export interface JellyfinClient {
   /** GET /Items with the given query; API keys see all libraries without a user id. */
   getItems(query: URLSearchParams): Promise<JfItemsResult>;
   getUsers(): Promise<JfUser[]>;
+  getEncodingOptions(): Promise<JfEncodingOptions>;
+  getServerConfiguration(): Promise<JfServerConfiguration>;
   /** Creates a collection (BoxSet) with the given items and returns its id. */
   createCollection(name: string, itemIds: string[]): Promise<string>;
   /** Adds items to a collection; Jellyfin skips the ones already in it. */
@@ -94,6 +104,8 @@ export function createJellyfinClient(
     getLibraries: () => getJson<JfVirtualFolder[]>('/Library/VirtualFolders'),
     getItems: (query) => getJson<JfItemsResult>(`/Items?${query}`, ITEMS_TIMEOUT_MS),
     getUsers: () => getJson<JfUser[]>('/Users'),
+    getEncodingOptions: () => getJson<JfEncodingOptions>('/System/Configuration/encoding'),
+    getServerConfiguration: () => getJson<JfServerConfiguration>('/System/Configuration'),
     createCollection: async (name, itemIds) => {
       const query = new URLSearchParams({ name, isLocked: 'false' });
       // An empty ids parameter would make Jellyfin parse "" as an item id.

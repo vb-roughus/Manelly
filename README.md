@@ -13,7 +13,10 @@ Live-Übersicht der laufenden Streams:
 - Wiedergabeart wie im Jellyfin-Dashboard: **Direct Play**, **Remux**, **Direct Stream** oder **Transcode**, inklusive der
   eingestellten Hardware-Beschleunigung
 - Quelle → Ziel für Video, Audio, Untertitel und Container, z. B. `4K · HEVC · HDR10 → 1080p · H.264`
-- **Transcode-Gründe auf Deutsch erklärt** (Tooltip mit Hinweis, was man dagegen tun kann)
+- **Transcode-Gründe auf Deutsch erklärt** – ein Klick zeigt, welche Eigenschaft der Datei das Problem ist (z. B.
+  «Dolby Vision Profil 7 mit Enhancement Layer» oder «Level 5.1»), was Jellyfin daraus macht und wie man es behebt
+- Erklärt auch Umwandlungen, für die Jellyfin keinen eigenen Grund nennt, z. B. warum TrueHD 7.1 als AAC 5.1 ankommt:
+  Beim Umpacken in einen Streaming-Container nimmt der Client TrueHD nicht an
 - Fortschritt des Transcoders als Puffer im Fortschrittsbalken
 - **Stream-Diagnose** pro Wiedergabe, jeweils mit konkretem Tipp, wo man in Jellyfin ansetzt:
   - Kommt der Server mit dem Transcoding nach? Tempo im Verhältnis zur Bildrate (z. B. 0.7× Echtzeit) und Vorlauf

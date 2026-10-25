@@ -85,15 +85,27 @@ export interface VideoStreamInfo {
   videoRange: string | null;
   /** SDR, HDR10, HDR10Plus, DOVI, HLG, ... */
   videoRangeType: string | null;
+  /** Dolby Vision profile, e.g. 5, 7 or 8. */
+  dvProfile: number | null;
+  /** Codec level as reported by ffprobe, e.g. 153 for HEVC 5.1 or 41 for H.264 4.1. */
+  level: number | null;
+  /** e.g. hvc1, hev1, dvh1. */
+  codecTag: string | null;
+  isInterlaced: boolean;
+  refFrames: number | null;
   displayTitle: string | null;
 }
 
 export interface AudioStreamInfo {
   codec: string | null;
+  /** e.g. "Dolby TrueHD + Dolby Atmos", "LC". */
+  profile: string | null;
   channels: number | null;
   channelLayout: string | null;
   language: string | null;
   bitrate: number | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
   displayTitle: string | null;
 }
 

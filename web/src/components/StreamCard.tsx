@@ -31,10 +31,10 @@ import {
   languageLabel,
   resolutionLabel,
 } from '../lib/format';
-import { describeTranscodeReason } from '../lib/transcodeReasons';
 import { PlayMethodBadge } from './PlayMethodBadge';
 import { PlaybackProgress } from './PlaybackProgress';
 import { StreamDiagnosis } from './StreamDiagnosis';
+import { TranscodeReasons } from './TranscodeReasons';
 
 export function StreamCard({ session, sampledAt }: { session: StreamSession; sampledAt: number }) {
   const { item, playback, transcoding } = session;
@@ -97,27 +97,7 @@ export function StreamCard({ session, sampledAt }: { session: StreamSession; sam
 
       <StreamDiagnosis session={session} />
 
-      {transcoding && transcoding.reasons.length > 0 && (
-        <div className="border-t border-line px-4 py-3">
-          <p className="mb-2 text-xs font-medium text-ink-2">
-            {playback.method === 'Transcode' ? 'Warum transcodiert wird' : 'Warum nicht Direct Play'}
-          </p>
-          <ul className="flex flex-wrap gap-1.5">
-            {transcoding.reasons.map((reason) => {
-              const text = describeTranscodeReason(reason);
-              return (
-                <li
-                  key={reason}
-                  title={text.hint}
-                  className="cursor-help rounded-md bg-card-2 px-2 py-1 text-xs text-ink ring-1 ring-line ring-inset"
-                >
-                  {text.label}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+      <TranscodeReasons session={session} />
     </article>
   );
 }

@@ -63,6 +63,22 @@ describe('toStreamSession', () => {
     expect(stream.isLocalNetwork).toBe(true);
   });
 
+  it('passes on the details needed to explain transcode reasons', () => {
+    const stream = toStreamSession({
+      ...movie,
+      NowPlayingItem: {
+        ...movie.NowPlayingItem,
+        MediaStreams: [
+          { Type: 'Video', Index: 0, Codec: 'hevc', VideoRange: 'HDR', VideoRangeType: 'DOVIWithEL', DvProfile: 7, Level: 153, CodecTag: 'dvhe' },
+          { Type: 'Audio', Index: 1, Codec: 'truehd', Profile: 'Dolby TrueHD + Dolby Atmos', Channels: 8, SampleRate: 48_000, BitDepth: 24 },
+        ],
+      },
+      PlayState: { PlayMethod: 'Transcode', AudioStreamIndex: 1 },
+    });
+    expect(stream.source.video).toMatchObject({ videoRangeType: 'DOVIWithEL', dvProfile: 7, level: 153, codecTag: 'dvhe', isInterlaced: false });
+    expect(stream.source.audio).toMatchObject({ profile: 'Dolby TrueHD + Dolby Atmos', sampleRate: 48_000, bitDepth: 24 });
+  });
+
   it('treats subtitle index -1 as subtitles off', () => {
     const stream = toStreamSession({ ...movie, PlayState: { ...movie.PlayState, SubtitleStreamIndex: -1 } });
     expect(stream.source.subtitle).toBeNull();

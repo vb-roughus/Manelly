@@ -1,8 +1,16 @@
 import type { FastifyInstance } from 'fastify';
-import type { MediaDetail, MediaFacetsResponse, MediaIndexStatus, MediaSearchParams, MediaSearchResponse } from '@manelly/shared';
+import type {
+  MediaDetail,
+  MediaDiagnosisResponse,
+  MediaFacetsResponse,
+  MediaIndexStatus,
+  MediaSearchParams,
+  MediaSearchResponse,
+} from '@manelly/shared';
 import type { JellyfinConnection } from '../connection.js';
 import { AppError, requireClient } from '../errors.js';
 import type { MediaIndexStore } from '../media/store.js';
+import { diagnoseTitle } from '../media/diagnose.js';
 import { mediaDetail, searchMedia } from '../media/search.js';
 
 const AUDIO_FORMATS = ['atmos', 'dtsx', 'truehd', 'eac3', 'ac3', 'dts-hd-ma', 'dts-hd', 'dts', 'aac', 'flac', 'pcm', 'opus', 'mp3', 'vorbis', 'other'];
@@ -66,6 +74,26 @@ export async function mediaRoutes(app: FastifyInstance, opts: { connection: Jell
       const index = store.get();
       const result = index ? searchMedia(index, request.query) : { items: [], total: 0 };
       return { ...result, offset: request.query.offset ?? 0, index: store.status() };
+    },
+  );
+
+  // Why is a title (not) in the search? Takes the current filters plus the title to look for.
+  app.get<{ Querystring: MediaSearchParams & { title: string } }>(
+    '/diagnose',
+    {
+      schema: {
+        querystring: {
+          ...searchQuerySchema,
+          required: ['title'],
+          properties: { ...searchQuerySchema.properties, title: { type: 'string', minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    async (request): Promise<MediaDiagnosisResponse> => {
+      const client = requireClient(connection.client);
+      const { title, ...filters } = request.query;
+      const results = await diagnoseTitle(client, store.get(), title.trim(), filters);
+      return { title: title.trim(), index: store.status(), results };
     },
   );
 

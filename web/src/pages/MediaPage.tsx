@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import type { MediaIndexStatus, MediaSummary, MediaType } from '@manelly/shared';
-import { FolderPlus, LoaderCircle, RefreshCw, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
+import { FolderPlus, LoaderCircle, RefreshCw, Search, SearchCheck, SearchX, SlidersHorizontal, TriangleAlert, X } from 'lucide-react';
 import clsx from 'clsx';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { CollectionDialog } from '../components/media/CollectionDialog';
 import { FilterPanel, ResetFiltersButton } from '../components/media/FilterPanel';
 import { MediaCard } from '../components/media/MediaCard';
 import { MediaDetailDialog } from '../components/media/MediaDetailDialog';
+import { MissingTitleDialog } from '../components/media/MissingTitleDialog';
 import { isConfigured, useMediaFacets, useMediaSearch, useRefreshMedia, useSettings } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { useStickyError } from '../hooks/useStickyError';
@@ -27,6 +28,7 @@ export function MediaPage() {
   const openItem = searchParams.get('item');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
+  const [missingOpen, setMissingOpen] = useState(false);
 
   const settings = useSettings();
   const configured = settings.data ? isConfigured(settings.data) : undefined;
@@ -69,7 +71,7 @@ export function MediaPage() {
   }
 
   return (
-    <PageFrame index={index}>
+    <PageFrame index={index} onMissing={() => setMissingOpen(true)}>
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput value={filters.q ?? ''} onChange={(q) => setFilters({ ...filters, q: q || undefined })} />
         <div className="flex rounded-lg bg-card p-0.5 shadow-sm ring-1 ring-line" role="group" aria-label="Typ">
@@ -153,6 +155,7 @@ export function MediaPage() {
             items={items}
             error={search.data ? null : searchError}
             onOpen={openDetail}
+            onMissing={() => setMissingOpen(true)}
             hasFilters={filterCount > 0 || Boolean(filters.q)}
           />
 
@@ -174,13 +177,20 @@ export function MediaPage() {
 
       <MediaDetailDialog id={openItem} filters={filters} onClose={closeDetail} />
       <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} filters={filters} total={total} />
+      <MissingTitleDialog
+        open={missingOpen}
+        onClose={() => setMissingOpen(false)}
+        filters={filters}
+        onResetFilters={() => setFilters({})}
+        onShow={openDetail}
+      />
     </PageFrame>
   );
 }
 
 const notConfigured = new ApiError('NOT_CONFIGURED', 'Manelly ist noch nicht mit Jellyfin verbunden.');
 
-function PageFrame({ index, children }: { index?: MediaIndexStatus; children: ReactNode }) {
+function PageFrame({ index, onMissing, children }: { index?: MediaIndexStatus; onMissing?: () => void; children: ReactNode }) {
   return (
     <div className="mx-auto max-w-7xl">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
@@ -188,14 +198,14 @@ function PageFrame({ index, children }: { index?: MediaIndexStatus; children: Re
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Medien</h1>
           <p className="mt-1 text-sm text-ink-2">Filme und Serien durchsuchen – auch nach Sprache und Format der Tonspuren.</p>
         </div>
-        {index && <IndexStatus index={index} />}
+        {index && <IndexStatus index={index} onMissing={onMissing} />}
       </header>
       {children}
     </div>
   );
 }
 
-function IndexStatus({ index }: { index: MediaIndexStatus }) {
+function IndexStatus({ index, onMissing }: { index: MediaIndexStatus; onMissing?: () => void }) {
   const refresh = useRefreshMedia();
   const now = useNow(30_000);
   const building = index.state === 'building';
@@ -231,6 +241,28 @@ function IndexStatus({ index }: { index: MediaIndexStatus }) {
         <span className="font-medium text-critical" title={index.error}>
           Letztes Einlesen fehlgeschlagen
         </span>
+      )}
+      {index.skipped.length > 0 && !building && (
+        <span
+          className="inline-flex items-center gap-1 font-medium text-ink"
+          title={`Jellyfin konnte die Medieninfos nicht liefern – diese Titel stehen ohne Tonspuren im Index:\n${index.skipped
+            .map((title) => `• ${title.name ?? 'Unbekannt'}`)
+            .join('\n')}`}
+        >
+          <TriangleAlert className="size-3.5 text-warning" aria-hidden />
+          {index.skipped.length} ohne Medieninfos
+        </span>
+      )}
+      {onMissing && (
+        <button
+          type="button"
+          onClick={onMissing}
+          title="Einen Titel in Jellyfin suchen und prüfen, warum er hier fehlt"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 font-medium whitespace-nowrap text-accent hover:bg-card"
+        >
+          <SearchCheck className="size-3.5" aria-hidden />
+          Titel fehlt?
+        </button>
       )}
       <button
         type="button"
@@ -289,10 +321,11 @@ interface ResultsProps {
   items: MediaSummary[];
   error: Error | null;
   onOpen: (id: string) => void;
+  onMissing: () => void;
   hasFilters: boolean;
 }
 
-function Results({ index, items, error, onOpen, hasFilters }: ResultsProps) {
+function Results({ index, items, error, onOpen, onMissing, hasFilters }: ResultsProps) {
   if (error) return <ErrorPanel error={error} />;
   if (!index || (index.state === 'building' && !index.counts)) {
     return (
@@ -317,6 +350,10 @@ function Results({ index, items, error, onOpen, hasFilters }: ResultsProps) {
         <p className="mx-auto mt-1 max-w-md text-sm text-ink-2">
           {hasFilters ? 'Kein Titel erfüllt alle gewählten Filter.' : 'In deinen Jellyfin-Bibliotheken gibt es noch keine Filme oder Serien.'}
         </p>
+        <button type="button" onClick={onMissing} className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline">
+          <SearchCheck className="size-4" aria-hidden />
+          Ein bestimmter Titel fehlt? Prüfen, warum
+        </button>
       </div>
     );
   }

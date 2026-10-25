@@ -345,6 +345,14 @@ export interface MediaIndexStatus {
   /** While building: items loaded so far. */
   progress: { loaded: number; total: number } | null;
   error: string | null;
+  /** Titles Jellyfin could not deliver with media details; they are listed without tracks. */
+  skipped: SkippedTitle[];
+}
+
+export interface SkippedTitle {
+  id: string | null;
+  name: string | null;
+  reason: string;
 }
 
 export interface FacetValue {
@@ -367,6 +375,61 @@ export interface MediaFacets {
 export interface MediaFacetsResponse {
   facets: MediaFacets | null;
   index: MediaIndexStatus;
+}
+
+/** Filter groups, e.g. to say which of them hide a title. */
+export type FilterKey =
+  | 'q'
+  | 'type'
+  | 'genre'
+  | 'year'
+  | 'rating'
+  | 'officialRating'
+  | 'library'
+  | 'resolution'
+  | 'dynamicRange'
+  | 'videoCodec'
+  | 'audio';
+
+/** Why a title does or does not show up in the media search. */
+export type TitleVerdict =
+  /** In the index and matching the current filters. */
+  | 'visible'
+  /** In the index, hidden by `failingFilters`. */
+  | 'filtered'
+  /** Jellyfin lists it as something other than a movie or series, e.g. "Video". */
+  | 'unsupportedType'
+  /** Its library is of a type Manelly does not read, e.g. home videos. */
+  | 'unsupportedLibrary'
+  /** Its path belongs to none of the libraries. */
+  | 'noLibrary'
+  | 'indexNotReady'
+  /** Added to Jellyfin after the index was built. */
+  | 'newerThanIndex'
+  /** Jellyfin does not return it when its library is queried. */
+  | 'notInLibraryQuery'
+  /** Should be in the index but is not; points to a bug in Manelly. */
+  | 'missingFromIndex';
+
+export interface TitleDiagnosis {
+  id: string;
+  name: string;
+  /** Jellyfin item type: Movie, Series, Video, ... */
+  type: string;
+  year: number | null;
+  library: { name: string; collectionType: string | null } | null;
+  path: string | null;
+  dateCreated: string | null;
+  verdict: TitleVerdict;
+  failingFilters: FilterKey[];
+  /** Listed without audio and video details because Jellyfin could not deliver them. */
+  incompleteMedia: boolean;
+}
+
+export interface MediaDiagnosisResponse {
+  title: string;
+  index: MediaIndexStatus;
+  results: TitleDiagnosis[];
 }
 
 export interface MediaSearchResponse {

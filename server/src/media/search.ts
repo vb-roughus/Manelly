@@ -2,13 +2,14 @@ import type {
   AudioBadge,
   AudioFormat,
   AudioTrack,
+  FilterKey,
   MediaDetail,
   MediaVersion,
   MediaSearchParams,
   MediaSummary,
   SeasonDetail,
 } from '@manelly/shared';
-import { normalizeText, type IndexedItem, type MediaIndex } from './indexer.js';
+import { normalizeText, searchKey, type IndexedItem, type MediaIndex } from './indexer.js';
 
 interface AudioFilter {
   languages: string[];
@@ -55,20 +56,35 @@ function passesAudio(item: IndexedItem, filter: AudioFilter): boolean {
 const anyOf = <T>(selected: T[] | undefined, values: T[]) =>
   !selected?.length || values.some((value) => selected.includes(value));
 
-function passes(item: IndexedItem, params: MediaSearchParams, terms: string[], audio: AudioFilter | null): boolean {
-  if (params.type && item.type !== params.type) return false;
-  if (terms.length && !terms.every((term) => item.searchText.includes(term))) return false;
-  if (!anyOf(params.genre, item.genres)) return false;
-  if (!anyOf(params.officialRating, item.officialRating ? [item.officialRating] : [])) return false;
-  if (!anyOf(params.library, item.libraryIds)) return false;
-  if (!anyOf(params.resolution, item.resolutions)) return false;
-  if (!anyOf(params.dynamicRange, item.dynamicRanges)) return false;
-  if (!anyOf(params.videoCodec, item.videoCodecs)) return false;
-  if (params.yearFrom !== undefined && (item.year === null || item.year < params.yearFrom)) return false;
-  if (params.yearTo !== undefined && (item.year === null || item.year > params.yearTo)) return false;
-  if (params.minRating !== undefined && (item.communityRating ?? 0) < params.minRating) return false;
-  if (audio && !passesAudio(item, audio)) return false;
-  return true;
+function searchTerms(q: string | undefined): string[] {
+  return normalizeText(q ?? '').split(/\s+/).map(searchKey).filter(Boolean);
+}
+
+/** The filter groups that exclude the item; empty when it matches. */
+export function failingFilters(
+  item: IndexedItem,
+  params: MediaSearchParams,
+  terms = searchTerms(params.q),
+  audio = audioFilterOf(params),
+): FilterKey[] {
+  const failing: FilterKey[] = [];
+  if (params.type && item.type !== params.type) failing.push('type');
+  if (terms.length && !terms.every((term) => item.searchText.includes(term))) failing.push('q');
+  if (!anyOf(params.genre, item.genres)) failing.push('genre');
+  if (!anyOf(params.officialRating, item.officialRating ? [item.officialRating] : [])) failing.push('officialRating');
+  if (!anyOf(params.library, item.libraryIds)) failing.push('library');
+  if (!anyOf(params.resolution, item.resolutions)) failing.push('resolution');
+  if (!anyOf(params.dynamicRange, item.dynamicRanges)) failing.push('dynamicRange');
+  if (!anyOf(params.videoCodec, item.videoCodecs)) failing.push('videoCodec');
+  if (
+    (params.yearFrom !== undefined && (item.year === null || item.year < params.yearFrom)) ||
+    (params.yearTo !== undefined && (item.year === null || item.year > params.yearTo))
+  ) {
+    failing.push('year');
+  }
+  if (params.minRating !== undefined && (item.communityRating ?? 0) < params.minRating) failing.push('rating');
+  if (audio && !passesAudio(item, audio)) failing.push('audio');
+  return failing;
 }
 
 const collator = new Intl.Collator('de', { numeric: true, sensitivity: 'base' });
@@ -88,9 +104,9 @@ function compare(sort: MediaSearchParams['sort']): (a: IndexedItem, b: IndexedIt
 
 /** All items matching the filters, unsorted. */
 export function filterItems(index: MediaIndex, params: MediaSearchParams): IndexedItem[] {
-  const terms = normalizeText(params.q ?? '').split(/\s+/).filter(Boolean);
+  const terms = searchTerms(params.q);
   const audio = audioFilterOf(params);
-  return index.items.filter((item) => passes(item, params, terms, audio));
+  return index.items.filter((item) => failingFilters(item, params, terms, audio).length === 0);
 }
 
 export function searchMedia(index: MediaIndex, params: MediaSearchParams): { items: MediaSummary[]; total: number } {

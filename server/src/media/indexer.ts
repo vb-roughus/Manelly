@@ -1,5 +1,15 @@
-import type { AudioTrack, DynamicRange, ImageRef, MediaFacets, MediaType, MediaVersion, Resolution, VideoCodec } from '@manelly/shared';
-import type { JellyfinClient } from '../jellyfin/client.js';
+import type {
+  AudioTrack,
+  DynamicRange,
+  ImageRef,
+  MediaFacets,
+  MediaType,
+  MediaVersion,
+  Resolution,
+  SkippedTitle,
+  VideoCodec,
+} from '@manelly/shared';
+import { JellyfinError, type JellyfinClient } from '../jellyfin/client.js';
 import type { JfBaseItem } from '../jellyfin/types.js';
 import { toVersions, videoCodecFamily } from './streams.js';
 
@@ -47,6 +57,7 @@ export interface MediaIndex {
   byId: Map<string, IndexedItem>;
   facets: MediaFacets;
   counts: { movies: number; series: number; episodes: number };
+  skipped: SkippedTitle[];
 }
 
 export type ProgressListener = (loaded: number, total: number) => void;
@@ -54,7 +65,7 @@ export type ProgressListener = (loaded: number, total: number) => void;
 const PAGE_SIZE = 250;
 
 // Library types that can contain movies or series; others (music, books, ...) are skipped.
-const VIDEO_LIBRARIES: Record<string, string[]> = {
+export const VIDEO_LIBRARIES: Record<string, string[]> = {
   movies: ['Movie'],
   tvshows: ['Series', 'Episode'],
   mixed: ['Movie', 'Series', 'Episode'],
@@ -93,10 +104,11 @@ export async function buildMediaIndex(client: JellyfinClient, onProgress: Progre
 
   const items = new Map<string, IndexedItem>();
   const episodes: Array<{ seriesId: string; episode: IndexedEpisode }> = [];
+  const skipped: SkippedTitle[] = [];
 
   for (const job of jobs) {
     for (let start = 0; start < job.total; start += PAGE_SIZE) {
-      const page = (await client.getItems(itemsQuery(job.libraryId, job.type, start, PAGE_SIZE))).Items ?? [];
+      const page = await fetchRange(client, job, start, PAGE_SIZE, skipped);
       for (const raw of page) {
         if (!raw.Id) continue;
         if (job.type === 'Episode') {
@@ -136,17 +148,45 @@ export async function buildMediaIndex(client: JellyfinClient, onProgress: Progre
       series: list.filter((item) => item.type === 'Series').length,
       episodes: list.reduce((sum, item) => sum + item.episodes.length, 0),
     },
+    skipped,
   };
 }
 
-function itemsQuery(libraryId: string, type: string, startIndex: number, limit: number): URLSearchParams {
+/**
+ * One page of items. If Jellyfin answers with an error – typically because of
+ * one title whose media details it cannot serialize, e.g. a file still being
+ * analyzed – the page is split until the culprit is found. That title is kept
+ * without media details and reported, instead of failing the whole index.
+ */
+async function fetchRange(client: JellyfinClient, job: Job, start: number, size: number, skipped: SkippedTitle[]): Promise<JfBaseItem[]> {
+  const query = itemsQuery(job.libraryId, job.type, start, size);
+  try {
+    return (await client.getItems(query)).Items ?? [];
+  } catch (error) {
+    if (error instanceof JellyfinError && error.code === 'TIMEOUT') {
+      // A busy server (e.g. scanning new files) deserves one more chance before the build fails.
+      return (await client.getItems(query)).Items ?? [];
+    }
+    if (!(error instanceof JellyfinError && error.code === 'UPSTREAM_ERROR')) throw error;
+    if (size > 1) {
+      const half = Math.ceil(size / 2);
+      return [...(await fetchRange(client, job, start, half, skipped)), ...(await fetchRange(client, job, start + half, size - half, skipped))];
+    }
+    const bare = await client.getItems(itemsQuery(job.libraryId, job.type, start, 1, '')).catch(() => null);
+    const item = bare?.Items?.[0];
+    skipped.push({ id: item?.Id ?? null, name: item?.Name ?? null, reason: error.message });
+    return item ? [item] : [];
+  }
+}
+
+function itemsQuery(libraryId: string, type: string, startIndex: number, limit: number, fields = FIELDS[type] ?? ''): URLSearchParams {
   return new URLSearchParams({
     parentId: libraryId,
     includeItemTypes: type,
     recursive: 'true',
     // Episodes Jellyfin only knows from metadata have no files to inspect.
     isMissing: 'false',
-    fields: FIELDS[type] ?? '',
+    fields,
     enableImageTypes: 'Primary,Backdrop',
     imageTypeLimit: '1',
     enableUserData: 'false',
@@ -155,6 +195,14 @@ function itemsQuery(libraryId: string, type: string, startIndex: number, limit: 
     startIndex: String(startIndex),
     limit: String(limit),
   });
+}
+
+/**
+ * Text for the title search: accents, case and punctuation do not matter, so
+ * "spiderman", "spider man" and "Spider-Man" all match (like Jellyfin's search).
+ */
+export function searchKey(text: string): string {
+  return normalizeText(text).replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 export function normalizeText(text: string): string {
@@ -176,7 +224,8 @@ function toItem(raw: JfBaseItem, type: MediaType, libraryId: string): IndexedIte
     sortName: raw.SortName ?? name,
     originalTitle: raw.OriginalTitle && raw.OriginalTitle !== name ? raw.OriginalTitle : null,
     overview: raw.Overview ?? null,
-    searchText: normalizeText(`${name} ${raw.OriginalTitle ?? ''}`),
+    // Name and original title separately, so a match cannot span both.
+    searchText: `${searchKey(name)} ${searchKey(raw.OriginalTitle ?? '')}`,
     year: raw.ProductionYear ?? null,
     endYear: raw.EndDate ? new Date(raw.EndDate).getUTCFullYear() : null,
     communityRating: raw.CommunityRating ?? null,

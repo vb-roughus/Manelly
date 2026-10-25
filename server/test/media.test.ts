@@ -171,6 +171,34 @@ describe('media index', () => {
   });
 });
 
+describe('a title Jellyfin cannot deliver', () => {
+  it('is kept without media details instead of failing the whole index', async () => {
+    // Jellyfin answers 500 for every page that contains "Amélie" with its media sources.
+    const broken: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/Items' && url.searchParams.get('fields')?.includes('MediaSources')) {
+        const start = Number(url.searchParams.get('startIndex') ?? 0);
+        const limit = Number(url.searchParams.get('limit') ?? 0);
+        const brokenIndex = MOVIES.findIndex((item) => item.Id === 'm3');
+        if (url.searchParams.get('includeItemTypes') === 'Movie' && start <= brokenIndex && brokenIndex < start + limit) {
+          return new Response('Object reference not set to an instance of an object.', { status: 500 });
+        }
+      }
+      const response = await fakeJellyfin(input, init);
+      if (url.pathname !== '/Items' || url.searchParams.get('fields')?.includes('MediaSources')) return response;
+      // Like Jellyfin: media sources only when asked for.
+      const body = (await response.json()) as { Items?: JfBaseItem[] };
+      return Response.json({ ...body, Items: body.Items?.map(({ MediaSources: _sources, ...item }) => item) });
+    };
+    const index = await buildMediaIndex(createJellyfinClient({ url: 'http://jellyfin.test', apiKey: 'key' }, { fetch: broken }));
+
+    expect(index.counts.movies).toBe(5);
+    expect(index.byId.get('m3')?.versions).toEqual([]);
+    expect(index.byId.get('m2')?.versions).toHaveLength(1);
+    expect(index.skipped).toEqual([{ id: 'm3', name: 'Amélie', reason: expect.stringContaining('HTTP 500') }]);
+  });
+});
+
 describe('media search', async () => {
   const index = await buildMediaIndex(client);
   const names = (params: Parameters<typeof searchMedia>[1]) => searchMedia(index, params).items.map((item) => item.name);

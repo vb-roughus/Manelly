@@ -163,6 +163,11 @@ function toVideoStream(stream: JfMediaStream): VideoStreamInfo {
     bitrate: stream.BitRate ?? null,
     videoRange: stream.VideoRange ?? null,
     videoRangeType: stream.VideoRangeType ?? null,
+    dvProfile: stream.DvProfile ?? null,
+    level: stream.Level ?? null,
+    codecTag: stream.CodecTag ?? null,
+    isInterlaced: stream.IsInterlaced ?? false,
+    refFrames: stream.RefFrames ?? null,
     displayTitle: stream.DisplayTitle ?? null,
   };
 }
@@ -170,10 +175,13 @@ function toVideoStream(stream: JfMediaStream): VideoStreamInfo {
 function toAudioStream(stream: JfMediaStream): AudioStreamInfo {
   return {
     codec: stream.Codec ?? null,
+    profile: stream.Profile ?? null,
     channels: stream.Channels ?? null,
     channelLayout: stream.ChannelLayout ?? null,
     language: stream.Language ?? null,
     bitrate: stream.BitRate ?? null,
+    sampleRate: stream.SampleRate ?? null,
+    bitDepth: stream.BitDepth ?? null,
     displayTitle: stream.DisplayTitle ?? null,
   };
 }

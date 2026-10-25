@@ -34,6 +34,14 @@ export interface JfMediaStream {
   ChannelLayout?: string;
   VideoRange?: string;
   VideoRangeType?: string;
+  /** Codec level as reported by ffprobe, e.g. 153 for HEVC 5.1 or 41 for H.264 4.1. */
+  Level?: number;
+  /** e.g. hvc1, hev1, dvh1. */
+  CodecTag?: string;
+  IsInterlaced?: boolean;
+  RefFrames?: number;
+  DvProfile?: number;
+  SampleRate?: number;
 }
 
 export interface JfMediaSource {

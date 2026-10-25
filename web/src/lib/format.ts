@@ -125,8 +125,36 @@ export function joinParts(parts: Array<string | null | undefined | false>): stri
   return parts.filter(Boolean).join(' · ');
 }
 
+const RANGE_TYPE_LABELS: Record<string, string> = {
+  SDR: 'SDR',
+  HDR10: 'HDR10',
+  HDR10Plus: 'HDR10+',
+  HLG: 'HLG',
+  DOVI: 'Dolby Vision ohne Rückfallebene',
+  DOVIWithHDR10: 'Dolby Vision mit HDR10-Basis',
+  DOVIWithHLG: 'Dolby Vision mit HLG-Basis',
+  DOVIWithSDR: 'Dolby Vision mit SDR-Basis',
+  DOVIWithEL: 'Dolby Vision mit Enhancement Layer',
+  DOVIWithHDR10Plus: 'Dolby Vision mit HDR10+',
+  DOVIWithELHDR10Plus: 'Dolby Vision mit Enhancement Layer und HDR10+',
+  DOVIInvalid: 'Dolby Vision, fehlerhaft konfiguriert',
+};
+
+/**
+ * HDR format of a video. Short: "Dolby Vision P7", "HDR10+" for compact lines;
+ * long: "Dolby Vision Profil 7 mit Enhancement Layer" for explanations.
+ */
+export function videoRangeLabel(video: VideoStreamInfo, form: 'short' | 'long'): string | null {
+  const type = video.videoRangeType;
+  if (!type || type === 'Unknown') return null;
+  if (!type.startsWith('DOVI')) return RANGE_TYPE_LABELS[type] ?? type;
+  if (form === 'short') return video.dvProfile ? `Dolby Vision P${video.dvProfile}` : 'Dolby Vision';
+  const label = RANGE_TYPE_LABELS[type] ?? 'Dolby Vision';
+  return video.dvProfile ? label.replace('Dolby Vision', `Dolby Vision Profil ${video.dvProfile}`) : label;
+}
+
 export function describeVideo(video: VideoStreamInfo): string {
-  const range = video.videoRangeType && video.videoRangeType !== 'SDR' ? video.videoRangeType : null;
+  const range = video.videoRangeType !== 'SDR' ? videoRangeLabel(video, 'short') : null;
   return joinParts([resolutionLabel(video.width, video.height), codecLabel(video.codec), range]);
 }
 

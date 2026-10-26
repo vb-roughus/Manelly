@@ -57,7 +57,7 @@ function ConversionTile({ job, now }: { job: ConversionJob; now: number }) {
       </div>
       <div className="mt-2 text-sm">
         {job.state === 'running' && <ConversionProgress job={job} />}
-        {job.state === 'queued' && <p className="text-ink-2">Wartet, bis die laufende Umwandlung fertig ist.</p>}
+        {job.state === 'queued' && <p className="line-clamp-2 text-ink-2">{job.waitReason ?? 'Wartet, bis die laufende Umwandlung fertig ist.'}</p>}
         {job.state === 'done' && (
           <p className="truncate text-ink-2" title={job.output}>
             {MODE_LABELS[job.mode]} · {fileName(job.output)}

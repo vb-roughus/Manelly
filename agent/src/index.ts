@@ -3,7 +3,9 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dataDirFrom, loadConfig } from './config.js';
+import { createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
+import { createGate, createSettingsStore } from './schedule.js';
 import { createAgentServer } from './server.js';
 import { discoverTools, type Tools } from './tools.js';
 
@@ -38,8 +40,16 @@ async function currentTools(refresh = false): Promise<Tools> {
   return tools;
 }
 
-const queue = await createJobQueue({ dataDir, roots: config.roots, tools: () => currentTools(), log });
-const server = createAgentServer({ token: config.token, roots: config.roots, queue, tools: currentTools });
+const settings = await createSettingsStore(dataDir);
+const queue = await createJobQueue({
+  dataDir,
+  roots: config.roots,
+  tools: () => currentTools(),
+  gate: createGate({ settings: settings.get }),
+  notify: createNotifier(() => settings.get().jellyfin, { log }),
+  log,
+});
+const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, tools: currentTools });
 
 server.on('error', (error: NodeJS.ErrnoException) => {
   log(error.code === 'EADDRINUSE' ? `Port ${config.port} ist schon belegt – läuft der Agent bereits?` : error.message);

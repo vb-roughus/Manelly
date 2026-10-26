@@ -2,15 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ConversionJob, ConversionRequest } from '@manelly/shared';
-import { overallProgress, runConversion, type ConversionContext, type ConversionResult } from './convert.js';
+import { discardTemp, overallProgress, PAUSE, runConversion, type ConversionContext, type ConversionResult } from './convert.js';
 import { AgentError } from './errors.js';
 import { pathApiFor, planOutput, type OutputPlan } from './paths.js';
+import type { GateCheck } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 
 interface StoredJob {
   job: ConversionJob;
   request: ConversionRequest;
   plan: OutputPlan;
+  /** How often the agent stopped while this job ran; guards against a job that keeps crashing it. */
+  restarts?: number;
 }
 
 export interface JobQueueOptions {
@@ -20,16 +23,24 @@ export interface JobQueueOptions {
   run?: (ctx: ConversionContext) => Promise<ConversionResult>;
   /** Free bytes on a volume; injectable for tests. */
   freeBytes?: ConversionContext['freeBytes'];
+  /** Whether scheduled jobs may run now; without it they run like the others. */
+  gate?: (running: boolean) => Promise<GateCheck>;
+  /** How often the gate is checked while scheduled jobs wait or run; 0 checks only on changes (tests). */
+  tickMs?: number;
+  /** Tells Jellyfin about a finished conversion; resolves to whether that worked. */
+  notify?: (job: ConversionJob) => Promise<boolean>;
   now?: () => Date;
   log?: (message: string) => void;
 }
 
 const HISTORY_LIMIT = 50;
 const JOBS_FILE = 'jobs.json';
+const MAX_RESTARTS = 5;
+const OPEN_GATE: GateCheck = { open: true, pause: false, reason: null, streams: null, checkedAt: new Date(0).toISOString() };
 
 /** Runs one conversion at a time and keeps the history in jobs.json. */
 export async function createJobQueue(options: JobQueueOptions) {
-  const { dataDir, roots, tools, run = runConversion, freeBytes, now = () => new Date(), log = () => {} } = options;
+  const { dataDir, roots, tools, run = runConversion, freeBytes, gate = async () => OPEN_GATE, tickMs = 60_000, notify, now = () => new Date(), log = () => {} } = options;
   const file = join(dataDir, JOBS_FILE);
   let entries: StoredJob[] = [];
   try {
@@ -37,14 +48,26 @@ export async function createJobQueue(options: JobQueueOptions) {
   } catch {
     entries = [];
   }
-  // Whatever was running when the agent stopped did not finish.
-  for (const { job } of entries) {
-    if (job.state === 'queued' || job.state === 'running') {
-      Object.assign(job, { state: 'failed', step: null, finishedAt: now().toISOString(), error: 'Der Agent wurde beendet, bevor die Umwandlung fertig war.' });
+  // A restart (like the nightly one) interrupts the running job; it continues after its last finished step.
+  for (const entry of entries) {
+    const { job } = entry;
+    job.scheduled ??= false;
+    job.interruptions ??= 0;
+    if (job.state !== 'running') continue;
+    entry.restarts = (entry.restarts ?? 0) + 1;
+    if (entry.restarts > MAX_RESTARTS) {
+      Object.assign(job, { state: 'failed', step: null, finishedAt: now().toISOString(), error: `Der Agent wurde ${MAX_RESTARTS}-mal mitten in dieser Umwandlung beendet – sie wird nicht mehr fortgesetzt.` });
+      await discardTemp(job.source, entry.plan, job.id);
+    } else {
+      Object.assign(job, { state: 'queued', step: null, progress: null, interruptions: job.interruptions + 1 });
     }
   }
 
-  let current: { id: string; controller: AbortController } | null = null;
+  let current: { entry: StoredJob; controller: AbortController } | null = null;
+  let lastGate: GateCheck | null = null;
+  let checking: Promise<void> | null = null;
+  let again = false;
+  let stopping = false;
   let saving = Promise.resolve();
 
   function save() {
@@ -63,16 +86,65 @@ export async function createJobQueue(options: JobQueueOptions) {
     return entry;
   }
 
+  const waitsForGate = () => entries.some(({ job }) => job.state === 'queued' && job.scheduled) || Boolean(current?.entry.job.scheduled);
+
+  function waitReason(job: ConversionJob): string | null {
+    if (job.state !== 'queued') return null;
+    if (job.scheduled && lastGate && !lastGate.open) return lastGate.reason;
+    if (current) return 'Wartet, bis die laufende Umwandlung fertig ist.';
+    return job.scheduled && !lastGate ? 'Prüft den Zeitplan …' : null;
+  }
+
+  const view = (job: ConversionJob): ConversionJob => ({ ...job, waitReason: waitReason(job) });
+
+  /** Looks at the schedule: starts what may start, pauses a scheduled job when somebody streams. */
+  async function checkOnce() {
+    try {
+      if (waitsForGate()) {
+        lastGate = await gate(Boolean(current?.entry.job.scheduled));
+        if (lastGate.pause && current?.entry.job.scheduled) {
+          log(`Umwandlung pausiert: ${lastGate.reason ?? ''}`);
+          current.controller.abort(PAUSE);
+        }
+      } else {
+        lastGate = null;
+      }
+    } catch (error) {
+      log(`Zeitplan konnte nicht geprüft werden: ${(error as Error).message}`);
+    }
+    void next();
+  }
+
+  function check(): Promise<void> {
+    // A change during a check (a new job, a new schedule) gets a check of its own.
+    if (checking) {
+      again = true;
+      return checking;
+    }
+    checking = (async () => {
+      do {
+        again = false;
+        await checkOnce();
+      } while (again);
+    })().finally(() => {
+      checking = null;
+    });
+    return checking;
+  }
+
+  const timer = tickMs > 0 ? setInterval(() => void check(), tickMs) : null;
+  timer?.unref();
+
   async function next() {
-    if (current) return;
-    const entry = [...entries].reverse().find((candidate) => candidate.job.state === 'queued');
+    if (current || stopping) return;
+    const entry = [...entries].reverse().find(({ job }) => job.state === 'queued' && (!job.scheduled || lastGate?.open));
     if (!entry) return;
     const { job } = entry;
     const controller = new AbortController();
-    current = { id: job.id, controller };
+    current = { entry, controller };
     Object.assign(job, { state: 'running', startedAt: now().toISOString(), step: 'probe', progress: null });
     void save();
-    log(`Umwandlung gestartet: ${job.source}`);
+    log(`Umwandlung ${job.interruptions ? 'fortgesetzt' : 'gestartet'}: ${job.source}`);
     try {
       const result = await run({
         jobId: job.id,
@@ -86,32 +158,49 @@ export async function createJobQueue(options: JobQueueOptions) {
           job.progress = overallProgress(step, fraction);
         },
       });
-      Object.assign(job, { state: 'done', step: null, progress: 1, output: result.output, backup: result.backup, warning: result.warning });
+      Object.assign(job, { state: 'done', step: null, progress: 1, output: result.output, backup: result.backup, warning: result.warning, finishedAt: now().toISOString() });
       log(`Umwandlung fertig: ${result.output}`);
+      if (notify) job.jellyfinNotified = await notify(job).catch(() => false);
     } catch (error) {
-      const canceled = controller.signal.aborted;
-      Object.assign(job, {
-        state: canceled ? 'canceled' : 'failed',
-        error: canceled ? null : (error as Error).message,
-        log: (error as { log?: string | null }).log ?? null,
-      });
-      log(canceled ? `Umwandlung abgebrochen: ${job.source}` : `Umwandlung fehlgeschlagen: ${(error as Error).message}`);
+      if (controller.signal.reason === PAUSE) {
+        // Back into the queue; the temporary files stay for the next run.
+        Object.assign(job, { state: 'queued', step: null, progress: null, interruptions: (job.interruptions ?? 0) + 1 });
+      } else {
+        const canceled = controller.signal.aborted;
+        Object.assign(job, {
+          state: canceled ? 'canceled' : 'failed',
+          error: canceled ? null : (error as Error).message,
+          log: (error as { log?: string | null }).log ?? null,
+          finishedAt: now().toISOString(),
+        });
+        log(canceled ? `Umwandlung abgebrochen: ${job.source}` : `Umwandlung fehlgeschlagen: ${(error as Error).message}`);
+      }
     } finally {
-      job.finishedAt = now().toISOString();
       current = null;
       await save();
       void next();
     }
   }
 
+  // Jobs from before a restart continue.
+  void check();
+
   return {
     list(): ConversionJob[] {
-      return entries.map((entry) => entry.job);
+      return entries.map((entry) => view(entry.job));
     },
 
     get(id: string): ConversionJob {
-      return find(id).job;
+      return view(find(id).job);
     },
+
+    /** The last look at the schedule; null while no scheduled job waits or runs. */
+    gate(): GateCheck | null {
+      return lastGate;
+    },
+
+    /** Looks at the schedule now, e.g. after it changed. */
+    check,
 
     /** Checks the request completely before accepting it, so mistakes show up in Manelly right away. */
     async add(request: ConversionRequest): Promise<ConversionJob> {
@@ -141,22 +230,37 @@ export async function createJobQueue(options: JobQueueOptions) {
         error: null,
         log: null,
         warning: null,
+        scheduled: request.scheduled === true,
+        interruptions: 0,
       };
       entries.unshift({ job, request, plan });
       await save();
+      void (job.scheduled ? check() : next());
+      return view(job);
+    },
+
+    /** Starts a scheduled job without waiting for the schedule. */
+    startNow(id: string): ConversionJob {
+      const { job } = find(id);
+      if (job.state !== 'queued') throw new AgentError(409, 'Diese Umwandlung wartet nicht.');
+      job.scheduled = false;
+      void save();
       void next();
-      return job;
+      return view(job);
     },
 
     cancel(id: string): ConversionJob {
-      const { job } = find(id);
+      const entry = find(id);
+      const { job } = entry;
       if (job.state === 'queued') {
         Object.assign(job, { state: 'canceled', finishedAt: now().toISOString() });
+        // An interrupted job left its temporary files for the next run.
+        if (job.interruptions) void discardTemp(job.source, entry.plan, job.id);
         void save();
-      } else if (job.state === 'running' && current?.id === id) {
+      } else if (job.state === 'running' && current?.entry === entry) {
         current.controller.abort();
       }
-      return job;
+      return view(job);
     },
 
     async remove(id: string): Promise<void> {
@@ -166,9 +270,11 @@ export async function createJobQueue(options: JobQueueOptions) {
       await save();
     },
 
-    /** Stops the running conversion (its temporary files are removed) and waits for the history to be saved. */
+    /** Pauses the running conversion, so it continues after the next start, and waits for the history to be saved. */
     async stop(): Promise<void> {
-      current?.controller.abort();
+      stopping = true;
+      if (timer) clearInterval(timer);
+      current?.controller.abort(PAUSE);
       while (current) await new Promise((resolve) => setTimeout(resolve, 50));
       await saving;
     },

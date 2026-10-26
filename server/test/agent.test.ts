@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentOverview, ConversionJob, ConversionOptions, ConversionRequest } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentOverview, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -24,9 +24,17 @@ const movie = (videoRangeType: string, DvProfile?: number) => ({
   ],
 });
 
-function fakeWorld(options: { videoRangeType?: string; dvProfile?: number } = {}) {
-  const sent: { jobs: ConversionRequest[]; mediaUpdates: unknown[] } = { jobs: [], mediaUpdates: [] };
+function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agentVersion?: string } = {}) {
+  const sent: { jobs: ConversionRequest[]; mediaUpdates: unknown[]; jellyfin: AgentJellyfinAccess[]; schedules: ConversionSchedule[]; started: string[] } = {
+    jobs: [],
+    mediaUpdates: [],
+    jellyfin: [],
+    schedules: [],
+    started: [],
+  };
   const jobs: ConversionJob[] = [];
+  // Agents from 0.2.0 on report their schedule and what Jellyfin they know.
+  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus };
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -34,7 +42,23 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number } = {}
     if (url.host === 'agent.test:8790') {
       if (new Headers(init?.headers).get('authorization') !== `Bearer ${AGENT_TOKEN}`) return Response.json({ error: { message: 'nope' } }, { status: 401 });
       if (url.pathname === '/api/status') {
-        return Response.json({ version: '0.1.0', hostname: 'jellyfin-pc', platform: 'win32', tools: {}, roots: [], ready: true });
+        const version = options.agentVersion ?? '0.2.0';
+        return Response.json({ version, hostname: 'jellyfin-pc', platform: 'win32', tools: {}, roots: [], ready: true, ...(version === '0.1.0' ? {} : { schedule: agent.schedule }) });
+      }
+      if (url.pathname === '/api/jellyfin' && init?.method === 'PUT') {
+        sent.jellyfin.push(body);
+        agent.schedule.jellyfinUrl = body.url;
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname === '/api/schedule' && init?.method === 'PUT') {
+        sent.schedules.push(body);
+        Object.assign(agent.schedule, body);
+        return Response.json(agent.schedule);
+      }
+      const start = url.pathname.match(/^\/api\/jobs\/(\w+)\/start$/);
+      if (start && init?.method === 'POST') {
+        sent.started.push(start[1]!);
+        return Response.json({ ...jobs.find((job) => job.id === start[1]), scheduled: false });
       }
       if (url.pathname === '/api/check') {
         return Response.json({ sourceBytes: 40_000_000_000, directories: body.directories.map((path: string) => ({ path, freeBytes: 500_000_000_000 })) });
@@ -62,7 +86,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number } = {}
     }
     return new Response(null, { status: 404 });
   };
-  return { fetch, sent, jobs };
+  return { fetch, sent, jobs, agent };
 }
 
 async function setup(world = fakeWorld(), saved: AgentSettings | null = { url: 'http://agent.test:8790', token: AGENT_TOKEN }) {
@@ -155,6 +179,50 @@ describe('agent connection', () => {
     await app.inject('/api/agent/jobs');
     await app.inject('/api/agent/jobs');
     expect(world.sent.mediaUpdates).toEqual([{ Updates: [{ Path: 'D:\\Filme\\Pitch Black (2000)\\Pitch Black (2000) - DV P8.mkv', UpdateType: 'Created' }] }]);
+    await app.close();
+  });
+
+  it('hands the Jellyfin connection to the agent once, and again when the agent lost it', async () => {
+    const { app, world } = await setup();
+    await app.inject('/api/agent');
+    await app.inject('/api/agent');
+    expect(world.sent.jellyfin).toEqual([{ url: 'http://jellyfin.test', apiKey: 'key' }]);
+    // E.g. the agent's data folder was deleted.
+    world.agent.schedule.jellyfinUrl = null;
+    await app.inject('/api/agent');
+    expect(world.sent.jellyfin).toHaveLength(2);
+
+    const old = await setup(fakeWorld({ agentVersion: '0.1.0' }));
+    expect((await old.app.inject('/api/agent')).json<AgentOverview>().status?.version).toBe('0.1.0');
+    expect(old.world.sent.jellyfin).toEqual([]);
+  });
+
+  it('saves the schedule on the agent', async () => {
+    const { app, world } = await setup();
+    const invalid = await app.inject({ method: 'PUT', url: '/api/agent/schedule', payload: { window: { start: '1:00', end: '06:00' }, idleOnly: true } });
+    expect(invalid.statusCode).toBe(400);
+    const saved = await app.inject({ method: 'PUT', url: '/api/agent/schedule', payload: { window: { start: '01:00', end: '06:00' }, idleOnly: true } });
+    expect(saved.json<AgentScheduleStatus>()).toMatchObject({ window: { start: '01:00', end: '06:00' }, idleOnly: true, jellyfinUrl: 'http://jellyfin.test' });
+    expect(world.sent.schedules).toEqual([{ window: { start: '01:00', end: '06:00' }, idleOnly: true }]);
+    expect(world.sent.jellyfin).toHaveLength(1);
+  });
+
+  it('queues scheduled conversions and starts them on request', async () => {
+    const { app, world } = await setup();
+    const created = await app.inject({ method: 'POST', url: '/api/agent/jobs', payload: { itemId: 'movie', output: { mode: 'alongside' }, scheduled: true } });
+    expect(created.statusCode).toBe(201);
+    expect(world.sent.jobs[0]).toMatchObject({ scheduled: true });
+    const started = await app.inject({ method: 'POST', url: '/api/agent/jobs/job1/start' });
+    expect(started.json<ConversionJob>()).toMatchObject({ id: 'job1', scheduled: false });
+    expect(world.sent.started).toEqual(['job1']);
+  });
+
+  it('leaves telling Jellyfin to agents that did it themselves', async () => {
+    const { app, world } = await setup();
+    await app.inject({ method: 'POST', url: '/api/agent/jobs', payload: { itemId: 'movie', output: { mode: 'alongside' } } });
+    Object.assign(world.jobs[0]!, { state: 'done', jellyfinNotified: true });
+    await app.inject('/api/agent/jobs');
+    expect(world.sent.mediaUpdates).toEqual([]);
     await app.close();
   });
 });

@@ -3,8 +3,10 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentStatus, ConversionJob } from '@manelly/shared';
-import { createJobQueue } from '../src/jobs.js';
+import type { AgentScheduleStatus, AgentStatus, ConversionJob } from '@manelly/shared';
+import { createNotifier } from '../src/jellyfin.js';
+import { createJobQueue, type JobQueue } from '../src/jobs.js';
+import { createGate, createSettingsStore } from '../src/schedule.js';
 import { createAgentServer } from '../src/server.js';
 import { discoverTools, type Tools } from '../src/tools.js';
 
@@ -43,7 +45,9 @@ async function createFakeTools(dir: string): Promise<Tools> {
   await mkdir(dir, { recursive: true });
   for (const [name, body] of Object.entries(FAKES)) {
     const file = path.join(dir, name);
-    await writeFile(file, `#!/usr/bin/env node\nconst fs = require('node:fs');\n${body}\n`);
+    // Only real work, not the version checks of the tool discovery.
+    const record = `if (process.env.FAKE_CALLS && process.argv.length > 3) fs.appendFileSync(process.env.FAKE_CALLS, '${name}\\n');`;
+    await writeFile(file, `#!/usr/bin/env node\nconst fs = require('node:fs');\n${record}\n${body}\n`);
     await chmod(file, 0o755);
   }
   return discoverTools({ agentDir: dir, platform: 'linux', env: { PATH: dir } });
@@ -55,11 +59,37 @@ let source: string;
 let baseUrl: string;
 let close: () => Promise<void>;
 let free = Number.MAX_SAFE_INTEGER;
+let tools: Tools;
+let queue: JobQueue;
+
+// Jellyfin as the agent sees it: a number of streams, and the calls it received.
+let streams = 0;
+let jellyfinCalls: string[] = [];
+const fakeJellyfin: typeof fetch = async (input, init) => {
+  const url = new URL(String(input));
+  jellyfinCalls.push(`${init?.method ?? 'GET'} ${url.pathname}`);
+  if (url.pathname === '/Sessions') {
+    // Idle sessions (an open app, Manelly itself) have no NowPlayingItem.
+    return Response.json([{ DeviceName: 'Manelly' }, ...Array.from({ length: streams }, () => ({ NowPlayingItem: { Name: 'Film' } }))]);
+  }
+  return new Response(null, { status: 204 });
+};
+let clock = new Date(2026, 9, 26, 2, 0);
 
 async function start() {
-  const tools = await createFakeTools(path.join(root, 'bin'));
-  const queue = await createJobQueue({ dataDir: path.join(root, 'data'), roots: [], tools: async () => tools, freeBytes: async () => free });
-  const server = createAgentServer({ token: TOKEN, roots: [], queue, tools: async () => tools, freeBytes: async () => free });
+  tools = await createFakeTools(path.join(root, 'bin'));
+  const dataDir = path.join(root, 'data');
+  const settings = await createSettingsStore(dataDir);
+  queue = await createJobQueue({
+    dataDir,
+    roots: [],
+    tools: async () => tools,
+    freeBytes: async () => free,
+    gate: createGate({ settings: settings.get, fetch: fakeJellyfin, now: () => clock, quietMs: 0 }),
+    tickMs: 0,
+    notify: createNotifier(() => settings.get().jellyfin, { fetch: fakeJellyfin }),
+  });
+  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, tools: async () => tools, freeBytes: async () => free });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
@@ -89,7 +119,11 @@ beforeEach(async () => {
   source = path.join(media, 'Film (2000).mkv');
   await writeFile(source, 'original');
   free = Number.MAX_SAFE_INTEGER;
+  streams = 0;
+  jellyfinCalls = [];
+  clock = new Date(2026, 9, 26, 2, 0);
   process.env.FAKE_LOG = path.join(root, 'mkvmerge-args.json');
+  process.env.FAKE_CALLS = path.join(root, 'calls.txt');
   delete process.env.FAKE_DOVI_FAIL;
   delete process.env.FAKE_DOVI_SLEEP;
   delete process.env.FAKE_NO_DV;
@@ -177,12 +211,125 @@ describe('agent', () => {
     expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }] });
   });
 
-  it('marks conversions that were running when the agent stopped as failed', async () => {
+});
+
+const post = (pathname: string, body?: unknown) => call(pathname, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
+const put = (pathname: string, body: unknown) => call(pathname, { method: 'PUT', body: JSON.stringify(body) });
+const toolCalls = async () => (await readFile(process.env.FAKE_CALLS!, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+
+describe('schedule', () => {
+  beforeEach(async () => {
+    expect((await put('/api/jellyfin', { url: 'http://jellyfin:8096/', apiKey: 'key' })).status).toBe(204);
+    expect((await put('/api/schedule', { window: { start: '01:00', end: '06:00' }, idleOnly: true })).status).toBe(200);
+  });
+
+  it('starts scheduled conversions only within the window and while nobody streams', async () => {
+    clock = new Date(2026, 9, 26, 12, 0);
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, scheduled: true })).json()) as ConversionJob;
+    expect(created).toMatchObject({ state: 'queued', scheduled: true });
+    await queue.check();
+    expect((await waitFor(created.id, () => true)).waitReason).toBe('Wartet auf das Zeitfenster 01:00–06:00.');
+    // Outside the window, Jellyfin is left alone.
+    expect(jellyfinCalls).toEqual([]);
+
+    clock = new Date(2026, 9, 26, 2, 0);
+    streams = 2;
+    await queue.check();
+    expect((await waitFor(created.id, () => true)).waitReason).toBe('Wartet, bis die 2 laufenden Streams enden.');
+    const status = (await (await call('/api/status')).json()) as AgentStatus;
+    expect(status.schedule).toMatchObject({ idleOnly: true, jellyfinUrl: 'http://jellyfin:8096', gate: { open: false, streams: 2 } });
+
+    streams = 0;
+    await queue.check();
+    const job = await waitFor(created.id, finished);
+    expect(job).toMatchObject({ state: 'done', interruptions: 0, jellyfinNotified: true });
+    expect(jellyfinCalls).toContain('POST /Library/Media/Updated');
+  });
+
+  it('pauses when a stream begins and continues after the last finished step', async () => {
+    process.env.FAKE_DOVI_SLEEP = '5000';
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, scheduled: true })).json()) as ConversionJob;
+    await waitFor(created.id, (job) => job.step === 'convert');
+
+    streams = 1;
+    await queue.check();
+    const paused = await waitFor(created.id, (job) => job.state === 'queued');
+    expect(paused).toMatchObject({ interruptions: 1, waitReason: 'Wartet, bis der laufende Stream endet.' });
+    // The extracted video waits in the temporary folder.
+    const temp = path.join(media, `.manelly-tmp-${created.id}`);
+    expect((await readdir(temp)).sort()).toEqual(['.ignore', 'checkpoint.json', 'video.hevc']);
+
+    delete process.env.FAKE_DOVI_SLEEP;
+    streams = 0;
+    await queue.check();
+    const job = await waitFor(created.id, finished);
+    expect(job.state).toBe('done');
+    // The video was extracted only once; dovi_tool ran again (the first run may have been stopped before it got going).
+    expect((await toolCalls()).filter((tool) => tool !== 'dovi_tool')).toEqual(['ffprobe', 'ffmpeg', 'mkvmerge']);
+    expect((await readdir(media)).sort()).toEqual(['Film (2000) - DV P8.mkv', 'Film (2000).mkv']);
+  });
+
+  it('starts a waiting conversion right away on request', async () => {
+    clock = new Date(2026, 9, 26, 12, 0);
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, scheduled: true })).json()) as ConversionJob;
+    const started = (await (await post(`/api/jobs/${created.id}/start`)).json()) as ConversionJob;
+    expect(started.scheduled).toBe(false);
+    expect((await waitFor(created.id, finished)).state).toBe('done');
+  });
+
+  it('waits when Jellyfin is out of reach', async () => {
+    expect((await put('/api/jellyfin', { url: 'http://unreachable:8096', apiKey: 'key' })).status).toBe(204);
+    const settings = await createSettingsStore(path.join(root, 'data'));
+    const gate = createGate({ settings: settings.get, fetch: async () => Promise.reject(new TypeError('fetch failed', { cause: new Error('ENOTFOUND') })), now: () => clock });
+    expect(await gate(false)).toMatchObject({ open: false, pause: false, reason: 'Jellyfin ist unter http://unreachable:8096 nicht erreichbar (ENOTFOUND). Ohne Blick auf die Streams startet keine Umwandlung.' });
+  });
+
+  it('checks the schedule it is given', async () => {
+    expect((await put('/api/schedule', { window: { start: '25:00', end: '06:00' }, idleOnly: true })).status).toBe(400);
+    expect((await put('/api/schedule', { window: { start: '06:00', end: '06:00' }, idleOnly: false })).status).toBe(400);
+    expect((await put('/api/jellyfin', { url: 'ftp://x', apiKey: 'key' })).status).toBe(400);
+    const saved = (await (await put('/api/schedule', { window: null, idleOnly: false })).json()) as AgentScheduleStatus;
+    expect(saved).toMatchObject({ window: null, idleOnly: false, jellyfinUrl: 'http://jellyfin:8096' });
+  });
+});
+
+describe('restart', () => {
+  it('continues a conversion that a restart interrupted', async () => {
+    // A restart during the mux step: the converted video and the checkpoint are there.
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, scheduled: true })).json()) as ConversionJob;
+    await close();
+    const dataDir = path.join(root, 'data');
+    const stored = JSON.parse(await readFile(path.join(dataDir, 'jobs.json'), 'utf8')) as Array<{ job: ConversionJob }>;
+    const job = stored[0]!.job;
+    // The job in the file may already be done; make it look like the restart came during muxing.
+    Object.assign(job, { state: 'running', step: 'mux', progress: 0.8, finishedAt: null, interruptions: 0, output: path.join(media, 'Film (2000) - DV P8.mkv') });
+    await writeFile(path.join(dataDir, 'jobs.json'), JSON.stringify(stored));
+    await rm(job.output, { force: true });
+    const temp = path.join(media, `.manelly-tmp-${created.id}`);
+    await mkdir(temp, { recursive: true });
+    await writeFile(path.join(temp, 'video_p8.hevc'), 'converted');
+    await writeFile(path.join(temp, 'checkpoint.json'), JSON.stringify({ done: 'convert', info: { durationMs: 4000, frameRate: '24000/1001', hasDolbyVision: true } }));
+    await rm(process.env.FAKE_CALLS!, { force: true });
+
+    const restarted = await createJobQueue({ dataDir, roots: [], tools: async () => tools, tickMs: 0 });
+    try {
+      for (let attempt = 0; attempt < 200 && restarted.get(created.id).state !== 'done'; attempt++) await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(restarted.get(created.id)).toMatchObject({ state: 'done', interruptions: 1 });
+      expect(await toolCalls()).toEqual(['mkvmerge']);
+      expect(await readFile(job.output, 'utf8')).toBe('converted');
+      expect(await readdir(media)).not.toContain(`.manelly-tmp-${created.id}`);
+    } finally {
+      await restarted.stop();
+    }
+  });
+
+  it('gives up on a conversion after repeated restarts', async () => {
     const dataDir = path.join(root, 'restart');
     await mkdir(dataDir);
     const job = { id: 'j1', title: 'Film', source, mode: 'alongside', output: 'x', backup: null, state: 'running', step: 'convert', progress: 0.5 };
-    await writeFile(path.join(dataDir, 'jobs.json'), JSON.stringify([{ job, request: {}, plan: {} }]));
-    const queue = await createJobQueue({ dataDir, roots: [], tools: async () => (await discoverTools({ agentDir: root })) });
-    expect(queue.list()[0]).toMatchObject({ state: 'failed', error: 'Der Agent wurde beendet, bevor die Umwandlung fertig war.' });
+    await writeFile(path.join(dataDir, 'jobs.json'), JSON.stringify([{ job, request: {}, plan: { directory: media }, restarts: 5 }]));
+    const restarted = await createJobQueue({ dataDir, roots: [], tools: async () => tools, tickMs: 0 });
+    expect(restarted.list()[0]).toMatchObject({ state: 'failed', error: 'Der Agent wurde 5-mal mitten in dieser Umwandlung beendet – sie wird nicht mehr fortgesetzt.' });
+    await restarted.stop();
   });
 });

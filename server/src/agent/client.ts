@@ -1,9 +1,12 @@
 import type {
   AgentCheckRequest,
   AgentCheckResponse,
+  AgentJellyfinAccess,
+  AgentScheduleStatus,
   AgentStatus,
   ConversionJob,
   ConversionRequest,
+  ConversionSchedule,
   HardwareTestRequest,
   HardwareTestResult,
 } from '@manelly/shared';
@@ -22,8 +25,13 @@ export interface AgentClient {
   listJobs(): Promise<ConversionJob[]>;
   createJob(request: ConversionRequest): Promise<ConversionJob>;
   cancelJob(id: string): Promise<ConversionJob>;
+  /** Starts a scheduled conversion without waiting for the schedule. */
+  startJob(id: string): Promise<ConversionJob>;
   removeJob(id: string): Promise<void>;
   testHardware(request: HardwareTestRequest): Promise<HardwareTestResult>;
+  setSchedule(schedule: ConversionSchedule): Promise<AgentScheduleStatus>;
+  /** Lets the agent see streams and report new files to Jellyfin. */
+  setJellyfin(access: AgentJellyfinAccess): Promise<void>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -66,8 +74,11 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     listJobs: () => call('GET', '/api/jobs'),
     createJob: (request) => call('POST', '/api/jobs', request),
     cancelJob: (id) => call('POST', `/api/jobs/${encodeURIComponent(id)}/cancel`),
+    startJob: (id) => call('POST', `/api/jobs/${encodeURIComponent(id)}/start`),
     removeJob: (id) => call('DELETE', `/api/jobs/${encodeURIComponent(id)}`),
     // Several short FFmpeg runs; each may take up to a minute on a struggling machine.
     testHardware: (request) => call('POST', '/api/hwtest', request, 5 * 60_000),
+    setSchedule: (schedule) => call('PUT', '/api/schedule', schedule),
+    setJellyfin: (access) => call('PUT', '/api/jellyfin', access),
   };
 }

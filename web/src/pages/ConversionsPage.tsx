@@ -1,10 +1,11 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { ConversionJob } from '@manelly/shared';
-import { Ban, Trash2, TriangleAlert } from 'lucide-react';
+import { Ban, Clock, Play, RotateCcw, Trash2, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge } from '../components/ConversionStatus';
-import { useAgent, useCancelConversion, useConversions, useRemoveConversion } from '../hooks/queries';
+import { SchedulePanel } from '../components/SchedulePanel';
+import { useAgent, useCancelConversion, useConversions, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
 import { formatAgo } from '../lib/format';
 
 export function ConversionsPage() {
@@ -49,6 +50,17 @@ export function ConversionsPage() {
           </Panel>
         )}
 
+        {agent.data?.status &&
+          (agent.data.status.schedule ? (
+            <SchedulePanel schedule={agent.data.status.schedule} />
+          ) : (
+            <Panel>
+              Der Agent auf {agent.data.status.hostname} ist zu alt für Zeitplan und Fortsetzen nach einem Neustart (Version{' '}
+              {agent.data.status.version}). Auf dem Jellyfin-Server <code>git pull</code> und <code>scripts\start-agent.cmd -Install</code>{' '}
+              ausführen.
+            </Panel>
+          ))}
+
         {configured && (
           <Panel>
             <p className="text-sm text-ink-2">
@@ -72,6 +84,7 @@ export function ConversionsPage() {
 function JobCard({ job }: { job: ConversionJob }) {
   const cancel = useCancelConversion();
   const remove = useRemoveConversion();
+  const startNow = useStartConversionNow();
   const active = isActive(job);
 
   return (
@@ -80,11 +93,16 @@ function JobCard({ job }: { job: ConversionJob }) {
         <div className="min-w-0">
           <h2 className="font-semibold">{job.title}</h2>
           <p className="text-xs text-ink-3">
-            {MODE_LABELS[job.mode]} · gestartet {formatAgo(Date.parse(job.createdAt), Date.now())}
+            {MODE_LABELS[job.mode]} · {job.scheduled ? 'eingeplant' : 'gestartet'} {formatAgo(Date.parse(job.createdAt), Date.now())}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <StateBadge job={job} />
+          {job.state === 'queued' && job.scheduled && (
+            <button type="button" onClick={() => startNow.mutate(job.id)} disabled={startNow.isPending} className={smallButton} title="Ohne auf den Zeitplan zu warten">
+              <Play className="size-3.5" aria-hidden /> Jetzt starten
+            </button>
+          )}
           {active ? (
             <button type="button" onClick={() => cancel.mutate(job.id)} disabled={cancel.isPending} className={smallButton}>
               <Ban className="size-3.5" aria-hidden /> Abbrechen
@@ -102,6 +120,19 @@ function JobCard({ job }: { job: ConversionJob }) {
           <ConversionProgress job={job} />
         </div>
       )}
+      {job.state === 'queued' && (
+        <p className="mt-3 flex gap-2 text-sm text-ink-2">
+          <Clock className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {job.waitReason ?? 'Wartet, bis die laufende Umwandlung fertig ist.'}
+        </p>
+      )}
+      {isActive(job) && Boolean(job.interruptions) && (
+        <p className="mt-1 flex gap-2 text-xs text-ink-3">
+          <RotateCcw className="mt-px size-3.5 shrink-0" aria-hidden />
+          {job.interruptions === 1 ? 'Einmal' : `${job.interruptions}-mal`} unterbrochen (Stream oder Neustart) – macht beim zuletzt fertigen Schritt weiter.
+        </p>
+      )}
+      {startNow.isError && <p className="mt-2 text-sm text-critical">{startNow.error.message}</p>}
 
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
         <dt className="text-ink-3">Quelle</dt>

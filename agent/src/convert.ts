@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, rename, rm, rmdir, stat, statfs, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, rmdir, stat, statfs, unlink, writeFile } from 'node:fs/promises';
 import { constants as osConstants, setPriority } from 'node:os';
 import type { ConversionRequest, ConversionStep } from '@manelly/shared';
 import { AgentError } from './errors.js';
@@ -33,6 +33,12 @@ const STEP_SPAN: Record<ConversionStep, [number, number]> = {
 };
 // Peak usage: the extracted and the converted video stream exist side by side.
 const SPACE_FACTOR = 2.1;
+/** Abort reason for a pause: the temporary files stay, and the next run continues after the last finished step. */
+export const PAUSE = 'manelly:pause';
+
+export function tempFolderFor(source: string, plan: OutputPlan, jobId: string): string {
+  return pathApiFor(source).join(plan.directory, `${TEMP_FOLDER_PREFIX}${jobId}`);
+}
 
 export function overallProgress(step: ConversionStep, fraction: number | null): number | null {
   if (fraction === null) return null;
@@ -149,7 +155,31 @@ export function frameRateFromNumber(rate: number | null): string | null {
   return Number.isInteger(Math.round(rate * 1000) / 1000) ? `${Math.round(rate)}/1` : null;
 }
 
-/** Turns a Dolby Vision profile 7 file into profile 8.1: extract the video, convert the RPU, mux it back with all other tracks. */
+/** Written to the temporary folder after each finished step, so a pause or a restart does not start over. */
+interface Checkpoint {
+  done: 'extract' | 'convert';
+  info: Probe;
+}
+
+async function readCheckpoint(file: string, outputs: Record<Checkpoint['done'], string>): Promise<Checkpoint | null> {
+  try {
+    const checkpoint = JSON.parse(await readFile(file, 'utf8')) as Checkpoint;
+    if (!(checkpoint.done in outputs) || typeof checkpoint.info !== 'object' || !checkpoint.info) return null;
+    return (await exists(outputs[checkpoint.done])) ? checkpoint : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCheckpoint(file: string, checkpoint: Checkpoint): Promise<void> {
+  await writeFile(`${file}.tmp`, JSON.stringify(checkpoint));
+  await rename(`${file}.tmp`, file);
+}
+
+/**
+ * Turns a Dolby Vision profile 7 file into profile 8.1: extract the video, convert the RPU, mux it back with all other tracks.
+ * Aborted with PAUSE, it keeps its temporary files and continues there next time.
+ */
 export async function runConversion(ctx: ConversionContext): Promise<ConversionResult> {
   const { request, plan, tools, signal } = ctx;
   const api = pathApiFor(request.source);
@@ -157,57 +187,74 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
     throw new AgentError(503, 'Es fehlen Werkzeuge (ffmpeg, dovi_tool oder mkvmerge) – siehe Agent-Status in Manelly.');
   }
 
-  const sourceBytes = (await stat(request.source)).size;
-  if (plan.createDirectory) await mkdir(plan.directory);
-  const free = await (ctx.freeBytes ?? defaultFreeBytes)(plan.directory);
-  const required = Math.ceil(sourceBytes * SPACE_FACTOR);
-  if (free !== null && free < required) {
-    if (plan.createDirectory) await rmdir(plan.directory).catch(() => {});
-    throw new AgentError(507, `Zu wenig Speicherplatz in ${plan.directory}: frei ${formatBytes(free)}, nötig etwa ${formatBytes(required)}.`);
-  }
-
-  const temp = api.join(plan.directory, `${TEMP_FOLDER_PREFIX}${ctx.jobId}`);
+  const temp = tempFolderFor(request.source, plan, ctx.jobId);
   const video = api.join(temp, 'video.hevc');
   const converted = api.join(temp, 'video_p8.hevc');
   const muxed = api.join(temp, 'output.mkv');
+  const checkpointFile = api.join(temp, 'checkpoint.json');
+
+  const sourceBytes = (await stat(request.source)).size;
+  const resumed = await readCheckpoint(checkpointFile, { extract: video, convert: converted });
+  if (!resumed) {
+    if (plan.createDirectory) await mkdir(plan.directory, { recursive: true });
+    const free = await (ctx.freeBytes ?? defaultFreeBytes)(plan.directory);
+    const required = Math.ceil(sourceBytes * SPACE_FACTOR);
+    if (free !== null && free < required) {
+      if (plan.createDirectory) await rmdir(plan.directory).catch(() => {});
+      throw new AgentError(507, `Zu wenig Speicherplatz in ${plan.directory}: frei ${formatBytes(free)}, nötig etwa ${formatBytes(required)}.`);
+    }
+  }
 
   try {
-    await mkdir(temp);
-    // Jellyfin skips dot folders anyway; .ignore also covers its real-time monitor.
-    await writeFile(api.join(temp, '.ignore'), '');
+    let info: Probe;
+    if (resumed) {
+      info = resumed.info;
+    } else {
+      // Leftovers of a run that did not get far enough for a checkpoint.
+      await rm(temp, { recursive: true, force: true });
+      await mkdir(temp);
+      // Jellyfin skips dot folders anyway; .ignore also covers its real-time monitor.
+      await writeFile(api.join(temp, '.ignore'), '');
 
-    ctx.onProgress('probe', null);
-    const info = await probe(ctx);
-    if (info.hasDolbyVision === false) throw new AgentError(422, 'Die Datei enthält kein Dolby Vision.');
+      ctx.onProgress('probe', null);
+      info = await probe(ctx);
+      if (info.hasDolbyVision === false) throw new AgentError(422, 'Die Datei enthält kein Dolby Vision.');
 
-    ctx.onProgress('extract', info.durationMs ? 0 : null);
-    await runTool({
-      tool: tools.ffmpeg.path,
-      label: 'ffmpeg',
-      args: ['-hide_banner', '-nostdin', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', request.source, '-map', '0:v:0', '-c:v', 'copy', '-bsf:v', 'hevc_mp4toannexb', '-f', 'hevc', video],
-      signal,
-      onLine: (line) => {
-        const match = line.match(/^out_time_us=(\d+)/);
-        if (match && info.durationMs) ctx.onProgress('extract', Number(match[1]) / 1000 / info.durationMs);
-      },
-    });
-
-    ctx.onProgress('convert', 0);
-    const videoBytes = (await stat(video)).size;
-    const watch = setInterval(() => {
-      stat(converted).then(
-        (current) => ctx.onProgress('convert', videoBytes ? current.size / videoBytes : null),
-        () => {},
-      );
-    }, 1000);
-    try {
-      await runTool({ tool: tools.doviTool.path, label: 'dovi_tool', args: ['-m', '2', 'convert', '--discard', video, '-o', converted], signal });
-    } finally {
-      clearInterval(watch);
+      ctx.onProgress('extract', info.durationMs ? 0 : null);
+      await runTool({
+        tool: tools.ffmpeg.path,
+        label: 'ffmpeg',
+        args: ['-hide_banner', '-nostdin', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', request.source, '-map', '0:v:0', '-c:v', 'copy', '-bsf:v', 'hevc_mp4toannexb', '-f', 'hevc', video],
+        signal,
+        onLine: (line) => {
+          const match = line.match(/^out_time_us=(\d+)/);
+          if (match && info.durationMs) ctx.onProgress('extract', Number(match[1]) / 1000 / info.durationMs);
+        },
+      });
+      await writeCheckpoint(checkpointFile, { done: 'extract', info });
     }
-    await unlink(video);
+
+    if (resumed?.done !== 'convert') {
+      ctx.onProgress('convert', 0);
+      await rm(converted, { force: true });
+      const videoBytes = (await stat(video)).size;
+      const watch = setInterval(() => {
+        stat(converted).then(
+          (current) => ctx.onProgress('convert', videoBytes ? current.size / videoBytes : null),
+          () => {},
+        );
+      }, 1000);
+      try {
+        await runTool({ tool: tools.doviTool.path, label: 'dovi_tool', args: ['-m', '2', 'convert', '--discard', video, '-o', converted], signal });
+      } finally {
+        clearInterval(watch);
+      }
+      await writeCheckpoint(checkpointFile, { done: 'convert', info });
+      await unlink(video);
+    }
 
     ctx.onProgress('mux', 0);
+    await rm(muxed, { force: true });
     await runTool({
       tool: tools.mkvmerge.path,
       label: 'mkvmerge',
@@ -235,10 +282,15 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
     await rm(temp, { recursive: true, force: true });
     return { ...result, warning: result.warning ?? (info.frameRate ? null : 'Die Bildrate war unbekannt; mkvmerge hat sie aus dem Video übernommen.') };
   } catch (error) {
-    await rm(temp, { recursive: true, force: true }).catch(() => {});
-    if (plan.createDirectory) await rmdir(plan.directory).catch(() => {});
+    if (!(signal.aborted && signal.reason === PAUSE)) await discardTemp(request.source, plan, ctx.jobId);
     throw error;
   }
+}
+
+/** Removes the temporary files of a conversion, and the folder it created for it if that is empty now. */
+export async function discardTemp(source: string, plan: OutputPlan, jobId: string): Promise<void> {
+  await rm(tempFolderFor(source, plan, jobId), { recursive: true, force: true }).catch(() => {});
+  if (plan.createDirectory) await rmdir(plan.directory).catch(() => {});
 }
 
 async function exists(file: string): Promise<boolean> {

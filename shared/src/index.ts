@@ -612,6 +612,8 @@ export interface ConversionRequest {
   title?: string;
   /** From Jellyfin; the agent prefers what ffprobe reads from the file. */
   hints?: { durationMs?: number | null; frameRate?: number | null };
+  /** Wait for the agent's schedule (time window, nobody streaming) instead of starting right away. */
+  scheduled?: boolean;
 }
 
 export type ConversionJobState = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
@@ -638,6 +640,55 @@ export interface ConversionJob {
   log: string | null;
   /** Finished, but differently than asked, e.g. the original could not be replaced. */
   warning: string | null;
+  // The following fields are missing on agents before 0.2.0.
+  /** Waits for the agent's schedule; false once started by hand. */
+  scheduled?: boolean;
+  /** Why a queued conversion does not start yet. */
+  waitReason?: string | null;
+  /** How often a stream or a restart interrupted it; it continues after the last finished step. */
+  interruptions?: number;
+  /** The agent told Jellyfin about the new file itself. */
+  jellyfinNotified?: boolean;
+}
+
+/** "HH:MM" in the time zone of the agent (the Jellyfin server); may span midnight. */
+export interface ConversionWindow {
+  start: string;
+  end: string;
+}
+
+/** When scheduled conversions may run. */
+export interface ConversionSchedule {
+  /** Start only within this window; null means any time. */
+  window: ConversionWindow | null;
+  /** Start only while nobody streams, and pause when a stream begins. */
+  idleOnly: boolean;
+}
+
+/** The agent's last look at the schedule. */
+export interface ConversionGate {
+  /** Scheduled conversions may start. */
+  open: boolean;
+  /** Why they wait; null when open. */
+  reason: string | null;
+  /** Streams on Jellyfin; null when not checked. */
+  streams: number | null;
+  checkedAt: string;
+}
+
+export interface AgentScheduleStatus extends ConversionSchedule {
+  /** Jellyfin as Manelly handed it to the agent; null until then. */
+  jellyfinUrl: string | null;
+  /** Null while no scheduled conversion waits or runs. */
+  gate: ConversionGate | null;
+  /** The agent's time zone, which the window refers to. */
+  timeZone: string;
+}
+
+/** PUT /api/jellyfin on the agent: Manelly's Jellyfin connection, to see streams and report new files. */
+export interface AgentJellyfinAccess {
+  url: string;
+  apiKey: string;
 }
 
 export interface AgentTool {
@@ -655,6 +706,8 @@ export interface AgentStatus {
   roots: string[];
   /** Whether everything needed for a conversion is installed. */
   ready: boolean;
+  /** Missing on agents before 0.2.0. */
+  schedule?: AgentScheduleStatus;
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */
@@ -707,6 +760,7 @@ export interface StartConversionRequest {
   itemId: string;
   mediaSourceId?: string;
   output: ConversionRequest['output'];
+  scheduled?: boolean;
 }
 
 // --- Server: transcoding ------------------------------------------------------

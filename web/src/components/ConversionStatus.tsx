@@ -1,0 +1,57 @@
+import type { ConversionJob, ConversionStep } from '@manelly/shared';
+import { Ban, CircleCheck, CircleX, Clock, LoaderCircle } from 'lucide-react';
+import clsx from 'clsx';
+
+export const STEP_LABELS: Record<ConversionStep, string> = {
+  probe: 'Datei prüfen',
+  extract: 'Videospur herauslösen',
+  convert: 'Dolby Vision umwandeln',
+  mux: 'Datei zusammensetzen',
+  finalize: 'Datei an ihren Platz verschieben',
+};
+
+export const MODE_LABELS: Record<ConversionJob['mode'], string> = {
+  alongside: 'Neben dem Original',
+  replace: 'Original ersetzt',
+  folder: 'Anderer Ordner',
+};
+
+export const isActive = (job: ConversionJob) => job.state === 'queued' || job.state === 'running';
+
+const STATES = {
+  queued: { icon: Clock, label: 'Wartet', className: 'text-ink-2' },
+  running: { icon: LoaderCircle, label: 'Läuft', className: 'text-accent' },
+  done: { icon: CircleCheck, label: 'Fertig', className: 'text-good' },
+  failed: { icon: CircleX, label: 'Fehlgeschlagen', className: 'text-critical' },
+  canceled: { icon: Ban, label: 'Abgebrochen', className: 'text-ink-2' },
+} as const;
+
+export function StateBadge({ job }: { job: ConversionJob }) {
+  const meta = STATES[job.state];
+  const Icon = meta.icon;
+  return (
+    <span className={clsx('inline-flex shrink-0 items-center gap-1 text-xs font-medium', meta.className)}>
+      <Icon className={clsx('size-3.5', job.state === 'running' && 'animate-spin')} aria-hidden />
+      {meta.label}
+    </span>
+  );
+}
+
+/** Current step and overall progress of a running conversion. */
+export function ConversionProgress({ job }: { job: ConversionJob }) {
+  const percent = job.progress !== null ? Math.round(job.progress * 100) : null;
+  return (
+    <div>
+      <div className="flex justify-between gap-2 text-xs text-ink-2">
+        <span className="truncate">{job.step ? STEP_LABELS[job.step] : 'Startet …'}</span>
+        {percent !== null && <span className="tabular-nums">{percent} %</span>}
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-card-2" role="progressbar" aria-label="Fortschritt" aria-valuenow={percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
+        <div
+          className={clsx('bg-brand h-full rounded-full transition-[width] duration-700', percent === null && 'w-1/3 animate-pulse')}
+          style={percent !== null ? { width: `${percent}%` } : undefined}
+        />
+      </div>
+    </div>
+  );
+}

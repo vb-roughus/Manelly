@@ -19,16 +19,17 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   const watcher = createConversionWatcher({ agent, jellyfin: () => connection.client, store, log: (message) => app.log.warn(message) });
   app.addHook('onClose', async () => watcher.stop());
 
-  async function overview(): Promise<AgentOverview> {
+  async function overview(refresh = false): Promise<AgentOverview> {
     if (!agent.client) return { configured: false, status: null, error: null };
     try {
-      return { configured: true, status: await agent.client.status(), error: null };
+      return { configured: true, status: await agent.client.status(refresh), error: null };
     } catch (error) {
       return { configured: true, status: null, error: (error as Error).message };
     }
   }
 
-  app.get('/', overview);
+  // ?refresh=1 (settings page) looks for newly installed tools; the regular polling does not.
+  app.get<{ Querystring: { refresh?: string } }>('/', async (request) => overview(request.query.refresh === '1'));
 
   app.get('/settings', async (): Promise<AgentSettingsView> => ({ url: agent.settings?.url ?? null, hasToken: Boolean(agent.settings?.token) }));
 
@@ -49,7 +50,7 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
       const token = request.body.token?.trim() || agent.settings?.token;
       if (!token) throw new AppError('BAD_REQUEST', 'Bitte gib den Agent-Schlüssel ein – der Agent zeigt ihn beim Start an.');
       // Only settings that actually reach the agent are saved.
-      await agent.createClient({ url, token }).status();
+      await agent.createClient({ url, token }).status(true);
       await agent.save({ url, token });
       request.log.info(`Agent eingerichtet: ${url}`);
       return overview();

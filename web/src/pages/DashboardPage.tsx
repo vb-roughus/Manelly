@@ -9,7 +9,7 @@ import { StreamCard } from '../components/StreamCard';
 import { isConfigured, SESSIONS_REFRESH_MS, useSessions, useSettings } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { useStickyError } from '../hooks/useStickyError';
-import { formatAgo, formatBitrate } from '../lib/format';
+import { formatAgo, formatBitrate, joinParts } from '../lib/format';
 
 export function DashboardPage() {
   const settings = useSettings();
@@ -77,9 +77,19 @@ function UpdatedAgo({ timestamp }: { timestamp: number }) {
   return <span className="hidden tabular-nums sm:inline">Stand: {formatAgo(timestamp, now)}</span>;
 }
 
+/** "rolf (2), Anna" – who is streaming right now, in the order of the stream cards. */
+function streamingUsers(data: SessionsResponse): string | null {
+  const counts = new Map<string, number>();
+  for (const session of data.sessions) counts.set(session.user.name, (counts.get(session.user.name) ?? 0) + 1);
+  if (counts.size === 0) return null;
+  return [...counts].map(([name, count]) => (count > 1 ? `${name} (${count})` : name)).join(', ');
+}
+
 function Summary({ data }: { data: SessionsResponse }) {
   const { summary, idleSessions } = data;
   const softwareTranscodes = summary.transcode - summary.hardwareTranscodes;
+  const idle = idleSessions > 0 ? `${idleSessions} weitere ${idleSessions === 1 ? 'Gerät' : 'Geräte'} verbunden` : null;
+  const viewers = streamingUsers(data);
 
   return (
     <section aria-labelledby="summary-heading">
@@ -90,7 +100,7 @@ function Summary({ data }: { data: SessionsResponse }) {
         <StatTile
           label="Aktive Streams"
           value={String(summary.total)}
-          caption={idleSessions > 0 ? `${idleSessions} weitere ${idleSessions === 1 ? 'Gerät' : 'Geräte'} verbunden` : 'Keine weiteren Geräte verbunden'}
+          caption={viewers ? joinParts([viewers, idle]) : (idle ?? 'Keine weiteren Geräte verbunden')}
           icon={Activity}
           tone="bg-accent/12 text-accent"
           className="col-span-2 md:col-span-1"

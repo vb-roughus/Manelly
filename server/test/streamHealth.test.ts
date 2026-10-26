@@ -217,6 +217,9 @@ describe('stream health from the FFmpeg log', () => {
     decoder: 'hwaccel d3d11va',
     decoderHardware: true,
     toneMapping: null,
+    audioEncoder: 'aac',
+    audioChannels: 2,
+    container: 'ts',
     errors: [],
     ...overrides,
   });

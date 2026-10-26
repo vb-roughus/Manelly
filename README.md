@@ -17,6 +17,9 @@ Live-Übersicht der laufenden Streams:
   «Dolby Vision Profil 7 mit Enhancement Layer» oder «Level 5.1»), was Jellyfin daraus macht und wie man es behebt
 - Erklärt auch Umwandlungen, für die Jellyfin keinen eigenen Grund nennt, z. B. warum TrueHD 7.1 als AAC 5.1 ankommt:
   Beim Umpacken in einen Streaming-Container nimmt der Client TrueHD nicht an
+- Meldet Jellyfin zu einem Transcode keine Details (das passiert z. B., wenn dasselbe Gerät zwei Sitzungen hat, etwa zwei
+  Browser-Tabs), holt Manelly sie von der anderen Sitzung des Geräts, nimmt die zuletzt gemeldeten oder liest aus dem
+  FFmpeg-Protokoll, was umgewandelt wird – ein Wechsel des Video-Codecs zeigt dann den vermutlichen Grund
 - Fortschritt des Transcoders als Puffer im Fortschrittsbalken
 - **Stream-Diagnose** pro Wiedergabe, jeweils mit konkretem Tipp, wo man in Jellyfin ansetzt:
   - Kommt der Server mit dem Transcoding nach? Tempo im Verhältnis zur Bildrate (z. B. 0.7× Echtzeit) und Vorlauf

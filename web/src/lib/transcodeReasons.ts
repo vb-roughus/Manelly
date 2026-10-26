@@ -264,3 +264,57 @@ export function explainAudioConversion(session: StreamSession): ReasonDetails | 
     `beheben: Läuft die Datei direkt, geht auch der Ton unverändert durch, sofern das Gerät ${original} kann.`;
   return { label: `Warum ${from} → ${to}?`, facts: null, explanation, outcome, tip };
 }
+
+const sameCodec = (a: string | null, b: string | null) => {
+  const normalize = (codec: string | null) => (codec ?? '').toLowerCase().replace(/^h265$/, 'hevc');
+  return normalize(a) === normalize(b);
+};
+
+/**
+ * Reasons Manelly can tell itself when Jellyfin names none (details from the FFmpeg log):
+ * a change of the video codec means the client cannot play the original one.
+ */
+export function inferReasons(session: StreamSession): string[] {
+  const { transcoding, source } = session;
+  if (!transcoding || transcoding.reasons.length > 0 || transcoding.isVideoDirect) return [];
+  const from = source.video?.codec ?? null;
+  return from && transcoding.videoCodec && !sameCodec(from, transcoding.videoCodec) ? ['VideoCodecNotSupported'] : [];
+}
+
+/** Explains an inferred reason, saying where it comes from. */
+export function explainInferredReason(reason: string, session: StreamSession): ReasonDetails {
+  const details = explainReason(reason, session);
+  const from = codecLabel(session.source.video?.codec ?? null);
+  const to = codecLabel(session.transcoding?.videoCodec ?? null);
+  return {
+    ...details,
+    label: `${details.label} (vermutlich)`,
+    outcome: `Jellyfin nennt hier keinen Grund. Laut FFmpeg-Protokoll wird ${from} in ${to} umgewandelt – ein Wechsel des Codecs heisst, dass das Gerät ${from} nicht abspielen kann (oder nicht soll, z. B. wegen einer Einstellung im Client).`,
+  };
+}
+
+/** Where the transcoding details come from, when Jellyfin did not report them for the stream itself. */
+export function transcodingNote(session: StreamSession): string | null {
+  const { transcoding } = session;
+  if (!transcoding) {
+    return session.playback.method === 'Transcode'
+      ? 'Jellyfin meldet zu diesem Stream keine Details zur Umwandlung und damit auch keinen Grund. Das passiert z. B., wenn ' +
+          'dasselbe Gerät mehrere Jellyfin-Sitzungen hat (zwei Browser-Tabs): Jellyfin hängt die Angaben dann an eine andere Sitzung.'
+      : null;
+  }
+  switch (transcoding.origin) {
+    case 'sameDevice':
+      return 'Jellyfin meldet diese Angaben bei einer anderen Sitzung desselben Geräts (z. B. einem zweiten Browser-Tab).';
+    case 'lastKnown':
+      return 'Zuletzt von Jellyfin gemeldet – im Moment nennt Jellyfin zu diesem Stream keine Details.';
+    case 'log': {
+      const changes = [
+        !transcoding.isVideoDirect && `Video ${codecLabel(session.source.video?.codec ?? null) ?? '?'} → ${codecLabel(transcoding.videoCodec) ?? '?'}`,
+        !transcoding.isAudioDirect && session.source.audio && `Ton ${codecLabel(session.source.audio.codec) ?? '?'} → ${codecLabel(transcoding.audioCodec) ?? '?'}`,
+      ].filter(Boolean);
+      return `Jellyfin meldet zu diesem Stream keine Details. Aus dem FFmpeg-Protokoll: ${changes.join(', ')}.`;
+    }
+    default:
+      return null;
+  }
+}

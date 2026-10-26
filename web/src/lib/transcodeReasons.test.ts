@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StreamSession, TranscodingDetails } from '@manelly/shared';
 import { describeVideo } from './format';
-import { explainAudioConversion, explainReason } from './transcodeReasons';
+import { explainAudioConversion, explainReason, inferReasons, transcodingNote } from './transcodeReasons';
 
 const transcoding: TranscodingDetails = {
   container: 'ts',
@@ -17,6 +17,7 @@ const transcoding: TranscodingDetails = {
   completionPercentage: null,
   hardwareAcceleration: null,
   reasons: ['VideoRangeTypeNotSupported'],
+  origin: 'jellyfin',
 };
 
 /** A UHD Blu-ray remux with Dolby Vision profile 7 and TrueHD 7.1, played on an Android TV device. */
@@ -87,5 +88,27 @@ describe('transcode reason details', () => {
     // An audio reason explains it already; copied audio needs no explanation.
     expect(explainAudioConversion({ ...session, transcoding: { ...transcoding, reasons: ['AudioCodecNotSupported'] } })).toBeNull();
     expect(explainAudioConversion({ ...session, transcoding: { ...transcoding, isAudioDirect: true } })).toBeNull();
+  });
+});
+
+describe('when Jellyfin names no reason', () => {
+  // What the FFmpeg log tells about a browser stream: HEVC becomes H.264, E-AC3 becomes AAC.
+  const fromLog: TranscodingDetails = { ...transcoding, videoCodec: 'h264', isVideoDirect: false, reasons: [], origin: 'log' };
+
+  it('infers the video codec as the reason from a codec change', () => {
+    const browser = { ...session, transcoding: fromLog } as StreamSession;
+    expect(inferReasons(browser)).toEqual(['VideoCodecNotSupported']);
+    expect(transcodingNote(browser)).toBe('Jellyfin meldet zu diesem Stream keine Details. Aus dem FFmpeg-Protokoll: Video HEVC → H.264, Ton TrueHD → AAC.');
+    // Same codec: re-encoded for another reason Manelly cannot tell.
+    expect(inferReasons({ ...browser, transcoding: { ...fromLog, videoCodec: 'hevc' } })).toEqual([]);
+  });
+
+  it('never second-guesses reasons Jellyfin reported', () => {
+    expect(inferReasons({ ...session, transcoding: { ...fromLog, reasons: ['ContainerBitrateExceedsLimit'], origin: 'lastKnown' } } as StreamSession)).toEqual([]);
+  });
+
+  it('says so when Jellyfin reports nothing at all', () => {
+    const bare = { ...session, transcoding: null, playback: { ...session.playback, method: 'Transcode' } } as StreamSession;
+    expect(transcodingNote(bare)).toMatch(/^Jellyfin meldet zu diesem Stream keine Details zur Umwandlung/);
   });
 });

@@ -59,6 +59,13 @@ export function parseTranscodeLog(text: string): Omit<TranscodeLogInfo, 'fileNam
       ? 'software'
       : null;
 
+  const audioEncoder = output.match(/-(?:codec|c):a(?::0)?\s+(\S+)/)?.[1] ?? output.match(/-acodec\s+(\S+)/)?.[1] ?? null;
+  const audioChannels = Number(output.match(/\s-ac(?::a)?(?::0)?\s+(\d+)/)?.[1]) || null;
+  // HLS segments are TS unless Jellyfin asks for fMP4.
+  const segmentType = output.match(/-hls_segment_type\s+(\w+)/)?.[1];
+  const format = output.match(/\s-f\s+(\w+)/)?.[1] ?? null;
+  const container = segmentType ? (segmentType === 'fmp4' ? 'mp4' : 'ts') : format === 'hls' ? 'ts' : format;
+
   const errors: string[] = [];
   for (const line of lines.slice(commandIndex + 1)) {
     if (HARDWARE_ERRORS.some((pattern) => pattern.test(line)) && !errors.includes(line.trim())) errors.push(line.trim());
@@ -72,6 +79,9 @@ export function parseTranscodeLog(text: string): Omit<TranscodeLogInfo, 'fileNam
     decoder: decoder ?? (hwaccel ? `hwaccel ${hwaccel}` : null),
     decoderHardware: decodeFellBack ? false : Boolean(hwaccel || (decoder && HARDWARE_DECODER.test(decoder))),
     toneMapping,
+    audioEncoder,
+    audioChannels,
+    container,
     errors,
   };
 }

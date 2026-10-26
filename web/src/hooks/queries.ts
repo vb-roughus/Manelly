@@ -5,6 +5,7 @@ import type {
   AgentSettingsView,
   ConversionJob,
   ConversionOptions,
+  HardwareTestResult,
   SaveAgentSettingsRequest,
   StartConversionRequest,
   AddToCollectionResponse,
@@ -20,6 +21,7 @@ import type {
   SaveSettingsResponse,
   ServerStatus,
   SessionsResponse,
+  TranscodingReport,
 } from '@manelly/shared';
 import { fetchJson, sendJson } from '../lib/api';
 import { toSearchParams, type MediaFilters } from '../lib/media';
@@ -240,5 +242,22 @@ export function useRemoveConversion() {
   return useMutation({
     mutationFn: (id: string) => sendJson<null>('DELETE', `/api/agent/jobs/${encodeURIComponent(id)}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
+  });
+}
+
+// --- Server ------------------------------------------------------------------
+
+export function useTranscodingReport(enabled = true) {
+  return useQuery({
+    queryKey: ['transcoding'],
+    queryFn: ({ signal }) => fetchJson<TranscodingReport>('/api/server/transcoding', signal),
+    refetchInterval: 60_000,
+    enabled,
+  });
+}
+
+export function useHardwareTest() {
+  return useMutation({
+    mutationFn: () => sendJson<HardwareTestResult>('POST', '/api/server/transcoding/test'),
   });
 }

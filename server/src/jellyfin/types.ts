@@ -14,6 +14,14 @@ export interface JfSystemInfo {
   HasUpdateAvailable?: boolean;
 }
 
+/** GET /System/Logs */
+export interface JfLogFile {
+  Name?: string;
+  Size?: number;
+  DateCreated?: string;
+  DateModified?: string;
+}
+
 export interface JfMediaStream {
   Type?: 'Audio' | 'Video' | 'Subtitle' | 'EmbeddedImage' | 'Data' | 'Lyric';
   Index?: number;
@@ -70,6 +78,8 @@ export interface JfBaseItem {
   DateCreated?: string;
   EndDate?: string;
   RunTimeTicks?: number;
+  /** VideoFile, or Iso, Dvd, BluRay for disc images and folder rips. */
+  VideoType?: string;
   ProductionYear?: number;
   IndexNumber?: number;
   ParentIndexNumber?: number;
@@ -115,6 +125,12 @@ export interface JfEncodingOptions {
   EnableTonemapping?: boolean;
   EnableVppTonemapping?: boolean;
   EnableVideoToolboxTonemapping?: boolean;
+  AllowHevcEncoding?: boolean;
+  AllowAv1Encoding?: boolean;
+  /** The FFmpeg Jellyfin uses. */
+  EncoderAppPath?: string;
+  EncoderAppPathDisplay?: string;
+  VaapiDevice?: string;
 }
 
 /** GET /System/Configuration (the parts Manelly uses). */

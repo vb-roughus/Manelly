@@ -62,6 +62,8 @@ export interface NowPlayingItem {
   artists: string[];
   productionYear: number | null;
   durationMs: number | null;
+  /** VideoFile, or Iso, Dvd, BluRay for disc images and folder rips. */
+  videoType: string | null;
   poster: ImageRef | null;
   backdrop: ImageRef | null;
 }
@@ -164,7 +166,27 @@ export interface StreamSession {
   transcoding: TranscodingDetails | null;
   /** Bits per second sent to the client; transcoder output or source stream bitrates. */
   estimatedBitrate: number | null;
+  /** Read from Jellyfin's FFmpeg log while the video is transcoded; null otherwise or when unreadable. */
+  transcodeLog: TranscodeLogInfo | null;
   health: StreamHealth;
+}
+
+/** What Jellyfin's FFmpeg log of a transcode says about it. */
+export interface TranscodeLogInfo {
+  fileName: string;
+  /** From the file name, in the Jellyfin server's local time. */
+  startedAt: string;
+  /** Video encoder FFmpeg was told to use, e.g. h264_qsv or libx264. */
+  encoder: string | null;
+  /** null when the video is copied or the encoder is unknown. */
+  encoderHardware: boolean | null;
+  /** e.g. "hwaccel d3d11va", hevc_qsv; null for software decoding. */
+  decoder: string | null;
+  /** False also when the hardware decoder failed and FFmpeg fell back to software. */
+  decoderHardware: boolean;
+  toneMapping: 'hardware' | 'software' | null;
+  /** FFmpeg output lines that point to hardware or encoder problems. */
+  errors: string[];
 }
 
 export type FindingSeverity = 'good' | 'info' | 'warning' | 'critical';
@@ -184,9 +206,32 @@ export type StreamFinding = { severity: FindingSeverity } & (
   /** Video is transcoded, but Jellyfin has no hardware acceleration set up. */
   | { kind: 'softwareTranscoding' }
   /** Hardware acceleration is set up, but not enabled for decoding this video. */
-  | { kind: 'softwareDecoding'; hardware: string; codec: string; bitDepth: number | null; cause: 'codecDisabled' | 'tenBitDisabled' }
+  | {
+      kind: 'softwareDecoding';
+      hardware: string;
+      codec: string;
+      bitDepth: number | null;
+      /** fallback: switched on, but FFmpeg still decoded in software (see the FFmpeg log). */
+      cause: 'codecDisabled' | 'tenBitDisabled' | 'fallback';
+    }
   /** Hardware acceleration is set up, but hardware encoding is switched off. */
-  | { kind: 'softwareEncoding'; hardware: string }
+  | {
+      kind: 'softwareEncoding';
+      hardware: string;
+      /** The encoder from the FFmpeg log, e.g. libx264; null without a log. */
+      encoder: string | null;
+      /**
+       * disabled: hardware encoding is switched off · platform: this acceleration does not exist on the server's
+       * system · discImage: Jellyfin encodes disc images and folder rips in software · unavailable: Jellyfin's FFmpeg
+       * did not offer the hardware encoder when Jellyfin started.
+       */
+      cause: 'disabled' | 'platform' | 'discImage' | 'unavailable';
+      operatingSystem: string | null;
+    }
+  /** The FFmpeg log confirms hardware decoding and encoding. */
+  | { kind: 'hardwareUsage'; decoder: string | null; encoder: string; toneMapping: 'hardware' | 'software' | null }
+  /** FFmpeg reported hardware or encoder problems. */
+  | { kind: 'ffmpegErrors'; errors: string[]; logFile: string }
   /** HDR is converted to SDR without tone mapping (pale colors) or in software (very slow). */
   | { kind: 'toneMapping'; videoRangeType: string | null; cause: 'disabled' | 'software' }
   /** The bitrate is too high for a limit: the user's or the server's remote limit, or the client's quality setting. */
@@ -662,4 +707,68 @@ export interface StartConversionRequest {
   itemId: string;
   mediaSourceId?: string;
   output: ConversionRequest['output'];
+}
+
+// --- Server: transcoding ------------------------------------------------------
+
+/** A finding about Jellyfin's transcoding settings or its recent transcodes. */
+export type TranscodingCheck = { severity: FindingSeverity } & (
+  | { kind: 'noAcceleration' }
+  | { kind: 'platformMismatch'; hardware: string; operatingSystem: string }
+  | { kind: 'encodingDisabled'; hardware: string }
+  | { kind: 'decodingCodecsMissing'; hardware: string; codecs: string[] }
+  | { kind: 'hevc10BitDisabled'; hardware: string }
+  | { kind: 'toneMappingDisabled' }
+  /** Recent transcodes in which FFmpeg reported hardware or encoder problems. */
+  | { kind: 'recentErrors'; count: number; total: number }
+  /** Recent transcodes encoded in software although hardware encoding is set up. */
+  | { kind: 'recentSoftware'; count: number; total: number }
+  | { kind: 'ok'; hardware: string }
+);
+
+/** GET /api/server/transcoding */
+export interface TranscodingReport {
+  /** windows, linux or macos. */
+  operatingSystem: string | null;
+  hardwareAcceleration: string | null;
+  hardwareEncoding: boolean;
+  hardwareDecodingCodecs: string[];
+  hevc10Bit: boolean;
+  toneMapping: boolean;
+  allowHevcEncoding: boolean;
+  allowAv1Encoding: boolean;
+  /** The FFmpeg Jellyfin uses, as Jellyfin shows it. */
+  encoderPath: string | null;
+  checks: TranscodingCheck[];
+  /** The latest FFmpeg transcode logs, newest first. */
+  recent: TranscodeLogInfo[];
+  /** False when Jellyfin's logs could not be read (the API key needs admin rights). */
+  logsReadable: boolean;
+}
+
+export type HardwareTestId = 'encode-h264' | 'encode-hevc' | 'decode-h264' | 'decode-hevc' | 'decode-hevc10';
+
+/** POST /api/hwtest on the agent. */
+export interface HardwareTestRequest {
+  /** qsv, nvenc, amf, vaapi, videotoolbox, v4l2m2m, rkmpp. */
+  hardware: string;
+  /** Jellyfin's FFmpeg; the agent's own one when empty or missing. */
+  ffmpegPath?: string | null;
+  vaapiDevice?: string | null;
+  tests: HardwareTestId[];
+}
+
+export interface HardwareTestResult {
+  hardware: string;
+  ffmpeg: { path: string | null; version: string | null };
+  tests: Array<{
+    id: HardwareTestId;
+    ok: boolean;
+    /** E.g. no software encoder to create a test video for decoding. */
+    skipped: boolean;
+    message: string | null;
+    /** FFmpeg's output when the test failed. */
+    log: string | null;
+    durationMs: number;
+  }>;
 }

@@ -10,7 +10,9 @@ import { apiRoutes } from './routes/api.js';
 import { collectionsRoutes } from './routes/collections.js';
 import { imageRoutes } from './routes/images.js';
 import { mediaRoutes } from './routes/media.js';
+import { serverRoutes } from './routes/server.js';
 import { settingsRoutes } from './routes/settings.js';
+import { createTranscodeLogReader } from './transcodeLog.js';
 
 export interface AppOptions {
   config: Pick<AppConfig, 'staticDir'>;
@@ -39,13 +41,16 @@ export async function buildApp({ config, connection, mediaStore, agent, logger =
     reply.header('x-frame-options', 'DENY');
   });
 
-  await app.register(apiRoutes, { prefix: '/api', connection });
+  const logs = createTranscodeLogReader();
+  await app.register(apiRoutes, { prefix: '/api', connection, logs });
   await app.register(settingsRoutes, { prefix: '/api/settings', connection });
   await app.register(imageRoutes, { prefix: '/api/images', connection });
   const store = mediaStore ?? createMediaIndexStore(connection, { log: app.log });
   await app.register(mediaRoutes, { prefix: '/api/media', connection, store });
   await app.register(collectionsRoutes, { prefix: '/api/collections', connection, store });
-  await app.register(agentRoutes, { prefix: '/api/agent', connection, store, agent: agent ?? (await createAgentConnection({ store: noAgentStore })) });
+  const agentConnection = agent ?? (await createAgentConnection({ store: noAgentStore }));
+  await app.register(agentRoutes, { prefix: '/api/agent', connection, store, agent: agentConnection });
+  await app.register(serverRoutes, { prefix: '/api/server', connection, agent: agentConnection, logs });
 
   if (config.staticDir) {
     await app.register(fastifyStatic, {

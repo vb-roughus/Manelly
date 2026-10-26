@@ -10,19 +10,26 @@ import type {
   SourceMedia,
   StreamSession,
   SubtitleStreamInfo,
+  TranscodeLogInfo,
   TranscodingDetails,
   VideoStreamInfo,
 } from '@manelly/shared';
 import type { JfBaseItem, JfMediaStream, JfSessionInfo, JfTranscodingInfo } from './jellyfin/types.js';
 import { assessStream, type StreamContext } from './streamHealth.js';
+import { normalizeMediaSourceId } from './transcodeLog.js';
 
 /** Jellyfin measures time in ticks of 100 ns. */
 const TICKS_PER_MS = 10_000;
 
-export function buildSessionsResponse(sessions: JfSessionInfo[], now = new Date(), context: StreamContext | null = null): SessionsResponse {
+export function buildSessionsResponse(
+  sessions: JfSessionInfo[],
+  now = new Date(),
+  context: StreamContext | null = null,
+  logs: Map<string, TranscodeLogInfo> = new Map(),
+): SessionsResponse {
   const playing = sessions.filter((session) => session.NowPlayingItem);
   const streams = playing
-    .map((session) => toStreamSession(session, context))
+    .map((session) => toStreamSession(session, context, transcodeLogOf(session, logs)))
     .sort((a, b) => a.user.name.localeCompare(b.user.name) || a.device.localeCompare(b.device) || a.id.localeCompare(b.id));
 
   return {
@@ -33,7 +40,21 @@ export function buildSessionsResponse(sessions: JfSessionInfo[], now = new Date(
   };
 }
 
-export function toStreamSession(session: JfSessionInfo, context: StreamContext | null = null): StreamSession {
+/** The media source ids of sessions whose video is transcoded – the ones with an FFmpeg transcode log. */
+export function transcodedMediaSources(sessions: JfSessionInfo[]): string[] {
+  return sessions.flatMap((session) =>
+    session.NowPlayingItem && session.TranscodingInfo && session.TranscodingInfo.IsVideoDirect === false && session.PlayState?.MediaSourceId
+      ? [session.PlayState.MediaSourceId]
+      : [],
+  );
+}
+
+function transcodeLogOf(session: JfSessionInfo, logs: Map<string, TranscodeLogInfo>): TranscodeLogInfo | null {
+  const id = session.PlayState?.MediaSourceId;
+  return id && session.TranscodingInfo && session.TranscodingInfo.IsVideoDirect === false ? (logs.get(normalizeMediaSourceId(id)) ?? null) : null;
+}
+
+export function toStreamSession(session: JfSessionInfo, context: StreamContext | null = null, transcodeLog: TranscodeLogInfo | null = null): StreamSession {
   const item = session.NowPlayingItem ?? {};
   const playState = session.PlayState ?? {};
   const source = selectSourceMedia(item, playState.AudioStreamIndex, playState.SubtitleStreamIndex);
@@ -63,6 +84,7 @@ export function toStreamSession(session: JfSessionInfo, context: StreamContext |
     source,
     transcoding,
     estimatedBitrate: estimateBitrate(source, transcoding),
+    transcodeLog,
   };
   return { ...stream, health: assessStream(stream, context) };
 }
@@ -89,6 +111,7 @@ function toNowPlayingItem(item: JfBaseItem): NowPlayingItem {
     artists: item.Artists?.length ? item.Artists : item.AlbumArtist ? [item.AlbumArtist] : [],
     productionYear: item.ProductionYear ?? null,
     durationMs: ticksToMs(item.RunTimeTicks),
+    videoType: item.VideoType ?? null,
     poster: selectPoster(item),
     backdrop: selectBackdrop(item),
   };
@@ -227,7 +250,10 @@ function summarize(sessions: StreamSession[]): SessionsSummary {
     directPlay: count((s) => s.playback.method === 'DirectPlay'),
     directStream: count((s) => s.playback.method === 'Remux' || s.playback.method === 'DirectStream'),
     transcode: count((s) => s.playback.method === 'Transcode'),
-    hardwareTranscodes: count((s) => s.playback.method === 'Transcode' && s.transcoding?.hardwareAcceleration != null),
+    // With an FFmpeg log, count what really ran on the hardware; otherwise what is set up.
+    hardwareTranscodes: count(
+      (s) => s.playback.method === 'Transcode' && (s.transcodeLog ? s.transcodeLog.encoderHardware === true : s.transcoding?.hardwareAcceleration != null),
+    ),
     struggling: count((s) => s.health.findings.some((f) => f.kind === 'throughput' && f.severity === 'critical')),
     estimatedBandwidth: sessions.reduce((sum, s) => sum + (s.estimatedBitrate ?? 0), 0),
   };

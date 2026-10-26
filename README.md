@@ -23,6 +23,9 @@ Live-Übersicht der laufenden Streams:
     gegenüber der Wiedergabe
   - Transcoding ganz ohne Hardware-Beschleunigung, Codecs, die trotz Hardware-Beschleunigung in Software dekodiert
     werden (z. B. HEVC oder HEVC 10 bit nicht aktiviert), ausgeschaltete Hardware-Kodierung
+  - Ob wirklich die Hardware arbeitet: Manelly liest dazu das FFmpeg-Protokoll des Transcodes aus Jellyfin und nennt den
+    Grund, wenn trotzdem in Software kodiert wird (Hardware-Kodierung aus, Beschleunigung passt nicht zum System, z. B.
+    VA-API unter Windows, Disc-Abbild, oder der Encoder fehlte beim Start von Jellyfin) – samt Fehlermeldungen von FFmpeg
   - HDR, das ohne Tone-Mapping (blasse Farben) oder in Software (sehr rechenintensiv) in SDR umgewandelt wird
   - Welches Limit die Bitrate drückt: Benutzer- oder Server-Limit für den Fernzugriff oder die Qualitätseinstellung im Client
   - Hohe Bitraten über das Internet
@@ -64,6 +67,16 @@ am Codec-Profil der Tonspur (z. B. «Dolby TrueHD + Dolby Atmos»). Wurde eine D
 gescannt, fehlt das Profil eventuell. Dann bei den betroffenen Titeln in Jellyfin «Metadaten aktualisieren» mit «Alle
 Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metadaten) und danach in Manelly «Neu einlesen».
 
+### Server
+
+- **Hardware-Beschleunigung prüfen:** Einstellungen von Jellyfin im Überblick (Beschleunigung, Hardware-Kodierung,
+  Hardware-Dekodierung, HEVC 10 bit, Tone-Mapping, FFmpeg) mit Hinweisen, was nicht passt – z. B. HEVC nicht für die
+  Hardware-Dekodierung eingeschaltet (Jellyfins Standard) oder eine Beschleunigung, die es auf dem System nicht gibt
+- **Letzte Transcodes** aus den FFmpeg-Protokollen: dekodiert/kodiert in Hardware oder Software, Fehlermeldungen
+- **Hardware testen** (mit [Agent](#agent-auf-dem-jellyfin-server-windows)): Das FFmpeg von Jellyfin kodiert und
+  dekodiert auf dem Server ein paar Sekunden Testbild mit der eingestellten Beschleunigung – so zeigt sich, ob Treiber und
+  Grafikeinheit wirklich funktionieren
+
 ### Umwandlungen (mit Agent)
 
 Dolby Vision **Profil 7** (UHD-Blu-ray-Remuxe) spielen viele Geräte nicht ab, Profil 8.1 schon. Ein kleiner Agent auf dem
@@ -90,7 +103,7 @@ Einrichtung: siehe [Agent auf dem Jellyfin-Server](#agent-auf-dem-jellyfin-serve
 - Jellyfin-Verbindung (Adresse und API-Schlüssel) direkt in der Oberfläche einrichten – Manelly testet sie vor dem Speichern
 - Verständliche Fehlerhinweise, wenn Jellyfin nicht erreichbar ist oder der API-Schlüssel nicht stimmt
 
-Geplant: Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und Troubleshooting (Logs, Wiedergabe-Analyse).
+Geplant: weiteres Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und Troubleshooting (Logs, Wiedergabe-Analyse).
 
 ## Schnellstart auf dem Mac
 

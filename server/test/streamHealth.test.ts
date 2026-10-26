@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SessionsResponse, StreamFinding } from '@manelly/shared';
+import type { SessionsResponse, StreamFinding, TranscodeLogInfo } from '@manelly/shared';
 import { buildApp } from '../src/app.js';
 import { createConnection } from '../src/connection.js';
 import { createJellyfinClient, type JellyfinClient } from '../src/jellyfin/client.js';
@@ -41,6 +41,7 @@ const context = (overrides: Partial<StreamContext> = {}): StreamContext => ({
   toneMapping: true,
   remoteBitrateLimit: 0,
   userRemoteBitrateLimits: new Map(),
+  operatingSystem: 'windows',
   ...overrides,
 });
 
@@ -142,6 +143,7 @@ describe('stream context', () => {
       getEncodingOptions: async () => ({ HardwareAccelerationType: 'none', HardwareDecodingCodecs: ['H264'], EnableTonemapping: false }),
       getServerConfiguration: async () => ({ RemoteClientBitrateLimit: 10_000_000 }),
       getUsers: async () => [{ Id: 'u1', Policy: { RemoteClientBitrateLimit: 2_000_000 } }, { Id: 'u2' }],
+      getSystemInfo: async () => ({ OperatingSystem: 'Windows', OperatingSystemDisplayName: 'Microsoft Windows 10.0.19045' }),
     } as unknown as JellyfinClient;
     expect(await loadStreamContext(client)).toEqual({
       hardwareAcceleration: null,
@@ -155,6 +157,7 @@ describe('stream context', () => {
         ['u1', 2_000_000],
         ['u2', 0],
       ]),
+      operatingSystem: 'windows',
     });
   });
 
@@ -187,6 +190,7 @@ describe('stream context', () => {
       if (url.pathname === '/System/Configuration/encoding') return Response.json({ HardwareAccelerationType: 'vaapi', HardwareDecodingCodecs: ['h264', 'vc1'] });
       if (url.pathname === '/System/Configuration') return Response.json({ RemoteClientBitrateLimit: 0 });
       if (url.pathname === '/Users') return Response.json([{ Id: 'u1', Policy: {} }]);
+      if (url.pathname === '/System/Info') return Response.json({ Version: '10.11.2', OperatingSystem: 'Linux' });
       return new Response(null, { status: 404 });
     };
     const connection = await createConnection({
@@ -201,5 +205,68 @@ describe('stream context', () => {
     expect(stream?.health.settingsKnown).toBe(true);
     expect(stream?.health.findings.map((finding) => finding.kind)).toEqual(['softwareDecoding', 'remoteBitrate', 'throughput']);
     expect(body.summary.struggling).toBe(0);
+  });
+});
+
+describe('stream health from the FFmpeg log', () => {
+  const log = (overrides: Partial<TranscodeLogInfo> = {}): TranscodeLogInfo => ({
+    fileName: 'FFmpeg.Transcode-2026-10-26_21-00-00_abc_12345678.log',
+    startedAt: '2026-10-26T21:00:00',
+    encoder: 'h264_qsv',
+    encoderHardware: true,
+    decoder: 'hwaccel d3d11va',
+    decoderHardware: true,
+    toneMapping: null,
+    errors: [],
+    ...overrides,
+  });
+  const withLog = (entry: TranscodeLogInfo, ctx = context(), session = transcode()) => toStreamSession(session, ctx, entry).health.findings;
+
+  it('confirms when decoding and encoding really run on the hardware', () => {
+    const list = withLog(log());
+    expect(find(list, 'hardwareUsage')).toEqual({ kind: 'hardwareUsage', severity: 'good', decoder: 'hwaccel d3d11va', encoder: 'h264_qsv', toneMapping: null });
+    expect(find(list, 'softwareEncoding')).toBeUndefined();
+    // The log wins over the settings: hardware ran, although the codec list says otherwise.
+    expect(find(withLog(log(), context({ hardwareDecodingCodecs: ['h264'] })), 'softwareDecoding')).toBeUndefined();
+  });
+
+  it('names why a transcode is encoded in software', () => {
+    const software = log({ encoder: 'libx264', encoderHardware: false });
+    expect(find(withLog(software), 'softwareEncoding')).toMatchObject({ cause: 'unavailable', encoder: 'libx264', severity: 'warning' });
+    expect(find(withLog(software, context({ hardwareEncoding: false })), 'softwareEncoding')?.cause).toBe('disabled');
+    // VA-API exists only on Linux.
+    expect(find(withLog(software, context({ hardwareAcceleration: 'vaapi' })), 'softwareEncoding')).toMatchObject({ cause: 'platform', operatingSystem: 'windows' });
+    const iso = transcode({}, {}, { NowPlayingItem: { ...transcode().NowPlayingItem, VideoType: 'Iso' } });
+    expect(find(withLog(software, context(), iso), 'softwareEncoding')?.cause).toBe('discImage');
+  });
+
+  it('notices a hardware decoder that fell back to software and passes on FFmpeg errors', () => {
+    const fellBack = log({ decoderHardware: false, errors: ['Failed setup for format d3d11: hwaccel initialisation returned error.'] });
+    const list = withLog(fellBack);
+    expect(find(list, 'softwareDecoding')).toMatchObject({ cause: 'fallback', codec: 'hevc' });
+    expect(find(list, 'ffmpegErrors')).toMatchObject({ errors: fellBack.errors, logFile: fellBack.fileName });
+    expect(find(list, 'hardwareUsage')).toBeUndefined();
+  });
+});
+
+describe('sessions API with FFmpeg logs', () => {
+  it('attaches the FFmpeg log of a transcoded stream', async () => {
+    const session = transcode({}, {}, { PlayState: { PositionTicks: 30 * MINUTE_TICKS, PlayMethod: 'Transcode', MediaSourceId: 'ABC-123' } });
+    const command = 'ffmpeg -hwaccel d3d11va -i file:"D:\\\\Filme\\\\Film.mkv" -codec:v:0 h264_qsv -f hls';
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/Sessions') return Response.json([session]);
+      if (url.pathname === '/System/Logs') return Response.json([{ Name: 'FFmpeg.Transcode-2026-10-26_21-00-00_abc123_12345678.log' }]);
+      if (url.pathname === '/System/Logs/Log') return new Response(`{"Id":"abc123"}\r\n\r\n${command}\r\n\r\nffmpeg version 7.0.2-Jellyfin\r\n`);
+      return new Response(null, { status: 404 });
+    };
+    const connection = await createConnection({
+      store: { load: async () => ({ url: 'http://jellyfin.test', apiKey: 'key' }), save: async () => {} },
+      envSettings: null,
+      createClient: (settings) => createJellyfinClient(settings, { fetch }),
+    });
+    const app = await buildApp({ config: { staticDir: null }, connection });
+    const [stream] = (await app.inject('/api/sessions')).json<SessionsResponse>().sessions;
+    expect(stream?.transcodeLog).toMatchObject({ encoder: 'h264_qsv', encoderHardware: true, decoder: 'hwaccel d3d11va' });
   });
 });

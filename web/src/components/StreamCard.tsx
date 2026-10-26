@@ -77,7 +77,8 @@ export function StreamCard({ session, sampledAt }: { session: StreamSession; sam
             </div>
             <PlayMethodBadge
               method={playback.method}
-              hardware={playback.method === 'Transcode' ? transcoding?.hardwareAcceleration : null}
+              // The FFmpeg log tells whether the hardware really encodes; the setting alone does not.
+              hardware={playback.method !== 'Transcode' ? null : session.transcodeLog?.encoderHardware === false ? 'Software' : transcoding?.hardwareAcceleration}
             />
           </div>
           <UserLine session={session} />

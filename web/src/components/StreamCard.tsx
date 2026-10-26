@@ -141,25 +141,29 @@ function deviceIcon(session: StreamSession): LucideIcon {
   return Laptop;
 }
 
+/** Who is watching, and on which device. */
 function UserLine({ session }: { session: StreamSession }) {
   const DeviceIcon = deviceIcon(session);
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-      <span className="flex items-center gap-2 font-medium">
-        <Avatar key={session.user.imageTag} session={session} />
-        {session.user.name}
-      </span>
-      <span className="flex min-w-0 items-center gap-1.5 text-ink-2">
-        <DeviceIcon className="size-4 shrink-0" aria-hidden />
-        <span className="truncate" title={joinParts([session.client, session.appVersion])}>
-          {session.device} · {session.client}
-        </span>
-      </span>
-      {session.playback.isMuted && (
-        <span className="flex items-center gap-1 text-ink-2">
-          <VolumeX className="size-4" aria-hidden /> Stumm
-        </span>
-      )}
+    <div className="flex min-w-0 items-center gap-2.5">
+      <Avatar key={session.user.imageTag} session={session} />
+      <div className="min-w-0 text-sm">
+        <p className="truncate font-semibold" title={`Benutzer: ${session.user.name}`}>
+          <span className="sr-only">Benutzer: </span>
+          {session.user.name}
+        </p>
+        <p className="flex min-w-0 items-center gap-1.5 text-ink-2">
+          <DeviceIcon className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate" title={joinParts([session.client, session.appVersion])}>
+            {session.device} · {session.client}
+          </span>
+          {session.playback.isMuted && (
+            <span className="flex shrink-0 items-center gap-1">
+              · <VolumeX className="size-3.5" aria-hidden /> Stumm
+            </span>
+          )}
+        </p>
+      </div>
     </div>
   );
 }
@@ -170,15 +174,15 @@ function Avatar({ session }: { session: StreamSession }) {
   if (id && imageTag && !failed) {
     return (
       <img
-        src={userImageUrl(id, imageTag, 64)}
+        src={userImageUrl(id, imageTag, 96)}
         alt=""
         onError={() => setFailed(true)}
-        className="size-6 rounded-full object-cover ring-1 ring-line"
+        className="size-9 shrink-0 rounded-full object-cover ring-1 ring-line"
       />
     );
   }
   return (
-    <span aria-hidden className="bg-brand grid size-6 place-items-center rounded-full text-[0.625rem] font-semibold text-white">
+    <span aria-hidden className="bg-brand grid size-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white">
       {initials(name)}
     </span>
   );

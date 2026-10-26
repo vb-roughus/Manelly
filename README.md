@@ -29,8 +29,8 @@ Live-Übersicht der laufenden Streams:
 
   Dafür liest Manelly die Transcoding-Einstellungen, das Fernzugriff-Limit und die Benutzer-Limits aus Jellyfin (höchstens
   einmal pro Minute; der API-Schlüssel braucht Administratorrechte, was bei im Dashboard erstellten Schlüsseln der Fall ist)
-- Kennzahlen: aktive Streams, Direct Play / Direct Stream / Transcodes (inkl. wie viele nicht nachkommen), geschätzte
-  Bandbreite
+- Kennzahlen: aktive Streams (mit den Benutzern, die gerade schauen), Direct Play / Direct Stream / Transcodes (inkl. wie
+  viele nicht nachkommen), geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
 
 ### Medien

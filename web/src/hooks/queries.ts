@@ -168,10 +168,12 @@ export function useAddToCollection() {
 
 // --- Agent -------------------------------------------------------------------
 
-export function useAgent(enabled = true) {
+/** `refreshTools` (settings page) lets the agent look for newly installed tools. */
+export function useAgent(options: { enabled?: boolean; refreshTools?: boolean } = {}) {
+  const { enabled = true, refreshTools = false } = options;
   return useQuery({
-    queryKey: ['agent'],
-    queryFn: ({ signal }) => fetchJson<AgentOverview>('/api/agent', signal),
+    queryKey: ['agent', refreshTools],
+    queryFn: ({ signal }) => fetchJson<AgentOverview>(`/api/agent${refreshTools ? '?refresh=1' : ''}`, signal),
     refetchInterval: 30_000,
     enabled,
   });
@@ -189,7 +191,8 @@ export function useSaveAgentSettings() {
   return useMutation({
     mutationFn: (request: SaveAgentSettingsRequest) => sendJson<AgentOverview>('PUT', '/api/agent/settings', request),
     onSuccess: (overview) => {
-      queryClient.setQueryData(['agent'], overview);
+      queryClient.setQueryData(['agent', true], overview);
+      void queryClient.invalidateQueries({ queryKey: ['agent'] });
       void queryClient.invalidateQueries({ queryKey: ['agent-settings'] });
       void queryClient.invalidateQueries({ queryKey: ['conversions'] });
     },

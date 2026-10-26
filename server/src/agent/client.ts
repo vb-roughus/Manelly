@@ -16,7 +16,8 @@ export interface AgentSettings {
 
 export interface AgentClient {
   readonly url: string;
-  status(): Promise<AgentStatus>;
+  /** `refresh` makes the agent look for its tools again (it starts a few processes for that). */
+  status(refresh?: boolean): Promise<AgentStatus>;
   check(request: AgentCheckRequest): Promise<AgentCheckResponse>;
   listJobs(): Promise<ConversionJob[]>;
   createJob(request: ConversionRequest): Promise<ConversionJob>;
@@ -60,7 +61,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
 
   return {
     url: settings.url,
-    status: () => call('GET', '/api/status?refresh=1'),
+    status: (refresh = false) => call('GET', refresh ? '/api/status?refresh=1' : '/api/status'),
     check: (request) => call('POST', '/api/check', request),
     listJobs: () => call('GET', '/api/jobs'),
     createJob: (request) => call('POST', '/api/jobs', request),

@@ -1,24 +1,11 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { ConversionJob, ConversionStep } from '@manelly/shared';
-import { Ban, CircleCheck, CircleX, Clock, LoaderCircle, Trash2, TriangleAlert } from 'lucide-react';
+import type { ConversionJob } from '@manelly/shared';
+import { Ban, Trash2, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
+import { ConversionProgress, isActive, MODE_LABELS, StateBadge } from '../components/ConversionStatus';
 import { useAgent, useCancelConversion, useConversions, useRemoveConversion } from '../hooks/queries';
 import { formatAgo } from '../lib/format';
-
-const STEP_LABELS: Record<ConversionStep, string> = {
-  probe: 'Datei prüfen',
-  extract: 'Videospur herauslösen',
-  convert: 'Dolby Vision umwandeln',
-  mux: 'Datei zusammensetzen',
-  finalize: 'Datei an ihren Platz verschieben',
-};
-
-const MODE_LABELS: Record<ConversionJob['mode'], string> = {
-  alongside: 'Neben dem Original',
-  replace: 'Original ersetzt',
-  folder: 'Anderer Ordner',
-};
 
 export function ConversionsPage() {
   useEffect(() => {
@@ -85,8 +72,7 @@ export function ConversionsPage() {
 function JobCard({ job }: { job: ConversionJob }) {
   const cancel = useCancelConversion();
   const remove = useRemoveConversion();
-  const active = job.state === 'queued' || job.state === 'running';
-  const percent = job.progress !== null ? Math.round(job.progress * 100) : null;
+  const active = isActive(job);
 
   return (
     <article className="rounded-2xl border border-line bg-card p-4 shadow-sm shadow-black/5">
@@ -113,13 +99,7 @@ function JobCard({ job }: { job: ConversionJob }) {
 
       {job.state === 'running' && (
         <div className="mt-3">
-          <div className="flex justify-between text-xs text-ink-2">
-            <span>{job.step ? STEP_LABELS[job.step] : 'Startet …'}</span>
-            {percent !== null && <span className="tabular-nums">{percent} %</span>}
-          </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-card-2" role="progressbar" aria-valuenow={percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
-            <div className={clsx('bg-brand h-full rounded-full transition-[width] duration-700', percent === null && 'w-1/3 animate-pulse')} style={percent !== null ? { width: `${percent}%` } : undefined} />
-          </div>
+          <ConversionProgress job={job} />
         </div>
       )}
 
@@ -148,23 +128,6 @@ function JobCard({ job }: { job: ConversionJob }) {
         <p className="mt-3 text-xs text-ink-3">Passt das Ergebnis, kannst du das Backup löschen – Manelly macht das nicht von sich aus.</p>
       )}
     </article>
-  );
-}
-
-function StateBadge({ job }: { job: ConversionJob }) {
-  const meta = {
-    queued: { icon: Clock, label: 'Wartet', className: 'text-ink-2' },
-    running: { icon: LoaderCircle, label: 'Läuft', className: 'text-accent' },
-    done: { icon: CircleCheck, label: 'Fertig', className: 'text-good' },
-    failed: { icon: CircleX, label: 'Fehlgeschlagen', className: 'text-critical' },
-    canceled: { icon: Ban, label: 'Abgebrochen', className: 'text-ink-2' },
-  }[job.state];
-  const Icon = meta.icon;
-  return (
-    <span className={clsx('inline-flex items-center gap-1 text-xs font-medium', meta.className)}>
-      <Icon className={clsx('size-3.5', job.state === 'running' && 'animate-spin')} aria-hidden />
-      {meta.label}
-    </span>
   );
 }
 

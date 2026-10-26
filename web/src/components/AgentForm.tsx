@@ -7,7 +7,7 @@ import { Code, Field, inputClass, Message } from './ConnectionForm';
 /** Address and key of the agent on the Jellyfin server; saved only after the agent answered. */
 export function AgentForm() {
   const settings = useAgentSettings();
-  const overview = useAgent();
+  const overview = useAgent({ refreshTools: true });
   if (settings.isPending) return <div aria-busy className="h-48 animate-pulse rounded-xl bg-card-2" />;
   if (!settings.data) return <Message tone="critical">{settings.error?.message ?? 'Einstellungen konnten nicht geladen werden.'}</Message>;
   return <AgentFields settings={settings.data} overview={overview.data} />;

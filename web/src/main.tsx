@@ -6,6 +6,7 @@ import { Layout } from './components/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { MediaPage } from './pages/MediaPage';
 import { ConversionsPage } from './pages/ConversionsPage';
+import { ServerPage } from './pages/ServerPage';
 import { SettingsPage } from './pages/SettingsPage';
 import './index.css';
 
@@ -28,6 +29,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/" element={<DashboardPage />} />
             <Route path="/media" element={<MediaPage />} />
             <Route path="/conversions" element={<ConversionsPage />} />
+            <Route path="/server" element={<ServerPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

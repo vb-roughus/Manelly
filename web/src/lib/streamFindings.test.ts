@@ -35,4 +35,20 @@ describe('stream findings', () => {
     const limit = describeFinding({ kind: 'bitrateLimit', severity: 'info', limitedBy: 'user', limit: 4_000_000, sourceBitrate: 30_640_000 }, session);
     expect(limit.detail).toBe('Für Anna gilt ausserhalb des Heimnetzes ein Limit von 4.0 Mbit/s (Datei: 30.6 Mbit/s) – deshalb wird transcodiert.');
   });
+
+  it('explains software encoding and confirms hardware use from the FFmpeg log', () => {
+    const platform = describeFinding(
+      { kind: 'softwareEncoding', severity: 'warning', hardware: 'vaapi', encoder: 'libx264', cause: 'platform', operatingSystem: 'windows' },
+      session,
+    );
+    expect(platform.detail).toBe('In Jellyfin ist VA-API eingestellt, das gibt es unter Windows nicht – deshalb kodiert FFmpeg in Software (libx264).');
+    expect(platform.action).toContain('Intel Quick Sync (QSV), NVIDIA NVENC oder AMD AMF');
+
+    const usage = describeFinding({ kind: 'hardwareUsage', severity: 'good', decoder: 'hwaccel d3d11va', encoder: 'h264_qsv', toneMapping: 'hardware' }, session);
+    expect(usage).toEqual({
+      title: 'Läuft auf der Hardware',
+      detail: 'Dekodieren: D3D11VA, Kodieren: h264_qsv, Tone-Mapping auf der Grafikeinheit – laut FFmpeg-Protokoll.',
+      action: null,
+    });
+  });
 });

@@ -1,4 +1,12 @@
-import type { AgentCheckRequest, AgentCheckResponse, AgentStatus, ConversionJob, ConversionRequest } from '@manelly/shared';
+import type {
+  AgentCheckRequest,
+  AgentCheckResponse,
+  AgentStatus,
+  ConversionJob,
+  ConversionRequest,
+  HardwareTestRequest,
+  HardwareTestResult,
+} from '@manelly/shared';
 import { AppError } from '../errors.js';
 
 export interface AgentSettings {
@@ -14,6 +22,7 @@ export interface AgentClient {
   createJob(request: ConversionRequest): Promise<ConversionJob>;
   cancelJob(id: string): Promise<ConversionJob>;
   removeJob(id: string): Promise<void>;
+  testHardware(request: HardwareTestRequest): Promise<HardwareTestResult>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -22,18 +31,18 @@ const TIMEOUT_MS = 8000;
 export function createAgentClient(settings: AgentSettings, options: { fetch?: typeof fetch } = {}): AgentClient {
   const fetchImpl = options.fetch ?? fetch;
 
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async function call<T>(method: string, path: string, body?: unknown, timeoutMs = TIMEOUT_MS): Promise<T> {
     let response: Response;
     try {
       response = await fetchImpl(`${settings.url}${path}`, {
         method,
         headers: { Authorization: `Bearer ${settings.token}`, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'TimeoutError') {
-        throw new AppError('TIMEOUT', `Der Agent hat nicht innerhalb von ${TIMEOUT_MS / 1000} s geantwortet (${settings.url}).`);
+        throw new AppError('TIMEOUT', `Der Agent hat nicht innerhalb von ${timeoutMs / 1000} s geantwortet (${settings.url}).`);
       }
       const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error);
       throw new AppError('UNREACHABLE', `Der Agent ist unter ${settings.url} nicht erreichbar: ${cause}`);
@@ -57,5 +66,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     createJob: (request) => call('POST', '/api/jobs', request),
     cancelJob: (id) => call('POST', `/api/jobs/${encodeURIComponent(id)}/cancel`),
     removeJob: (id) => call('DELETE', `/api/jobs/${encodeURIComponent(id)}`),
+    // Several short FFmpeg runs; each may take up to a minute on a struggling machine.
+    testHardware: (request) => call('POST', '/api/hwtest', request, 5 * 60_000),
   };
 }

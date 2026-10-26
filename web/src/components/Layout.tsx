@@ -32,7 +32,7 @@ const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/media', label: 'Medien', icon: Library },
   { to: '/conversions', label: 'Umwandlungen', icon: WandSparkles },
-  { to: '/server', label: 'Server', icon: Server, soon: true },
+  { to: '/server', label: 'Server', icon: Server },
   { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope, soon: true },
 ];
 

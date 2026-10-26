@@ -35,6 +35,28 @@ const decimal = (value: number, digits: number) =>
   value.toLocaleString('de-CH', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 export const hardwareLabel = (hardware: string) => HARDWARE_LABELS[hardware] ?? hardware.toUpperCase();
+
+const SYSTEM_LABELS: Record<string, string> = { windows: 'Windows', linux: 'Linux', macos: 'macOS' };
+const PLATFORM_HINTS: Record<string, string> = {
+  windows: 'Intel Quick Sync (QSV), NVIDIA NVENC oder AMD AMF',
+  linux: 'VA-API (Intel und AMD), Intel Quick Sync oder NVIDIA NVENC',
+  macos: 'Apple VideoToolbox',
+};
+const HWACCEL_LABELS: Record<string, string> = {
+  d3d11va: 'D3D11VA',
+  dxva2: 'DXVA2',
+  qsv: 'Intel Quick Sync',
+  cuda: 'NVIDIA CUDA',
+  vaapi: 'VA-API',
+  videotoolbox: 'VideoToolbox',
+  rkmpp: 'Rockchip MPP',
+};
+
+/** "hwaccel d3d11va" → "D3D11VA", "hevc_qsv" stays. */
+export function decoderLabel(decoder: string): string {
+  const hwaccel = decoder.match(/^hwaccel (\S+)$/)?.[1];
+  return hwaccel ? (HWACCEL_LABELS[hwaccel] ?? hwaccel) : decoder;
+}
 const fps = (value: number) => decimal(value, value < 10 ? 1 : 0);
 const speedText = (speed: number) => `${decimal(speed, 1)}×`;
 
@@ -86,17 +108,65 @@ export function describeFinding(finding: StreamFinding, session: StreamSession):
       };
     case 'softwareDecoding': {
       const codec = `${codecLabel(finding.codec)}${finding.cause === 'tenBitDisabled' ? ' 10 bit' : ''}`;
+      if (finding.cause === 'fallback') {
+        return {
+          title: `${codec} wird in Software dekodiert`,
+          detail: `${hardwareLabel(finding.hardware)} ist eingerichtet und die Hardware-Dekodierung für ${codec} eingeschaltet – trotzdem hat FFmpeg in Software dekodiert.`,
+          action: 'Den Grund nennen meist die Meldungen von FFmpeg (Treiber, Gerät). Prüfen lässt sich die Hardware unter Server → Hardware testen.',
+        };
+      }
       return {
         title: `${codec} wird in Software dekodiert`,
         detail: `${hardwareLabel(finding.hardware)} ist eingerichtet, aber die Hardware-Dekodierung für ${codec} ist ausgeschaltet – der Prozessor muss das Video entpacken.`,
         action: `Unter ${TRANSCODING_SETTINGS} bei der Hardware-Dekodierung «${codec}» einschalten, sofern die Grafikeinheit das unterstützt.`,
       };
     }
-    case 'softwareEncoding':
+    case 'softwareEncoding': {
+      const hardware = hardwareLabel(finding.hardware);
+      const encoder = finding.encoder ? ` (${finding.encoder})` : '';
+      switch (finding.cause) {
+        case 'disabled':
+          return {
+            title: 'Kodierung in Software',
+            detail: `${hardware} ist eingerichtet, die Hardware-Kodierung aber ausgeschaltet – der Prozessor kodiert das Video${encoder}.`,
+            action: `Unter ${TRANSCODING_SETTINGS} die Hardware-Kodierung einschalten.`,
+          };
+        case 'platform': {
+          const system = finding.operatingSystem ? SYSTEM_LABELS[finding.operatingSystem] : 'diesem System';
+          return {
+            title: 'Hardware-Beschleunigung passt nicht zum System',
+            detail: `In Jellyfin ist ${hardware} eingestellt, das gibt es unter ${system} nicht – deshalb kodiert FFmpeg in Software${encoder}.`,
+            action: `Unter ${TRANSCODING_SETTINGS} ${finding.operatingSystem ? PLATFORM_HINTS[finding.operatingSystem] : 'die passende Beschleunigung'} wählen.`,
+          };
+        }
+        case 'discImage':
+          return {
+            title: 'Kodierung in Software (Disc-Abbild)',
+            detail: `ISO-Dateien und Ordner von DVDs oder Blu-rays kodiert Jellyfin immer in Software${encoder}.`,
+            action: 'Die Disc in eine MKV-Datei umwandeln, z. B. mit MakeMKV.',
+          };
+        default:
+          return {
+            title: 'Hardware-Kodierung nicht verfügbar',
+            detail: `${hardware} ist eingerichtet und die Hardware-Kodierung eingeschaltet, trotzdem kodiert FFmpeg in Software${encoder}. Jellyfin nimmt den Hardware-Encoder nur, wenn sein FFmpeg ihn beim Start von Jellyfin anbietet.`,
+            action: 'Grafiktreiber prüfen und Jellyfin neu starten; unter Server → Hardware testen zeigt, ob die Grafikeinheit kodieren kann.',
+          };
+      }
+    }
+    case 'hardwareUsage': {
+      const decoder = finding.decoder ? decoderLabel(finding.decoder) : null;
+      const toneMapping = finding.toneMapping === 'hardware' ? ', Tone-Mapping auf der Grafikeinheit' : finding.toneMapping === 'software' ? ', Tone-Mapping in Software' : '';
       return {
-        title: 'Kodierung in Software',
-        detail: `${hardwareLabel(finding.hardware)} ist eingerichtet, die Hardware-Kodierung aber ausgeschaltet – der Prozessor kodiert das Video.`,
-        action: `Unter ${TRANSCODING_SETTINGS} die Hardware-Kodierung einschalten.`,
+        title: 'Läuft auf der Hardware',
+        detail: `Dekodieren: ${decoder ?? 'Hardware'}, Kodieren: ${finding.encoder}${toneMapping} – laut FFmpeg-Protokoll.`,
+        action: null,
+      };
+    }
+    case 'ffmpegErrors':
+      return {
+        title: 'FFmpeg meldet Probleme',
+        detail: `${finding.errors.slice(0, 3).map((line) => `«${line}»`).join(' ')}${finding.errors.length > 3 ? ' …' : ''}`,
+        action: `Ganzes Protokoll: ${finding.logFile} (Jellyfin: Dashboard → Protokolle).`,
       };
     case 'toneMapping': {
       const range = RANGE_LABELS[finding.videoRangeType ?? ''] ?? 'HDR';

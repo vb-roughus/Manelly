@@ -14,6 +14,7 @@ const item = (overrides: Partial<NowPlayingItem>): NowPlayingItem => ({
   artists: [],
   productionYear: null,
   durationMs: null,
+  videoType: null,
   poster: null,
   backdrop: null,
   ...overrides,

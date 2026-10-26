@@ -2,9 +2,10 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
-import type { AgentCheckRequest, AgentCheckResponse, AgentStatus, ConversionRequest } from '@manelly/shared';
+import type { AgentCheckRequest, AgentCheckResponse, AgentStatus, ConversionRequest, HardwareTestRequest } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import { AgentError } from './errors.js';
+import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import type { JobQueue } from './jobs.js';
 import { toolsReady, type Tools } from './tools.js';
 
@@ -44,6 +45,8 @@ async function readJson<T>(request: IncomingMessage): Promise<T> {
   }
 }
 
+const isFile = (file: string) => stat(file).then((info) => info.isFile(), () => false);
+
 function send(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   response.end(body === undefined ? undefined : JSON.stringify(body));
@@ -75,6 +78,14 @@ export function createAgentServer({ token, roots, queue, tools, freeBytes = defa
       );
       const result: AgentCheckResponse = { sourceBytes, directories };
       return send(response, 200, result);
+    }
+    if (route === 'POST /api/hwtest') {
+      const body = await readJson<HardwareTestRequest>(request);
+      const tests = Array.isArray(body.tests) ? body.tests.filter((id) => HARDWARE_TESTS.includes(id)) : [];
+      // Jellyfin's own FFmpeg when Manelly names it, otherwise the one the agent found.
+      const found = await tools();
+      const ffmpegPath = typeof body.ffmpegPath === 'string' && body.ffmpegPath && (await isFile(body.ffmpegPath)) ? body.ffmpegPath : found.ffmpeg.path;
+      return send(response, 200, await runHardwareTest({ ...body, tests }, ffmpegPath));
     }
     if (route === 'GET /api/jobs') return send(response, 200, queue.list());
     if (route === 'POST /api/jobs') return send(response, 201, await queue.add(await readJson<ConversionRequest>(request)));

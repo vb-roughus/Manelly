@@ -15,10 +15,34 @@ export interface StreamContext {
   remoteBitrateLimit: number;
   /** Per-user limits for remote clients; 0 means the server-wide limit applies. */
   userRemoteBitrateLimits: Map<string, number>;
+  /** windows, linux or macos – which hardware accelerations exist depends on it. */
+  operatingSystem: OperatingSystem | null;
+}
+
+export type OperatingSystem = 'windows' | 'linux' | 'macos';
+
+/** Accelerations Jellyfin supports per system (see jellyfin.org: Hardware Acceleration). */
+export const PLATFORM_ACCELERATIONS: Record<OperatingSystem, string[]> = {
+  windows: ['qsv', 'nvenc', 'amf'],
+  linux: ['vaapi', 'qsv', 'nvenc', 'v4l2m2m', 'rkmpp'],
+  macos: ['videotoolbox'],
+};
+
+export function operatingSystemOf(info: { OperatingSystem?: string; OperatingSystemDisplayName?: string }): OperatingSystem | null {
+  const text = `${info.OperatingSystem ?? ''} ${info.OperatingSystemDisplayName ?? ''}`;
+  if (/windows/i.test(text)) return 'windows';
+  if (/darwin|mac ?os|os x/i.test(text)) return 'macos';
+  if (/linux|unix|bsd/i.test(text)) return 'linux';
+  return null;
 }
 
 export async function loadStreamContext(client: JellyfinClient): Promise<StreamContext> {
-  const [encoding, config, users] = await Promise.all([client.getEncodingOptions(), client.getServerConfiguration(), client.getUsers()]);
+  const [encoding, config, users, system] = await Promise.all([
+    client.getEncodingOptions(),
+    client.getServerConfiguration(),
+    client.getUsers(),
+    client.getSystemInfo(),
+  ]);
   const hardware = encoding.HardwareAccelerationType?.toLowerCase();
   return {
     hardwareAcceleration: hardware && hardware !== 'none' ? hardware : null,
@@ -29,6 +53,7 @@ export async function loadStreamContext(client: JellyfinClient): Promise<StreamC
     toneMapping: Boolean(encoding.EnableTonemapping || encoding.EnableVppTonemapping || encoding.EnableVideoToolboxTonemapping),
     remoteBitrateLimit: config.RemoteClientBitrateLimit ?? 0,
     userRemoteBitrateLimits: new Map(users.flatMap((user) => (user.Id ? [[user.Id, user.Policy?.RemoteClientBitrateLimit ?? 0]] : []))),
+    operatingSystem: operatingSystemOf(system),
   };
 }
 
@@ -76,18 +101,39 @@ export function assessStream(stream: StreamFacts, context: StreamContext | null)
     if (!hardware) {
       findings.push({ kind: 'softwareTranscoding', severity: struggling ? 'warning' : 'info' });
     } else {
+      // The FFmpeg log tells what really runs; without it, the settings tell what should.
+      const log = stream.transcodeLog;
       const codec = source.video.codec?.toLowerCase() ?? '';
       const bitDepth = source.video.bitDepth;
       const decodable = context.hardwareDecodingCodecs;
-      if (decodable && HARDWARE_DECODABLE.has(codec)) {
+      const decodedInSoftware = log ? !log.decoderHardware : true;
+      if (decodable && HARDWARE_DECODABLE.has(codec) && decodedInSoftware) {
         const cause = !decodable.includes(codec)
           ? 'codecDisabled'
           : bitDepth === 10 && hardware !== 'videotoolbox' && ((codec === 'hevc' && !context.hevc10Bit) || (codec === 'vp9' && !context.vp910Bit))
             ? 'tenBitDisabled'
-            : null;
+            : log
+              ? 'fallback'
+              : null;
         if (cause) findings.push({ kind: 'softwareDecoding', severity: 'warning', hardware, codec, bitDepth, cause });
       }
-      if (!context.hardwareEncoding) findings.push({ kind: 'softwareEncoding', severity: struggling ? 'warning' : 'info', hardware });
+
+      const encodedInSoftware = log ? log.encoderHardware === false : !context.hardwareEncoding;
+      if (encodedInSoftware) {
+        // Mirrors EncodingHelper.GetH26xOrAv1Encoder: these are the cases in which Jellyfin picks a software encoder.
+        const platform = context.operatingSystem;
+        const cause = !context.hardwareEncoding
+          ? 'disabled'
+          : platform && !PLATFORM_ACCELERATIONS[platform].includes(hardware)
+            ? 'platform'
+            : item.videoType && item.videoType !== 'VideoFile'
+              ? 'discImage'
+              : 'unavailable';
+        const severity = struggling || cause === 'platform' || cause === 'unavailable' ? 'warning' : 'info';
+        findings.push({ kind: 'softwareEncoding', severity, hardware, encoder: log?.encoder ?? null, cause, operatingSystem: platform });
+      } else if (log?.encoder && log.decoderHardware) {
+        findings.push({ kind: 'hardwareUsage', severity: 'good', decoder: log.decoder, encoder: log.encoder, toneMapping: log.toneMapping });
+      }
     }
 
     // H.264 output is always SDR; Dolby Vision without HDR10 base needs mapping on any non-DV client.
@@ -99,6 +145,10 @@ export function assessStream(stream: StreamFacts, context: StreamContext | null)
       const cause = !hardware ? 'software' : !context.toneMapping ? 'disabled' : null;
       if (cause) findings.push({ kind: 'toneMapping', severity: 'warning', videoRangeType: source.video.videoRangeType, cause });
     }
+  }
+
+  if (stream.transcodeLog?.errors.length) {
+    findings.push({ kind: 'ffmpegErrors', severity: 'warning', errors: stream.transcodeLog.errors, logFile: stream.transcodeLog.fileName });
   }
 
   if (transcoding?.reasons.some((reason) => reason === 'ContainerBitrateExceedsLimit' || reason === 'VideoBitrateNotSupported')) {

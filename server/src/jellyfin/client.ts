@@ -3,6 +3,7 @@ import { AppError } from '../errors.js';
 import type {
   JfEncodingOptions,
   JfItemsResult,
+  JfLogFile,
   JfServerConfiguration,
   JfSessionInfo,
   JfSystemInfo,
@@ -37,6 +38,9 @@ export interface JellyfinClient {
   getUsers(): Promise<JfUser[]>;
   getEncodingOptions(): Promise<JfEncodingOptions>;
   getServerConfiguration(): Promise<JfServerConfiguration>;
+  getLogFiles(): Promise<JfLogFile[]>;
+  /** The raw response, so the caller can read just the start of a large log. */
+  getLogFile(name: string): Promise<Response>;
   /** Creates a collection (BoxSet) with the given items and returns its id. */
   createCollection(name: string, itemIds: string[]): Promise<string>;
   /** Adds items to a collection; Jellyfin skips the ones already in it. */
@@ -109,6 +113,14 @@ export function createJellyfinClient(
     getUsers: () => getJson<JfUser[]>('/Users'),
     getEncodingOptions: () => getJson<JfEncodingOptions>('/System/Configuration/encoding'),
     getServerConfiguration: () => getJson<JfServerConfiguration>('/System/Configuration'),
+    getLogFiles: () => getJson<JfLogFile[]>('/System/Logs'),
+    getLogFile: async (name) => {
+      const response = await request(`/System/Logs/Log?${new URLSearchParams({ name })}`, 'text/plain');
+      if (!response.ok) {
+        throw new JellyfinError('UPSTREAM_ERROR', `Jellyfin antwortete auf /System/Logs/Log mit HTTP ${response.status}.`, response.status);
+      }
+      return response;
+    },
     createCollection: async (name, itemIds) => {
       const query = new URLSearchParams({ name, isLocked: 'false' });
       // An empty ids parameter would make Jellyfin parse "" as an item id.

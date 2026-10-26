@@ -123,6 +123,8 @@ Windows fragt dabei eventuell nach Administratorrechten), installiert die Abhän
 - Blockiert PowerShell das Skript («Die Ausführung von Skripts ist auf diesem System deaktiviert»), `start-windows.cmd`
   verwenden – es erlaubt die Ausführung nur für dieses eine Skript.
 - Fehlt `winget`, Node.js (LTS) von <https://nodejs.org> installieren und das Skript erneut starten.
+- Ist Node.js installiert, aber `node` wird nicht gefunden (Ordner fehlt im PATH, oder bei nvm-windows fehlt die
+  Verknüpfung), findet das Skript die Installation selbst und trägt den Ordner für deinen Benutzer wieder in den PATH ein.
 - Beim ersten Start fragt die Windows-Firewall eventuell, ob Node.js Netzwerkzugriff erhält. Für den Zugriff von anderen
   Geräten zulassen; nur auf diesem PC funktioniert Manelly auch ohne.
 

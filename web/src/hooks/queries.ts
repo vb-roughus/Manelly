@@ -2,9 +2,11 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import type {
   AddToCollectionRequest,
   AgentOverview,
+  AgentScheduleStatus,
   AgentSettingsView,
   ConversionJob,
   ConversionOptions,
+  ConversionSchedule,
   HardwareTestResult,
   SaveAgentSettingsRequest,
   StartConversionRequest,
@@ -237,6 +239,26 @@ export function useCancelConversion() {
   return useMutation({
     mutationFn: (id: string) => sendJson<ConversionJob>('POST', `/api/agent/jobs/${encodeURIComponent(id)}/cancel`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
+  });
+}
+
+/** Starts a scheduled conversion without waiting for the schedule. */
+export function useStartConversionNow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sendJson<ConversionJob>('POST', `/api/agent/jobs/${encodeURIComponent(id)}/start`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
+  });
+}
+
+export function useSaveSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (schedule: ConversionSchedule) => sendJson<AgentScheduleStatus>('PUT', '/api/agent/schedule', schedule),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['agent'] });
+      void queryClient.invalidateQueries({ queryKey: ['conversions'] });
+    },
   });
 }
 

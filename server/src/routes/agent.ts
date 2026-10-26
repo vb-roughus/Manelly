@@ -1,12 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import type {
   AgentOverview,
+  AgentScheduleStatus,
   AgentSettingsView,
+  AgentStatus,
   ConversionJob,
   ConversionOptions,
+  ConversionSchedule,
   SaveAgentSettingsRequest,
   StartConversionRequest,
 } from '@manelly/shared';
+import type { AgentClient } from '../agent/client.js';
 import type { AgentConnection } from '../agent/connection.js';
 import { normalizeAgentUrl } from '../agent/connection.js';
 import { conversionOptions, createConversionWatcher, requireAgent, startConversion } from '../agent/conversions.js';
@@ -19,10 +23,34 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   const watcher = createConversionWatcher({ agent, jellyfin: () => connection.client, store, log: (message) => app.log.warn(message) });
   app.addHook('onClose', async () => watcher.stop());
 
+  // What the agent last got from this Manelly: agent, Jellyfin address and key.
+  let handedOver: string | null = null;
+
+  /**
+   * Gives the agent Manelly's Jellyfin connection, so it sees streams (for the schedule) and
+   * reports new files itself. Only when something changed or the agent lost it.
+   */
+  async function handOverJellyfin(client: AgentClient, status?: AgentStatus): Promise<void> {
+    const jellyfin = connection.settings;
+    // Agents before 0.2.0 have no use for it.
+    if (!jellyfin || (status && !status.schedule)) return;
+    const url = jellyfin.url.replace(/\/+$/, '');
+    const key = `${client.url}\n${url}\n${jellyfin.apiKey}`;
+    if (key === handedOver && (!status || status.schedule?.jellyfinUrl === url)) return;
+    try {
+      await client.setJellyfin({ url, apiKey: jellyfin.apiKey });
+      handedOver = key;
+    } catch (error) {
+      app.log.warn(`Jellyfin-Verbindung nicht an den Agent übergeben: ${(error as Error).message}`);
+    }
+  }
+
   async function overview(refresh = false): Promise<AgentOverview> {
     if (!agent.client) return { configured: false, status: null, error: null };
     try {
-      return { configured: true, status: await agent.client.status(refresh), error: null };
+      const status = await agent.client.status(refresh);
+      await handOverJellyfin(agent.client, status);
+      return { configured: true, status, error: null };
     } catch (error) {
       return { configured: true, status: null, error: (error as Error).message };
     }
@@ -85,12 +113,15 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
                 fileName: { type: 'string', maxLength: 255 },
               },
             },
+            scheduled: { type: 'boolean' },
           },
         },
       },
     },
     async (request, reply): Promise<ConversionJob> => {
-      const job = await startConversion(requireClient(connection.client), requireAgent(agent), request.body);
+      const client = requireAgent(agent);
+      await handOverJellyfin(client);
+      const job = await startConversion(requireClient(connection.client), client, request.body);
       watcher.track(job);
       request.log.info(`Umwandlung gestartet: ${job.source} → ${job.output}`);
       reply.status(201);
@@ -99,6 +130,43 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   );
 
   app.post<{ Params: { id: string } }>('/jobs/:id/cancel', async (request): Promise<ConversionJob> => requireAgent(agent).cancelJob(request.params.id));
+
+  app.post<{ Params: { id: string } }>('/jobs/:id/start', async (request): Promise<ConversionJob> => {
+    const job = await requireAgent(agent).startJob(request.params.id);
+    request.log.info(`Umwandlung ohne Zeitplan gestartet: ${job.source}`);
+    return job;
+  });
+
+  const time = { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' };
+  app.put<{ Body: ConversionSchedule }>(
+    '/schedule',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['window', 'idleOnly'],
+          properties: {
+            window: {
+              type: ['object', 'null'],
+              additionalProperties: false,
+              required: ['start', 'end'],
+              properties: { start: time, end: time },
+            },
+            idleOnly: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (request): Promise<AgentScheduleStatus> => {
+      const client = requireAgent(agent);
+      // The agent needs Jellyfin to see whether anybody streams.
+      if (request.body.idleOnly) await handOverJellyfin(client);
+      const schedule = await client.setSchedule(request.body);
+      request.log.info(`Zeitplan der Umwandlungen gespeichert: ${request.body.window ? `${request.body.window.start}–${request.body.window.end}` : 'jederzeit'}${request.body.idleOnly ? ', nur ohne Stream' : ''}`);
+      return schedule;
+    },
+  );
 
   app.delete<{ Params: { id: string } }>('/jobs/:id', async (request, reply) => {
     await requireAgent(agent).removeJob(request.params.id);

@@ -90,8 +90,17 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 - Der Agent löst die Videospur heraus (ffmpeg), wandelt die Dolby-Vision-Daten um (`dovi_tool -m 2 convert --discard`) und
   setzt die Datei mit allen Ton- und Untertitelspuren, Kapiteln und Anhängen neu zusammen (mkvmerge). Das Bild wird nicht
   neu kodiert; der Enhancement Layer fällt weg (bei «FEL»-Dateien geht dessen Zusatzinformation verloren)
-- Seite **Umwandlungen** mit Fortschritt, Abbrechen und der Ausgabe des Werkzeugs bei Fehlern; danach meldet Manelly die
-  neue Datei an Jellyfin
+- **Sofort** oder **nach Zeitplan**: Auf der Seite **Umwandlungen** ein Zeitfenster (z. B. 01:00–07:00, Uhrzeit des
+  Jellyfin-Servers) und/oder «nur wenn niemand streamt» einstellen. Geplante Umwandlungen startet der Agent selbst, auch
+  wenn Manelly nicht läuft. Beginnt ein Stream, pausiert die Umwandlung und macht später beim zuletzt fertigen Schritt
+  weiter; nach einem Stream wartet der Agent noch 5 Minuten. Eine laufende Umwandlung darf über das Ende des Zeitfensters
+  hinaus fertig werden. **«Jetzt starten»** übergeht den Zeitplan.
+- Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
+  beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
+- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Abbrechen und der Ausgabe des Werkzeugs bei Fehlern; danach meldet
+  der Agent die neue Datei an Jellyfin, damit sie gleich erscheint
+- Für Zeitplan und Meldung gibt Manelly dem Agent die Jellyfin-Adresse und den API-Schlüssel (gespeichert in
+  `agent\data\settings.json` auf dem Jellyfin-Server)
 - Manelly nennt dem Agent jede Datei und jeden Zielordner (aus Jellyfin) – der Agent durchsucht keine Laufwerke, prüft
   vorher den freien Platz (etwa doppelte Dateigrösse) und überschreibt nie eine Datei
 
@@ -158,16 +167,30 @@ Nur nötig für die [Umwandlungen](#umwandlungen-mit-agent). Auf dem Windows-PC,
    Das Skript installiert bei Bedarf Node.js und MKVToolNix mit `winget`, lädt
    [dovi_tool](https://github.com/quietvoid/dovi_tool) (feste Version, Prüfsumme wird kontrolliert) nach `agent\tools`,
    verwendet das ffmpeg von Jellyfin, baut den Agent, gibt Port 8790 in der Windows-Firewall (privates Netzwerk) frei und
-   richtet den Autostart bei der Anmeldung ein. Ohne `-Install` läuft der Agent einfach in diesem Fenster.
+   richtet den Autostart ein: Der Agent startet **mit Windows, ohne dass sich jemand anmelden muss** (z. B. nach einem
+   nächtlichen Neustart), unsichtbar unter deinem Benutzer. Ohne Administratorrechte startet er erst bei deiner Anmeldung.
+   Ohne `-Install` läuft der Agent einfach in diesem Fenster.
+
+   Liegen die Medien auf einer **Netzwerkfreigabe** (`\\nas\filme`), braucht der Autostart dein Windows-Passwort, weil
+   Windows ohne Anmeldung sonst nur lokale Laufwerke freigibt:
+
+   ```powershell
+   .\scripts\start-agent.ps1 -Install -StorePassword
+   ```
+
+   Das Passwort speichert Windows in der Aufgabenplanung; nach einer Passwortänderung den Befehl erneut ausführen.
+   Verbundene Laufwerksbuchstaben (`Z:`) gibt es ohne Anmeldung nicht – Jellyfin sollte die Freigaben als `\\nas\…`
+   kennen.
 2. Das Skript zeigt **Adresse** und **Schlüssel** an. Beides in Manelly unter **Einstellungen → Agent auf dem
    Jellyfin-Server** eintragen; Manelly zeigt dann, welche Werkzeuge gefunden wurden.
 
 - Konfiguration in `agent\data\agent.json`: `port`, `token` (der Schlüssel), `tools` (Pfade, falls ein Werkzeug nicht
-  gefunden wird) und `roots` – eine Liste von Ordnern, auf die der Agent sich beschränken soll (leer: jeder Ordner, den
+  gefunden wird; `-Install` trägt Werkzeuge ein, die nur über den PATH gefunden werden) und `roots` – eine Liste von Ordnern, auf die der Agent sich beschränken soll (leer: jeder Ordner, den
   Manelly nennt). Nach Änderungen den Agent neu starten.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
-- Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen.
+- Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen (als Administrator). Eine laufende
+  Umwandlung wird dabei unterbrochen und macht danach weiter.
 
 ## Schnellstart mit Docker
 
@@ -271,4 +294,5 @@ Proxy mit Authentifizierung und mache es nicht direkt im Internet erreichbar.
 
 Der Agent verlangt bei jeder Anfrage seinen Schlüssel, spricht aber unverschlüsseltes HTTP – gib seinen Port nur im
 Heimnetz frei. Er liest und schreibt nur die Dateien und Ordner, die Manelly ihm nennt (auf Wunsch zusätzlich beschränkt
-mit `roots`), legt nur eigene Unterordner an und löscht keine Originale.
+mit `roots`), legt nur eigene Unterordner an und löscht keine Originale. Den Jellyfin-API-Schlüssel, den Manelly ihm für
+den Zeitplan gibt, nutzt er nur für die Liste der laufenden Streams und um neue Dateien zu melden.

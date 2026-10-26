@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { ConversionOptions, ConversionOutputMode, StartConversionRequest } from '@manelly/shared';
+import type { AgentScheduleStatus, ConversionOptions, ConversionOutputMode, StartConversionRequest } from '@manelly/shared';
 import { CircleCheck, HardDrive, LoaderCircle, TriangleAlert, WandSparkles, X } from 'lucide-react';
 import clsx from 'clsx';
-import { useConversionOptions, useStartConversion } from '../../hooks/queries';
+import { useAgent, useConversionOptions, useStartConversion } from '../../hooks/queries';
 import { formatBytes } from '../../lib/format';
+import { describeSchedule, restricts } from '../../lib/schedule';
 
 interface ConvertDialogProps {
   open: boolean;
@@ -46,7 +47,10 @@ export function ConvertDialog({ open, onClose, ...props }: ConvertDialogProps) {
 
 function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps, 'open'>) {
   const options = useConversionOptions(itemId, mediaSourceId, true);
+  const agent = useAgent();
+  const schedule = agent.data?.status?.schedule;
   const start = useStartConversion();
+  const waits = start.data?.scheduled === true;
 
   return (
     <div className="p-6">
@@ -74,8 +78,18 @@ function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps
       {start.isSuccess ? (
         <div className="space-y-4">
           <Note tone="good">
-            Die Umwandlung von <b>{start.data.title}</b> ist gestartet. Sie läuft auf dem Jellyfin-Server weiter, auch wenn du
-            Manelly schliesst. Danach meldet Manelly die neue Datei an Jellyfin.
+            {waits ? (
+              <>
+                Die Umwandlung von <b>{start.data.title}</b> ist eingeplant: Der Agent startet sie {schedule ? describeSchedule(schedule) : 'nach Zeitplan'} –
+                auch nach einem Neustart des Servers und wenn Manelly nicht läuft.
+              </>
+            ) : (
+              <>
+                Die Umwandlung von <b>{start.data.title}</b> ist gestartet. Sie läuft auf dem Jellyfin-Server weiter, auch wenn du Manelly
+                schliesst.
+              </>
+            )}{' '}
+            Danach erfährt Jellyfin von der neuen Datei.
           </Note>
           <div className="flex flex-wrap gap-2">
             <Link to="/conversions" onClick={onClose} className={primaryButton}>
@@ -87,7 +101,9 @@ function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps
           </div>
         </div>
       ) : (
-        options.data && <ConvertForm options={options.data} pending={start.isPending} error={start.error?.message ?? null} onStart={start.mutate} onCancel={onClose} />
+        options.data && (
+          <ConvertForm options={options.data} schedule={schedule} pending={start.isPending} error={start.error?.message ?? null} onStart={start.mutate} onCancel={onClose} />
+        )
       )}
     </div>
   );
@@ -105,14 +121,18 @@ const validName = (name: string) => /\.mkv$/i.test(name) && !/[<>:"/\\|?*]/.test
 
 interface ConvertFormProps {
   options: ConversionOptions;
+  /** Missing on agents before 0.2.0, which start everything right away. */
+  schedule: AgentScheduleStatus | undefined;
   pending: boolean;
   error: string | null;
   onStart: (request: StartConversionRequest) => void;
   onCancel: () => void;
 }
 
-function ConvertForm({ options, pending, error, onStart, onCancel }: ConvertFormProps) {
+function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: ConvertFormProps) {
   const id = useId();
+  const hasSchedule = schedule !== undefined && restricts(schedule);
+  const [scheduled, setScheduled] = useState(hasSchedule);
   const original = baseName(options.source.path);
   const [mode, setMode] = useState<ConversionOutputMode>('alongside');
   const [alongsideName, setAlongsideName] = useState(options.alongside.fileName);
@@ -136,7 +156,12 @@ function ConvertForm({ options, pending, error, onStart, onCancel }: ConvertForm
         : mode === 'replace'
           ? { mode }
           : { mode, directory: folder, fileName: folderName.trim(), ...(subfolder.trim() ? { subfolder: subfolder.trim() } : {}) };
-    onStart({ itemId: options.item.id, ...(options.source.mediaSourceId ? { mediaSourceId: options.source.mediaSourceId } : {}), output });
+    onStart({
+      itemId: options.item.id,
+      ...(options.source.mediaSourceId ? { mediaSourceId: options.source.mediaSourceId } : {}),
+      output,
+      ...(scheduled && hasSchedule ? { scheduled: true } : {}),
+    });
   }
 
   return (
@@ -186,6 +211,33 @@ function ConvertForm({ options, pending, error, onStart, onCancel }: ConvertForm
         </Choice>
       </fieldset>
 
+      {schedule && (
+        <fieldset className="space-y-2">
+          <legend className="mb-2 text-sm font-medium">Wann</legend>
+          <Choice
+            id={`${id}-scheduled`}
+            name="convert-when"
+            checked={scheduled && hasSchedule}
+            onSelect={() => setScheduled(true)}
+            title="Nach Zeitplan"
+            description={
+              hasSchedule
+                ? `Startet ${describeSchedule(schedule)} – auch nach einem Neustart des Servers.`
+                : 'Noch kein Zeitplan – einstellen unter Umwandlungen.'
+            }
+            disabled={!hasSchedule}
+          />
+          <Choice
+            id={`${id}-now`}
+            name="convert-when"
+            checked={!scheduled || !hasSchedule}
+            onSelect={() => setScheduled(false)}
+            title="Sofort"
+            description="Startet gleich (oder nach der laufenden Umwandlung) und läuft auch weiter, wenn jemand streamt."
+          />
+        </fieldset>
+      )}
+
       <div className="space-y-1.5 rounded-lg bg-card-2 p-3 text-xs">
         <p>
           <span className="text-ink-2">Ziel: </span>
@@ -211,24 +263,33 @@ function ConvertForm({ options, pending, error, onStart, onCancel }: ConvertForm
         </button>
         <button type="submit" disabled={pending || tooLittleSpace || nameInvalid} className={primaryButton}>
           {pending && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
-          Umwandlung starten
+          {scheduled && hasSchedule ? 'Umwandlung einplanen' : 'Umwandlung starten'}
         </button>
       </div>
     </form>
   );
 }
 
-function Choice(props: { id: string; checked: boolean; onSelect: () => void; title: string; description: string; disabled?: boolean; children: ReactNode }) {
+function Choice(props: {
+  id: string;
+  name?: string;
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  description: string;
+  disabled?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <div className={clsx('rounded-xl p-3 ring-1 transition', props.checked ? 'bg-accent/8 ring-accent/50' : 'ring-line', props.disabled && 'opacity-50')}>
       <label htmlFor={props.id} className="flex cursor-pointer gap-3">
-        <input id={props.id} type="radio" name="convert-mode" checked={props.checked} onChange={props.onSelect} disabled={props.disabled} className="mt-1 accent-accent" />
+        <input id={props.id} type="radio" name={props.name ?? 'convert-mode'} checked={props.checked} onChange={props.onSelect} disabled={props.disabled} className="mt-1 accent-accent" />
         <span>
           <span className="block text-sm font-medium">{props.title}</span>
           <span className="block text-xs text-ink-2">{props.description}</span>
         </span>
       </label>
-      {props.checked && <div className="mt-3 space-y-2 pl-7">{props.children}</div>}
+      {props.checked && props.children && <div className="mt-3 space-y-2 pl-7">{props.children}</div>}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import type { ConversionJob, ConversionStep } from '@manelly/shared';
-import { Ban, CircleCheck, CircleX, Clock, LoaderCircle } from 'lucide-react';
+import { Ban, CalendarClock, CircleCheck, CircleX, Clock, LoaderCircle } from 'lucide-react';
 import clsx from 'clsx';
 
 export const STEP_LABELS: Record<ConversionStep, string> = {
@@ -25,9 +25,10 @@ const STATES = {
   failed: { icon: CircleX, label: 'Fehlgeschlagen', className: 'text-critical' },
   canceled: { icon: Ban, label: 'Abgebrochen', className: 'text-ink-2' },
 } as const;
+const SCHEDULED = { icon: CalendarClock, label: 'Geplant', className: 'text-ink-2' } as const;
 
 export function StateBadge({ job }: { job: ConversionJob }) {
-  const meta = STATES[job.state];
+  const meta = job.state === 'queued' && job.scheduled ? SCHEDULED : STATES[job.state];
   const Icon = meta.icon;
   return (
     <span className={clsx('inline-flex shrink-0 items-center gap-1 text-xs font-medium', meta.className)}>

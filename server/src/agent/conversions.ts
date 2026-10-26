@@ -109,6 +109,7 @@ export async function startConversion(client: JellyfinClient, agent: AgentClient
       durationMs: item.RunTimeTicks ? Math.round(item.RunTimeTicks / TICKS_PER_MS) : null,
       frameRate: video?.RealFrameRate ?? video?.AverageFrameRate ?? null,
     },
+    ...(body.scheduled ? { scheduled: true } : {}),
   });
 }
 
@@ -129,7 +130,7 @@ export function createConversionWatcher(options: {
   let timer: NodeJS.Timeout | null = null;
   let refreshTimer: NodeJS.Timeout | null = null;
 
-  async function finished(job: ConversionJob) {
+  async function notify(job: ConversionJob) {
     const client = jellyfin();
     if (!client) return;
     const updates: Array<{ path: string; updateType: 'Created' | 'Modified' | 'Deleted' }> = [];
@@ -143,6 +144,11 @@ export function createConversionWatcher(options: {
     } catch (error) {
       log(`Jellyfin konnte nicht über die neue Datei informiert werden: ${(error as Error).message}`);
     }
+  }
+
+  async function finished(job: ConversionJob) {
+    // Agents from 0.2.0 on tell Jellyfin themselves.
+    if (!job.jellyfinNotified) await notify(job);
     if (store) {
       if (refreshTimer) clearTimeout(refreshTimer);
       // Give Jellyfin time to scan the file before Manelly reads the library again.

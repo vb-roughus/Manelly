@@ -2,20 +2,22 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
-import type { AgentCheckRequest, AgentCheckResponse, AgentStatus, ConversionRequest, HardwareTestRequest } from '@manelly/shared';
+import type { AgentCheckRequest, AgentCheckResponse, AgentScheduleStatus, AgentStatus, ConversionRequest, HardwareTestRequest } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import { AgentError } from './errors.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
+import { AGENT_VERSION } from './jellyfin.js';
 import type { JobQueue } from './jobs.js';
+import { parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 
-export const AGENT_VERSION = '0.1.0';
 const MAX_BODY_BYTES = 64 * 1024;
 
 export interface AgentServerOptions {
   token: string;
   roots: string[];
   queue: JobQueue;
+  settings: SettingsStore;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -53,7 +55,18 @@ function send(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** The agent's HTTP API. Everything but the health check needs the token from agent.json. */
-export function createAgentServer({ token, roots, queue, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+export function createAgentServer({ token, roots, queue, settings, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+  function schedule(): AgentScheduleStatus {
+    const { schedule: current, jellyfin } = settings.get();
+    const gate = queue.gate();
+    return {
+      ...current,
+      jellyfinUrl: jellyfin?.url ?? null,
+      gate: gate && { open: gate.open, reason: gate.reason, streams: gate.streams, checkedAt: gate.checkedAt },
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse) {
     const url = new URL(request.url ?? '/', 'http://agent');
     const route = `${request.method} ${url.pathname}`;
@@ -63,8 +76,26 @@ export function createAgentServer({ token, roots, queue, tools, freeBytes = defa
 
     if (route === 'GET /api/status') {
       const found = await tools(url.searchParams.get('refresh') === '1');
-      const status: AgentStatus = { version: AGENT_VERSION, hostname: hostname(), platform: process.platform, tools: found, roots, ready: toolsReady(found) };
+      const status: AgentStatus = {
+        version: AGENT_VERSION,
+        hostname: hostname(),
+        platform: process.platform,
+        tools: found,
+        roots,
+        ready: toolsReady(found),
+        schedule: schedule(),
+      };
       return send(response, 200, status);
+    }
+    if (route === 'PUT /api/schedule') {
+      await settings.setSchedule(parseSchedule(await readJson(request)));
+      // Not awaited: asking Jellyfin may take longer than Manelly waits for this answer.
+      void queue.check();
+      return send(response, 200, schedule());
+    }
+    if (route === 'PUT /api/jellyfin') {
+      await settings.setJellyfin(parseJellyfinAccess(await readJson(request)));
+      return send(response, 204, undefined);
     }
     if (route === 'POST /api/check') {
       const body = await readJson<AgentCheckRequest>(request);
@@ -90,9 +121,10 @@ export function createAgentServer({ token, roots, queue, tools, freeBytes = defa
     if (route === 'GET /api/jobs') return send(response, 200, queue.list());
     if (route === 'POST /api/jobs') return send(response, 201, await queue.add(await readJson<ConversionRequest>(request)));
 
-    const job = url.pathname.match(/^\/api\/jobs\/([\w-]+)(\/cancel)?$/);
+    const job = url.pathname.match(/^\/api\/jobs\/([\w-]+)(\/cancel|\/start)?$/);
     if (job && request.method === 'GET' && !job[2]) return send(response, 200, queue.get(job[1]!));
-    if (job && request.method === 'POST' && job[2]) return send(response, 200, queue.cancel(job[1]!));
+    if (job && request.method === 'POST' && job[2] === '/cancel') return send(response, 200, queue.cancel(job[1]!));
+    if (job && request.method === 'POST' && job[2] === '/start') return send(response, 200, queue.startNow(job[1]!));
     if (job && request.method === 'DELETE' && !job[2]) {
       await queue.remove(job[1]!);
       return send(response, 204, undefined);

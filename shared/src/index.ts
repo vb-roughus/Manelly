@@ -144,7 +144,15 @@ export interface TranscodingDetails {
   hardwareAcceleration: string | null;
   /** Jellyfin TranscodeReason values, e.g. VideoCodecNotSupported. */
   reasons: string[];
+  /**
+   * Where the details come from when Jellyfin does not report them for the session itself:
+   * another session of the same device (Jellyfin reports to the first one), what it reported
+   * last for this stream, or the FFmpeg log (no reasons, no live values).
+   */
+  origin: TranscodingOrigin;
 }
+
+export type TranscodingOrigin = 'jellyfin' | 'sameDevice' | 'lastKnown' | 'log';
 
 export interface StreamSession {
   id: string;
@@ -185,6 +193,11 @@ export interface TranscodeLogInfo {
   /** False also when the hardware decoder failed and FFmpeg fell back to software. */
   decoderHardware: boolean;
   toneMapping: 'hardware' | 'software' | null;
+  /** Audio encoder of the output, e.g. aac, or copy. */
+  audioEncoder: string | null;
+  audioChannels: number | null;
+  /** Segment format of the output, e.g. ts or mp4. */
+  container: string | null;
   /** FFmpeg output lines that point to hardware or encoder problems. */
   errors: string[];
 }

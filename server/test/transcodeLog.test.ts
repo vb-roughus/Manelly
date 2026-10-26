@@ -34,12 +34,24 @@ describe('FFmpeg transcode logs', () => {
       decoder: 'hwaccel d3d11va',
       decoderHardware: true,
       toneMapping: 'hardware',
+      audioEncoder: 'aac',
+      audioChannels: 6,
+      container: 'ts',
       errors: [],
     });
   });
 
   it('recognizes software decoding, encoding and tone mapping', () => {
-    expect(parseTranscodeLog(log(SOFTWARE))).toMatchObject({ encoder: 'libx264', encoderHardware: false, decoder: null, decoderHardware: false, toneMapping: 'software' });
+    expect(parseTranscodeLog(log(SOFTWARE))).toMatchObject({
+      encoder: 'libx264',
+      encoderHardware: false,
+      decoder: null,
+      decoderHardware: false,
+      toneMapping: 'software',
+      audioEncoder: 'copy',
+      audioChannels: null,
+      container: 'ts',
+    });
   });
 
   it('notices when the hardware decoder failed and FFmpeg fell back to software', () => {

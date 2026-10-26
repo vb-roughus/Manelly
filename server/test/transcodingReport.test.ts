@@ -12,6 +12,9 @@ const log = (overrides: Partial<TranscodeLogInfo> = {}): TranscodeLogInfo => ({
   decoder: 'hwaccel d3d11va',
   decoderHardware: true,
   toneMapping: null,
+  audioEncoder: 'aac',
+  audioChannels: 2,
+  container: 'ts',
   errors: [],
   ...overrides,
 });

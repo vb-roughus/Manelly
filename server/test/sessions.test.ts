@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildSessionsResponse, isPrivateAddress, resolvePlayMethod, toStreamSession } from '../src/sessions.js';
+import type { TranscodeLogInfo } from '@manelly/shared';
+import { buildSessionsResponse, isPrivateAddress, resolvePlayMethod, toStreamSession, transcodedMediaSources } from '../src/sessions.js';
 import type { JfSessionInfo } from '../src/jellyfin/types.js';
+import { createTranscodingInfoRecovery } from '../src/transcodingInfo.js';
 
 const movie: JfSessionInfo = {
   Id: 's1',
@@ -166,5 +168,58 @@ describe('isPrivateAddress', () => {
     ['not-an-ip', false],
   ])('%s → %s', (address, expected) => {
     expect(isPrivateAddress(address)).toBe(expected);
+  });
+});
+
+describe('missing transcoding info', () => {
+  // Jellyfin Web in Chrome: the session says Transcode, but carries no TranscodingInfo.
+  const browser: JfSessionInfo = {
+    ...movie,
+    Id: 'web1',
+    Client: 'Jellyfin Web',
+    DeviceName: 'Chrome',
+    DeviceId: 'DEVICE-1',
+    PlayState: { PlayMethod: 'Transcode', MediaSourceId: 'ms1', AudioStreamIndex: 1, IsPaused: true },
+  };
+  const info = { IsVideoDirect: false, IsAudioDirect: false, VideoCodec: 'h264', AudioCodec: 'aac', TranscodeReasons: ['VideoCodecNotSupported', 'AudioCodecNotSupported'] };
+
+  it('takes it from an idle session of the same device, where Jellyfin reported it', () => {
+    const recover = createTranscodingInfoRecovery();
+    const idleTab: JfSessionInfo = { Id: 'web2', Client: 'Jellyfin Web', DeviceId: 'device-1', TranscodingInfo: { ...info, Framerate: 90 } };
+    const { sessions, origins } = recover([idleTab, browser]);
+    const stream = buildSessionsResponse(sessions, new Date(), null, new Map(), origins).sessions[0]!;
+    expect(stream.transcoding).toMatchObject({ origin: 'sameDevice', videoCodec: 'h264', reasons: ['VideoCodecNotSupported', 'AudioCodecNotSupported'] });
+  });
+
+  it('keeps what Jellyfin reported last for the same stream, without live values', () => {
+    const recover = createTranscodingInfoRecovery();
+    recover([{ ...browser, TranscodingInfo: { ...info, Framerate: 90, CompletionPercentage: 40 } }]);
+    const { sessions, origins } = recover([browser]);
+    const stream = buildSessionsResponse(sessions, new Date(), null, new Map(), origins).sessions[0]!;
+    expect(stream.transcoding).toMatchObject({ origin: 'lastKnown', reasons: ['VideoCodecNotSupported', 'AudioCodecNotSupported'], framerate: null, completionPercentage: null });
+    // Another episode on the same session starts from scratch.
+    const next = recover([{ ...browser, NowPlayingItem: { ...browser.NowPlayingItem, Id: 'episode2' } }]);
+    expect(next.sessions[0]!.TranscodingInfo).toBeUndefined();
+  });
+
+  it('falls back to the FFmpeg log for what is converted', () => {
+    expect(transcodedMediaSources([browser])).toEqual(['ms1']);
+    const log: TranscodeLogInfo = {
+      fileName: 'FFmpeg.Transcode-2026-10-26_21-00-00_ms1_12345678.log',
+      startedAt: '2026-10-26T21:00:00',
+      encoder: 'libx264',
+      encoderHardware: false,
+      decoder: null,
+      decoderHardware: false,
+      toneMapping: null,
+      audioEncoder: 'aac',
+      audioChannels: 2,
+      container: 'ts',
+      errors: [],
+    };
+    const stream = buildSessionsResponse([browser], new Date(), null, new Map([['ms1', log]])).sessions[0]!;
+    expect(stream.playback.method).toBe('Transcode');
+    expect(stream.transcoding).toMatchObject({ origin: 'log', videoCodec: 'h264', audioCodec: 'aac', audioChannels: 2, isVideoDirect: false, reasons: [], hardwareAcceleration: null });
+    expect(stream.transcodeLog?.encoder).toBe('libx264');
   });
 });

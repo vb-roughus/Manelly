@@ -12,6 +12,7 @@ import type {
   SubtitleStreamInfo,
   TranscodeLogInfo,
   TranscodingDetails,
+  TranscodingOrigin,
   VideoStreamInfo,
 } from '@manelly/shared';
 import type { JfBaseItem, JfMediaStream, JfSessionInfo, JfTranscodingInfo } from './jellyfin/types.js';
@@ -26,10 +27,11 @@ export function buildSessionsResponse(
   now = new Date(),
   context: StreamContext | null = null,
   logs: Map<string, TranscodeLogInfo> = new Map(),
+  origins: Map<string, TranscodingOrigin> = new Map(),
 ): SessionsResponse {
   const playing = sessions.filter((session) => session.NowPlayingItem);
   const streams = playing
-    .map((session) => toStreamSession(session, context, transcodeLogOf(session, logs)))
+    .map((session) => toStreamSession(session, context, transcodeLogOf(session, logs), origins.get(session.Id ?? '')))
     .sort((a, b) => a.user.name.localeCompare(b.user.name) || a.device.localeCompare(b.device) || a.id.localeCompare(b.id));
 
   return {
@@ -40,25 +42,35 @@ export function buildSessionsResponse(
   };
 }
 
+/** Video is transcoded – or Jellyfin calls it a transcode without saying more. */
+const videoTranscoded = (session: JfSessionInfo) =>
+  Boolean(session.NowPlayingItem) &&
+  (session.TranscodingInfo ? session.TranscodingInfo.IsVideoDirect === false : session.PlayState?.PlayMethod === 'Transcode');
+
 /** The media source ids of sessions whose video is transcoded – the ones with an FFmpeg transcode log. */
 export function transcodedMediaSources(sessions: JfSessionInfo[]): string[] {
-  return sessions.flatMap((session) =>
-    session.NowPlayingItem && session.TranscodingInfo && session.TranscodingInfo.IsVideoDirect === false && session.PlayState?.MediaSourceId
-      ? [session.PlayState.MediaSourceId]
-      : [],
-  );
+  return sessions.flatMap((session) => (videoTranscoded(session) && session.PlayState?.MediaSourceId ? [session.PlayState.MediaSourceId] : []));
 }
 
 function transcodeLogOf(session: JfSessionInfo, logs: Map<string, TranscodeLogInfo>): TranscodeLogInfo | null {
   const id = session.PlayState?.MediaSourceId;
-  return id && session.TranscodingInfo && session.TranscodingInfo.IsVideoDirect === false ? (logs.get(normalizeMediaSourceId(id)) ?? null) : null;
+  return id && videoTranscoded(session) ? (logs.get(normalizeMediaSourceId(id)) ?? null) : null;
 }
 
-export function toStreamSession(session: JfSessionInfo, context: StreamContext | null = null, transcodeLog: TranscodeLogInfo | null = null): StreamSession {
+export function toStreamSession(
+  session: JfSessionInfo,
+  context: StreamContext | null = null,
+  transcodeLog: TranscodeLogInfo | null = null,
+  origin: TranscodingOrigin = 'jellyfin',
+): StreamSession {
   const item = session.NowPlayingItem ?? {};
   const playState = session.PlayState ?? {};
   const source = selectSourceMedia(item, playState.AudioStreamIndex, playState.SubtitleStreamIndex);
-  const transcoding = session.TranscodingInfo ? toTranscodingDetails(session.TranscodingInfo) : null;
+  const transcoding = session.TranscodingInfo
+    ? toTranscodingDetails(session.TranscodingInfo, origin)
+    : playState.PlayMethod === 'Transcode' && transcodeLog
+      ? transcodingFromLog(transcodeLog)
+      : null;
   const remoteAddress = session.RemoteEndPoint ? normalizeAddress(session.RemoteEndPoint) : null;
 
   const stream = {
@@ -218,7 +230,7 @@ function toSubtitleStream(stream: JfMediaStream): SubtitleStreamInfo {
   };
 }
 
-function toTranscodingDetails(info: JfTranscodingInfo): TranscodingDetails {
+function toTranscodingDetails(info: JfTranscodingInfo, origin: TranscodingOrigin): TranscodingDetails {
   const hwAccel = info.HardwareAccelerationType;
   return {
     container: info.Container ?? null,
@@ -234,6 +246,38 @@ function toTranscodingDetails(info: JfTranscodingInfo): TranscodingDetails {
     completionPercentage: info.CompletionPercentage ?? null,
     hardwareAcceleration: hwAccel && hwAccel.toLowerCase() !== 'none' ? hwAccel : null,
     reasons: info.TranscodeReasons ?? [],
+    origin,
+  };
+}
+
+/** h264_qsv → h264, libx265 → hevc; null for copy. */
+function codecOfEncoder(encoder: string | null): string | null {
+  if (!encoder || encoder === 'copy') return null;
+  if (/264/.test(encoder)) return 'h264';
+  if (/265|hevc/.test(encoder)) return 'hevc';
+  if (/av1/.test(encoder)) return 'av1';
+  if (/vp9/.test(encoder)) return 'vp9';
+  return encoder;
+}
+
+/** What the FFmpeg log tells when Jellyfin reports nothing: the codecs, but no reasons and no live values. */
+function transcodingFromLog(log: TranscodeLogInfo): TranscodingDetails {
+  return {
+    container: log.container,
+    videoCodec: codecOfEncoder(log.encoder),
+    audioCodec: log.audioEncoder === 'copy' ? null : log.audioEncoder,
+    isVideoDirect: log.encoder === 'copy',
+    isAudioDirect: log.audioEncoder === 'copy',
+    width: null,
+    height: null,
+    framerate: null,
+    audioChannels: log.audioChannels,
+    bitrate: null,
+    completionPercentage: null,
+    // h264_qsv → qsv
+    hardwareAcceleration: log.encoderHardware && log.encoder ? (log.encoder.split('_').pop() ?? null) : null,
+    reasons: [],
+    origin: 'log',
   };
 }
 

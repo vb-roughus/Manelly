@@ -2,20 +2,34 @@ import { useId, useState } from 'react';
 import type { StreamSession } from '@manelly/shared';
 import { ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
-import { describeTranscodeReason, explainAudioConversion, explainReason, type ReasonDetails } from '../lib/transcodeReasons';
+import {
+  describeTranscodeReason,
+  explainAudioConversion,
+  explainInferredReason,
+  explainReason,
+  inferReasons,
+  transcodingNote,
+  type ReasonDetails,
+} from '../lib/transcodeReasons';
 
 /** The transcode reasons of a stream; a click on one explains it for the file that is playing. */
 export function TranscodeReasons({ session }: { session: StreamSession }) {
   const [open, setOpen] = useState<string | null>(null);
   const panelId = useId();
   const reasons = session.transcoding?.reasons ?? [];
+  const inferred = inferReasons(session);
   const audio = explainAudioConversion(session);
-  if (reasons.length === 0 && !audio) return null;
+  const note = transcodingNote(session);
+  if (reasons.length === 0 && inferred.length === 0 && !audio && !note) return null;
 
   const entries: Array<{ key: string; label: string; hint: string; details: () => ReasonDetails }> = [
     ...reasons.map((reason) => {
       const text = describeTranscodeReason(reason);
       return { key: reason, label: text.label, hint: text.hint, details: () => explainReason(reason, session) };
+    }),
+    ...inferred.map((reason) => {
+      const details = () => explainInferredReason(reason, session);
+      return { key: reason, label: details().label, hint: 'Von Manelly abgeleitet – Jellyfin nennt keinen Grund', details };
     }),
     ...(audio ? [{ key: 'audio', label: audio.label, hint: 'Warum der Ton umgewandelt wird', details: () => audio }] : []),
   ];
@@ -26,7 +40,8 @@ export function TranscodeReasons({ session }: { session: StreamSession }) {
       <p className="mb-2 text-xs font-medium text-ink-2">
         {session.playback.method === 'Transcode' ? 'Warum transcodiert wird' : 'Warum nicht Direct Play'}
       </p>
-      <ul className="flex flex-wrap gap-1.5">
+      {note && <p className={clsx('text-xs text-ink-3', entries.length > 0 && 'mb-2')}>{note}</p>}
+      <ul className="flex flex-wrap gap-1.5 empty:hidden">
         {entries.map((entry) => {
           const expanded = entry.key === open;
           return (

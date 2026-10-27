@@ -14,7 +14,7 @@ const SYSTEM_LABELS: Record<string, string> = { windows: 'Windows', linux: 'Linu
 
 export function ServerPage() {
   useEffect(() => {
-    document.title = 'Server · Manelly';
+    document.title = 'Allgemein · Server · Manelly';
   }, []);
   const { data: settings } = useSettings();
   const configured = settings ? isConfigured(settings) : undefined;
@@ -23,7 +23,8 @@ export function ServerPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Server</h1>
+        <p className="text-sm font-medium text-accent">Server</p>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Allgemein</h1>
         <p className="mt-1 text-sm text-ink-2">Transcoding und Hardware-Beschleunigung deines Jellyfin-Servers.</p>
       </header>
       <div className="mt-6 space-y-6">

@@ -42,7 +42,7 @@ export function DashboardDownloads() {
             <ChevronDown className={clsx('size-4 text-ink-3 transition', !open && '-rotate-90')} aria-hidden />
           </button>
         </h2>
-        <Link to="/settings" className="text-sm font-medium text-accent hover:underline">
+        <Link to="/server/jdownloader" className="text-sm font-medium text-accent hover:underline">
           JDownloader einstellen
         </Link>
       </div>

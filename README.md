@@ -84,16 +84,19 @@ Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metad
 
 ### Server
 
-- **Hardware-Beschleunigung prüfen:** Einstellungen von Jellyfin im Überblick (Beschleunigung, Hardware-Kodierung,
+Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** und **JDownloader**.
+
+- **Allgemein – Hardware-Beschleunigung prüfen:** Einstellungen von Jellyfin im Überblick (Beschleunigung, Hardware-Kodierung,
   Hardware-Dekodierung, HEVC 10 bit, Tone-Mapping, FFmpeg) mit Hinweisen, was nicht passt – z. B. HEVC nicht für die
   Hardware-Dekodierung eingeschaltet (Jellyfins Standard) oder eine Beschleunigung, die es auf dem System nicht gibt
 - **Letzte Transcodes** aus den FFmpeg-Protokollen: dekodiert/kodiert in Hardware oder Software, Fehlermeldungen
 - **Hardware testen** (mit [Agent](#agent-auf-dem-jellyfin-server-windows)): Das FFmpeg von Jellyfin kodiert und
   dekodiert auf dem Server ein paar Sekunden Testbild mit der eingestellten Beschleunigung – so zeigt sich, ob Treiber und
   Grafikeinheit wirklich funktionieren
-- **Agent** (Unterseite im Menü unter Server): Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten,
+- **Agent:** Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten,
   seine Werkzeuge, Version, Prozess-ID und Startzeit sehen und ihn beenden – z. B. wenn vor einem Update noch ein alter
   Agent läuft
+- **JDownloader:** einbinden, Adresse, und was beim Streamen passiert – siehe [Downloads](#downloads-jdownloader-mit-agent)
 
 ### Umwandlungen (mit Agent)
 
@@ -131,13 +134,13 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
 - Abschnitt **Downloads** im Dashboard (einklappbar): Zustand und Gesamttempo, die Pakete mit Fortschritt, Tempo und
   Restzeit, darunter die fertigen
 - **Pausieren, Fortsetzen, Starten, Stoppen** und das **Tempo-Limit** von JDownloader setzen
-- **Bremsen, solange jemand streamt** (unter Einstellungen → JDownloader): Beginnt ein Stream, begrenzt der Agent
+- **Bremsen, solange jemand streamt** (unter Server → JDownloader): Beginnt ein Stream, begrenzt der Agent
   JDownloader auf ein Tempo (z. B. 2 MB/s) oder pausiert ihn. Fünf Minuten nach dem letzten Stream stellt er ihn wieder
   so ein wie vorher – auch nach einem Neustart des Servers. Was du in der Zwischenzeit von Hand änderst, bleibt; ein von
   Hand gesetztes Tempo-Limit ist auch das, was danach wieder gilt
 - Einrichtung: In JDownloader unter **Einstellungen → Erweiterte Einstellungen** nach «Deprecated» suchen und die
   **Deprecated API** einschalten (die Einstellung «nur localhost» kann eingeschaltet bleiben – der Agent läuft auf
-  demselben Rechner). Dann in Manelly unter **Einstellungen → JDownloader** «JDownloader einbinden» wählen; die Adresse
+  demselben Rechner). Dann in Manelly unter **Server → JDownloader** «JDownloader einbinden» wählen; die Adresse
   ist meist `http://127.0.0.1:3128`
 
 ### Troubleshooting (Aufzeichnung, mit Agent)

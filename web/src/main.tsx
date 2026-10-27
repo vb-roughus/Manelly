@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { AgentPage } from './pages/AgentPage';
+import { JDownloaderPage } from './pages/JDownloaderPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { MediaPage } from './pages/MediaPage';
 import { ConversionsPage } from './pages/ConversionsPage';
@@ -31,8 +32,11 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/" element={<DashboardPage />} />
             <Route path="/media" element={<MediaPage />} />
             <Route path="/conversions" element={<ConversionsPage />} />
-            <Route path="/server" element={<ServerPage />} />
+            {/* Server is only a heading in the menu; its first page stands in for it. */}
+            <Route path="/server" element={<Navigate to="/server/general" replace />} />
+            <Route path="/server/general" element={<ServerPage />} />
             <Route path="/server/agent" element={<AgentPage />} />
+            <Route path="/server/jdownloader" element={<JDownloaderPage />} />
             <Route path="/troubleshooting" element={<TroubleshootingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

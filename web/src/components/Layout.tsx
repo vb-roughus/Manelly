@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
-import { Link, NavLink } from 'react-router';
+import { Link, NavLink, useLocation } from 'react-router';
 import {
+  ChevronDown,
+  Cpu,
+  Download,
   LayoutDashboard,
   Library,
   Monitor,
@@ -25,18 +28,34 @@ interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  /** Indented below the entry before it in the full sidebar. */
-  sub?: boolean;
 }
 
-const NAV: NavItem[] = [
+/** A heading that opens and closes the entries below it; not a page of its own. */
+interface NavGroup {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  children: NavItem[];
+}
+
+const NAV: Array<NavItem | NavGroup> = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/media', label: 'Medien', icon: Library },
   { to: '/conversions', label: 'Umwandlungen', icon: WandSparkles },
-  { to: '/server', label: 'Server', icon: Server },
-  { to: '/server/agent', label: 'Agent', icon: ServerCog, sub: true },
+  {
+    id: 'server',
+    label: 'Server',
+    icon: Server,
+    children: [
+      { to: '/server/general', label: 'Allgemein', icon: Cpu },
+      { to: '/server/agent', label: 'Agent', icon: ServerCog },
+      { to: '/server/jdownloader', label: 'JDownloader', icon: Download },
+    ],
+  },
   { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope },
 ];
+
+const isGroup = (entry: NavItem | NavGroup): entry is NavGroup => 'children' in entry;
 
 const SETTINGS: NavItem = { to: '/settings', label: 'Einstellungen', icon: Settings };
 
@@ -86,11 +105,17 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
         <nav aria-label="Hauptnavigation" className={clsx('mt-3 overflow-x-auto px-2 lg:mt-8', collapsed ? 'lg:px-0' : 'lg:px-3')}>
           <ul className={clsx('flex gap-1 lg:flex-col', collapsed && 'lg:items-center')}>
-            {NAV.map((item) => (
-              <li key={item.to}>
-                <NavEntry item={item} compact={collapsed} />
-              </li>
-            ))}
+            {NAV.map((entry) =>
+              isGroup(entry) ? (
+                <li key={entry.id} className={clsx('flex gap-1 lg:flex-col', collapsed && 'lg:items-center')}>
+                  <NavGroupEntry group={entry} compact={collapsed} />
+                </li>
+              ) : (
+                <li key={entry.to}>
+                  <NavEntry item={entry} compact={collapsed} />
+                </li>
+              ),
+            )}
           </ul>
         </nav>
         <div className={clsx('hidden pb-4 lg:mt-auto', collapsed ? 'lg:flex lg:flex-col lg:items-center lg:gap-2' : 'space-y-3 px-3 lg:block')}>
@@ -127,27 +152,54 @@ function Logo({ compact }: { compact: boolean }) {
   );
 }
 
+const entryClass = (compact: boolean) =>
+  clsx('flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm', compact && 'lg:size-10 lg:justify-center lg:px-0');
+const activeClass = 'bg-card font-medium text-ink shadow-sm ring-1 ring-line';
+const idleClass = 'text-ink-2 hover:bg-card/60 hover:text-ink';
+
 function NavEntry({ item, compact }: { item: NavItem; compact: boolean }) {
   const Icon = item.icon;
-  const base = clsx(
-    'flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm',
-    compact && 'lg:size-10 lg:justify-center lg:px-0',
-    item.sub && !compact && 'lg:ml-6 lg:py-1.5',
-  );
   // In the rail the label stays readable for screen readers and shows as a tooltip.
   const label = <span className={clsx(compact && 'lg:sr-only')}>{item.label}</span>;
   return (
-    <NavLink
-      to={item.to}
-      end
-      title={compact ? item.label : undefined}
-      className={({ isActive }) =>
-        clsx(base, isActive ? 'bg-card font-medium text-ink shadow-sm ring-1 ring-line' : 'text-ink-2 hover:bg-card/60 hover:text-ink')
-      }
-    >
+    <NavLink to={item.to} end title={compact ? item.label : undefined} className={({ isActive }) => clsx(entryClass(compact), isActive ? activeClass : idleClass)}>
       <Icon className="size-4 shrink-0" aria-hidden />
       {label}
     </NavLink>
+  );
+}
+
+/** The heading opens and closes its entries; closed, it shows when one of them is the current page. */
+function NavGroupEntry({ group, compact }: { group: NavGroup; compact: boolean }) {
+  const [open, setOpen] = usePersistentFlag(`manelly.nav.${group.id}.open`, true);
+  const { pathname } = useLocation();
+  const current = group.children.some((child) => pathname === child.to || pathname.startsWith(`${child.to}/`));
+  const Icon = group.icon;
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`nav-${group.id}`}
+        onClick={() => setOpen(!open)}
+        title={compact ? `${group.label} – ${open ? 'zuklappen' : 'aufklappen'}` : undefined}
+        className={clsx(entryClass(compact), 'lg:w-full', current && !open ? activeClass : current ? 'font-medium text-ink hover:bg-card/60' : idleClass)}
+      >
+        <Icon className="size-4 shrink-0" aria-hidden />
+        <span className={clsx(compact && 'lg:sr-only')}>{group.label}</span>
+        <ChevronDown className={clsx('size-4 shrink-0 text-ink-3 transition lg:ml-auto', !open && '-rotate-90', compact && 'lg:hidden')} aria-hidden />
+      </button>
+      <ul
+        id={`nav-${group.id}`}
+        className={clsx(open ? 'flex' : 'hidden', 'gap-1 lg:flex-col', compact ? 'lg:items-center' : 'lg:ml-[1.125rem] lg:border-l lg:border-line lg:pl-2')}
+      >
+        {group.children.map((child) => (
+          <li key={child.to}>
+            <NavEntry item={child} compact={compact} />
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

@@ -86,6 +86,8 @@ Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metad
 
 Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** und **JDownloader**.
 
+- **Allgemein – Manelly selbst:** Stand (Git-Commit), Rechner, Prozess-ID, Startzeit und das letzte Update; Manelly
+  **neu starten** oder **aktualisieren und neu starten** – siehe [Manelly aktualisieren](#manelly-aktualisieren)
 - **Allgemein – Hardware-Beschleunigung prüfen:** Einstellungen von Jellyfin im Überblick (Beschleunigung, Hardware-Kodierung,
   Hardware-Dekodierung, HEVC 10 bit, Tone-Mapping, FFmpeg) mit Hinweisen, was nicht passt – z. B. HEVC nicht für die
   Hardware-Dekodierung eingeschaltet (Jellyfins Standard) oder eine Beschleunigung, die es auf dem System nicht gibt
@@ -94,9 +96,11 @@ Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** 
   dekodiert auf dem Server ein paar Sekunden Testbild mit der eingestellten Beschleunigung – so zeigt sich, ob Treiber und
   Grafikeinheit wirklich funktionieren
 - **Agent:** Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten, seine Werkzeuge, Version,
-  Prozess-ID, Startzeit und das letzte Update sehen, ihn **neu starten**, **aktualisieren und neu starten** (holt mit
-  `git pull` den neuesten Stand auf den Jellyfin-Server und baut den Agent; klappt das nicht, läuft die bisherige Version
-  weiter) oder **beenden**
+  Prozess-ID, Startzeit und das letzte Update sehen, ihn **neu starten**, **aktualisieren und neu starten** oder
+  **beenden**. Aktualisieren sucht zuerst eine neuere Version (`git fetch`) und lässt alles, wie es ist, wenn es keine
+  gibt; sonst holt es sie mit `git pull`, installiert bei Bedarf die Abhängigkeiten und baut den Agent, **während er
+  weiterläuft**, und startet ihn erst danach neu. Jeder Schritt erscheint auf der Seite, auch nach einem Neuladen oder in
+  einem anderen Browser; klappt etwas nicht, läuft die bisherige Version weiter
 - **JDownloader:** Downloads und Link Grabber, Einstellungen hinter dem Zahnrad – siehe [Downloads](#downloads-jdownloader-mit-agent)
 
 ### Umwandlungen (mit Agent)
@@ -196,7 +200,9 @@ installieren, falls es fehlt), installiert die Abhängigkeiten, baut Manelly, st
 <http://localhost:3000> im Browser. Dort richtest du beim ersten Start die Verbindung zu Jellyfin ein. Beenden mit
 `Ctrl+C`, ein anderer Port mit `PORT=3001 ./scripts/start-mac.sh`.
 
-Update: `git pull`, dann das Skript erneut starten. Die Einstellungen liegen in `data/` und bleiben erhalten.
+Update: in Manelly unter **Server → Allgemein** «Aktualisieren & neu starten» (siehe
+[Manelly aktualisieren](#manelly-aktualisieren)), oder von Hand `git pull` und das Skript erneut starten. Die
+Einstellungen liegen in `data/` und bleiben erhalten.
 
 ## Schnellstart unter Windows
 
@@ -219,7 +225,26 @@ Windows fragt dabei eventuell nach Administratorrechten), installiert die Abhän
 - Beim ersten Start fragt die Windows-Firewall eventuell, ob Node.js Netzwerkzugriff erhält. Für den Zugriff von anderen
   Geräten zulassen; nur auf diesem PC funktioniert Manelly auch ohne.
 
-Update: `git pull`, dann das Skript erneut starten. Die Einstellungen liegen in `data\` und bleiben erhalten.
+Update: in Manelly unter **Server → Allgemein** «Aktualisieren & neu starten» (siehe
+[Manelly aktualisieren](#manelly-aktualisieren)), oder von Hand `git pull` und das Skript erneut starten. Die
+Einstellungen liegen in `data\` und bleiben erhalten.
+
+## Manelly aktualisieren
+
+Läuft Manelly über `scripts/start-mac.sh` oder `scripts\start-windows.cmd`, aktualisiert es sich unter **Server →
+Allgemein** selbst:
+
+1. **Neuere Version suchen** (`git fetch`): Gibt es keine, bleibt alles, wie es ist – kein Neustart.
+2. **Änderungen holen** (`git pull`), **Abhängigkeiten installieren** (`npm ci`, nur wenn sie sich geändert haben) und
+   **bauen** – währenddessen läuft Manelly weiter.
+3. **Neu starten:** Manelly beendet sich, das Start-Skript startet es gleich wieder, und die Seite lädt neu.
+
+Die Seite zeigt jeden Schritt, auch nach einem Neuladen. Solange Manelly neu startet, zeigen alle Seiten den letzten
+Stand statt Fehlermeldungen; danach das Ergebnis. Klappt ein Schritt nicht (z. B. eigene Änderungen im Ordner, die
+`git pull` verhindern), läuft die bisherige Version weiter, und die Seite sagt, woran es lag. «Neu starten» allein
+startet Manelly neu, ohne zu aktualisieren. Das Start-Skript muss dafür weiterlaufen; mit `Ctrl+C` beendest du Manelly
+wie bisher. In Docker oder mit `npm start` geht das nicht – dort `git pull` und neu starten bzw.
+`docker compose up -d --build`.
 
 ## Agent auf dem Jellyfin-Server (Windows)
 
@@ -264,9 +289,11 @@ dem Jellyfin läuft:
   Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
-- Update: in Manelly unter **Server → Agent** «Aktualisieren & neu starten» (ab Agent 0.9.0). Der Agent läuft dafür
-  unter `scripts\run-agent.ps1`, das ihn nach `git pull`, falls nötig `npm ci`, und dem Build wieder startet – mit der
-  bisherigen Version, wenn etwas davon scheitert; das Ergebnis steht auf derselben Seite und in `agent\data\agent.log`.
+- Update: in Manelly unter **Server → Agent** «Aktualisieren & neu starten» (ab Agent 0.9.0). Ab Agent 0.11.0 sucht
+  der Agent zuerst eine neuere Version und startet nur neu, wenn es eine gibt; `git pull`, falls nötig `npm ci`, und den
+  Build erledigt er, während er weiterläuft, und meldet dabei jeden Schritt. Neu starten lässt ihn danach
+  `scripts\run-agent.ps1`, unter dem er läuft (ältere Agents aktualisiert dieses Skript nach dem Beenden). Scheitert
+  ein Schritt, läuft die bisherige Version weiter; das Ergebnis steht auf derselben Seite und in `agent\data\agent.log`.
   Solange der Agent neu startet, zeigt Manelly auf allen Seiten den letzten Stand und **keine Fehlermeldungen** des
   Agents, nur einen Hinweis oben. Erst wenn er zurück ist – oder nach 2 Minuten (beim Aktualisieren nach 10) nicht –,
   erscheint das Ergebnis, auch auf anderen Seiten: ein Erfolg verschwindet nach ein paar Sekunden, ein Fehler bleibt,

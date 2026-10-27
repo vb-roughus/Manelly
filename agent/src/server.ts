@@ -26,6 +26,7 @@ import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
 import { parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
+import type { Updater } from './updater.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MONITORED = 16;
@@ -43,6 +44,8 @@ export interface AgentServerOptions {
   process: () => Promise<AgentProcess>;
   /** Ends the agent after the answer went out – for good, or to be started again by its runner. */
   onExit: (how: 'stop' | 'restart' | 'update') => void;
+  /** Updates while the agent keeps running, and restarts it afterwards; without it, the runner updates on exit. */
+  updater?: Updater;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -200,6 +203,8 @@ export function createAgentServer(options: AgentServerOptions) {
       if (!(await options.process()).restartable) {
         throw new AgentError(409, 'Der Agent läuft ohne scripts\\run-agent.ps1 und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.');
       }
+      // Looks for a newer version first and keeps answering meanwhile; restarts only when there was one.
+      if (update === true && options.updater) return send(response, 202, { restarting: false, update: options.updater.start() });
       send(response, 202, { restarting: true });
       response.once('finish', () => options.onExit(update === true ? 'update' : 'restart'));
       return;

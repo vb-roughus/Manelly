@@ -262,9 +262,9 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
           : `ist zu alt dafür (Version ${status.version})`;
         throw new AppError('BAD_REQUEST', `Der Agent auf ${status.hostname} ${reason} und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.`, 400);
       }
-      await client.restart(request.body.update);
-      request.log.info(`Agent auf ${status.hostname} ${request.body.update ? 'wird aktualisiert und' : 'wird'} neu gestartet.`);
-      return reply.status(202).send({ restarting: true });
+      const answer = await client.restart(request.body.update);
+      request.log.info(`Agent auf ${status.hostname}: ${request.body.update ? 'Update' : 'Neustart'} angefordert.`);
+      return reply.status(202).send(answer);
     },
   );
 

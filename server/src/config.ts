@@ -16,6 +16,8 @@ export interface AppConfig {
   dataDir: string;
   /** Directory with the built web frontend; null serves the API only. */
   staticDir: string | null;
+  /** The Manelly checkout, where git and the start scripts work. */
+  rootDir: string;
 }
 
 export class ConfigError extends Error {}
@@ -23,6 +25,7 @@ export class ConfigError extends Error {}
 // server/src/config.ts and server/dist/index.js both sit two levels below the repo root.
 const DEFAULT_STATIC_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
 const DEFAULT_DATA_DIR = fileURLToPath(new URL('../../data', import.meta.url));
+const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = Number(env.PORT ?? 3000);
@@ -39,6 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     jellyfin: parseJellyfinConfig(env),
     dataDir: env.DATA_DIR || DEFAULT_DATA_DIR,
     staticDir: existsSync(staticDir) ? staticDir : null,
+    rootDir: ROOT_DIR,
   };
 }
 

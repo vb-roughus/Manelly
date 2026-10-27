@@ -95,6 +95,16 @@ let clock = new Date(2026, 9, 26, 2, 0);
 const PROCESS = { pid: 4711, startedAt: '2026-10-27T02:00:00.000Z', node: 'v22.12.0', execPath: 'C:\\Program Files\\nodejs\\node.exe', autostart: true, port: 8790 };
 let exits: string[] = [];
 let restartable = false;
+// Agents from 0.11.0 update while running; without an updater the runner updates after the exit.
+let withUpdater = false;
+const updates: string[] = [];
+const fakeUpdater = {
+  progress: () => null,
+  start: () => {
+    updates.push('start');
+    return { step: 'check' as const, steps: ['check' as const], since: '2026-10-27T14:00:00Z', behind: null, subject: null };
+  },
+};
 
 async function start() {
   tools = await createFakeTools(path.join(root, 'bin'));
@@ -126,6 +136,9 @@ async function start() {
     freeBytes: async () => free,
     process: async () => ({ ...PROCESS, restartable, lastUpdate: null }),
     onExit: (how) => void exits.push(how),
+    get updater() {
+      return withUpdater ? fakeUpdater : undefined;
+    },
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -470,6 +483,16 @@ describe('process', () => {
     expect((await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: true }) })).status).toBe(202);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(exits).toEqual(['restart', 'update']);
+
+    // With the updater, an update starts while the agent keeps running; it restarts by itself later.
+    withUpdater = true;
+    const started = await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: true }) });
+    expect(started.status).toBe(202);
+    expect(await started.json()).toMatchObject({ restarting: false, update: { step: 'check' } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(updates).toEqual(['start']);
+    expect(exits).toEqual(['restart', 'update']);
+    withUpdater = false;
     restartable = false;
   });
 });

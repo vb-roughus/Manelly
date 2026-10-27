@@ -4,11 +4,11 @@ import { Activity, CloudDownload, LoaderCircle, Plug, Power, RotateCw } from 'lu
 import clsx from 'clsx';
 import { AgentForm } from '../components/AgentForm';
 import { Code, Message } from '../components/ConnectionForm';
+import { AGENT, RestartProgress, RestartResult } from '../components/Restart';
 import { SettingsSection } from '../components/SettingsSection';
 import { useAgent, useAgentSettings, useRestartAgent, useStopAgent } from '../hooks/queries';
 import { agentRestart, useAgentRestart } from '../hooks/useAgentRestart';
-import { useNow } from '../hooks/useNow';
-import { restartSummary, type FinishedRestart, type PendingRestart } from '../lib/agentRestart';
+import { agentRestartSummary, updatesWhileRunning } from '../lib/agentRestart';
 import { formatSpan } from '../lib/timeline';
 
 const PLATFORMS: Record<string, string> = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
@@ -22,9 +22,19 @@ export function AgentPage() {
   const overview = useAgent({ refreshTools: true, enabled: Boolean(settings.data?.url) });
   const { pending } = useAgentRestart();
   const agentUrl = settings.data?.url;
+  // An update this page did not start, e.g. in another browser, shows here too.
+  const running = overview.data?.status?.process?.update;
+  useEffect(() => {
+    if (running && overview.data?.status) agentRestart.adopt(overview.data.status, running);
+  }, [running, overview.data]);
   // A restart shows its progress even before anything is loaded, e.g. after reloading the page meanwhile.
   const process = !agentUrl ? null : pending ? (
-    <RestartProgress pending={pending} />
+    <RestartProgress
+      pending={pending}
+      subject={AGENT}
+      slowHint="Dauert es zu lange, steht in agent\data\agent.log auf dem Server, woran es hängt."
+      onGiveUp={() => agentRestart.end(null)}
+    />
   ) : overview.data ? (
     <ProcessPanel overview={overview.data} agentUrl={agentUrl} />
   ) : null;
@@ -87,7 +97,7 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
   if (!status) {
     return (
       <div className="space-y-4">
-        {finished && <RestartResult finished={finished} />}
+        {finished && <RestartResult summary={agentRestartSummary(finished)} />}
         <Message tone="critical">{overview.error ?? 'Der Agent antwortet nicht.'} Läuft er auf dem Jellyfin-Server?</Message>
       </div>
     );
@@ -125,7 +135,7 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
         )}
       </dl>
 
-      {finished && <RestartResult finished={finished} />}
+      {finished && <RestartResult summary={agentRestartSummary(finished)} />}
 
       {process && windows && (
         <p className="text-xs text-ink-2">
@@ -145,8 +155,18 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
             </button>
           </div>
           <p className="text-xs text-ink-3">
-            Aktualisieren holt mit <Code>git pull</Code> den neuesten Stand von Manelly auf den Jellyfin-Server, baut den Agent und startet ihn neu. Klappt das
-            nicht, läuft die bisherige Version weiter. Eine laufende Umwandlung hält kurz an und macht danach weiter.
+            {updatesWhileRunning(status) ? (
+              <>
+                Aktualisieren sucht zuerst eine neuere Version von Manelly; gibt es keine, bleibt alles, wie es ist. Sonst holt es sie mit <Code>git pull</Code> auf den
+                Jellyfin-Server und baut den Agent, während er weiterläuft, und startet ihn erst danach neu. Klappt etwas nicht, läuft die bisherige Version weiter.
+              </>
+            ) : (
+              <>
+                Aktualisieren holt mit <Code>git pull</Code> den neuesten Stand von Manelly auf den Jellyfin-Server, baut den Agent und startet ihn neu. Klappt das
+                nicht, läuft die bisherige Version weiter.
+              </>
+            )}{' '}
+            Eine laufende Umwandlung hält beim Neustart kurz an und macht danach weiter.
           </p>
           {restart.isError && <p className="text-sm text-critical">{restart.error.message}</p>}
         </div>
@@ -207,38 +227,6 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
 
 const actionButton =
   'inline-flex items-center gap-2 rounded-lg bg-card px-4 py-2 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait disabled:opacity-60';
-
-/** While the agent is away: how long, and what it does meanwhile. */
-function RestartProgress({ pending }: { pending: PendingRestart }) {
-  const now = useNow(1000);
-  const seconds = Math.max(0, Math.round((now - pending.since) / 1000));
-  return (
-    <div role="status" className="space-y-1 rounded-lg bg-card-2 px-4 py-3 text-sm ring-1 ring-line ring-inset">
-      <p className="flex items-center gap-2 font-medium">
-        <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden />
-        {pending.update ? 'Aktualisiert und startet den Agent neu …' : 'Der Agent startet neu …'}
-        <span className="font-normal text-ink-3 tabular-nums">{seconds} s</span>
-      </p>
-      <p className="text-ink-2">
-        {pending.update
-          ? 'git pull, falls nötig npm ci, dann der Build – das kann eine Minute dauern, mit neuen Abhängigkeiten auch länger.'
-          : 'Das dauert meist nur ein paar Sekunden.'}
-        {seconds > 180 && ' Dauert es zu lange, steht in agent\\data\\agent.log auf dem Server, woran es hängt.'} Fehlermeldungen des Agents
-        zeigt Manelly erst, wenn er zurück ist.
-      </p>
-      {/* Waiting ends by itself too, after a few minutes; this is for whoever knows better. */}
-      <button type="button" onClick={() => agentRestart.end(null)} className="text-xs font-medium text-accent hover:underline">
-        Nicht mehr warten
-      </button>
-    </div>
-  );
-}
-
-/** What the restart brought: a new process, and with an update its report; or that none came back. */
-function RestartResult({ finished }: { finished: FinishedRestart }) {
-  const { ok, text } = restartSummary(finished);
-  return <Message tone={ok ? 'good' : 'critical'}>{text}</Message>;
-}
 
 /** How to get it running again, the way it was started. */
 function Stopped({ status }: { status: AgentStatus }) {

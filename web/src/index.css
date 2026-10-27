@@ -18,6 +18,8 @@
   /* Network chart: send (the streams) and receive; validated as a pair for both themes. */
   --series-send: #8b45b0;
   --series-receive: #199e70;
+  /* Behind the charts: as dark as the series still keep 3:1 against it. */
+  --plot: #f3f2ee;
   --glow: rgb(170 92 195 / 0.14);
   --backdrop-opacity: 0.16;
 
@@ -40,8 +42,9 @@
     --ink-3: #959389;
     --line: rgb(255 255 255 / 0.1);
     --accent: #c08ad6;
-  --series-send: #b07acb;
-  --series-receive: #199e70;
+    --series-send: #b07acb;
+    --series-receive: #199e70;
+    --plot: #242423;
     --glow: rgb(170 92 195 / 0.18);
     --backdrop-opacity: 0.3;
     --info: #3987e5;
@@ -60,6 +63,7 @@
   --accent: #c08ad6;
   --series-send: #b07acb;
   --series-receive: #199e70;
+  --plot: #242423;
   --glow: rgb(170 92 195 / 0.18);
   --backdrop-opacity: 0.3;
   --info: #3987e5;
@@ -77,6 +81,7 @@
   --color-accent: var(--accent);
   --color-series-send: var(--series-send);
   --color-series-receive: var(--series-receive);
+  --color-plot: var(--plot);
   /* CPU/GPU shares: Jellyfin's FFmpeg and the agent's conversion, the same validated pair. */
   --color-series-jellyfin: var(--series-send);
   --color-series-conversion: var(--series-receive);

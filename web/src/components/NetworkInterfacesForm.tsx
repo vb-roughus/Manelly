@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import type { AgentNetworkInterface, AgentNetworkList } from '@manelly/shared';
 import { LoaderCircle } from 'lucide-react';
 import clsx from 'clsx';
@@ -15,7 +16,17 @@ export function NetworkInterfacesForm() {
   // Up here, so the confirmation survives the fresh list after saving.
   const save = useSaveNetworkInterfaces();
 
-  if (!status) return <p className="text-sm text-ink-2">Zuerst den Agent oben verbinden.</p>;
+  if (!status) {
+    return (
+      <p className="text-sm text-ink-2">
+        Zuerst den Agent unter{' '}
+        <Link to="/server/agent" className="font-medium text-accent hover:underline">
+          Server → Agent
+        </Link>{' '}
+        verbinden.
+      </p>
+    );
+  }
   if (!supported) {
     return (
       <Message tone="critical">

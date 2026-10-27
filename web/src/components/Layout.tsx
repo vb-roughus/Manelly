@@ -8,6 +8,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Server,
+  ServerCog,
   Settings,
   Stethoscope,
   Sun,
@@ -24,6 +25,8 @@ interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
+  /** Indented below the entry before it in the full sidebar. */
+  sub?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -31,6 +34,7 @@ const NAV: NavItem[] = [
   { to: '/media', label: 'Medien', icon: Library },
   { to: '/conversions', label: 'Umwandlungen', icon: WandSparkles },
   { to: '/server', label: 'Server', icon: Server },
+  { to: '/server/agent', label: 'Agent', icon: ServerCog, sub: true },
   { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope },
 ];
 
@@ -128,6 +132,7 @@ function NavEntry({ item, compact }: { item: NavItem; compact: boolean }) {
   const base = clsx(
     'flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm',
     compact && 'lg:size-10 lg:justify-center lg:px-0',
+    item.sub && !compact && 'lg:ml-6 lg:py-1.5',
   );
   // In the rail the label stays readable for screen readers and shows as a tooltip.
   const label = <span className={clsx(compact && 'lg:sr-only')}>{item.label}</span>;

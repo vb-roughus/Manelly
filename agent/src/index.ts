@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dataDirFrom, loadConfig } from './config.js';
 import { createRecorder } from './history.js';
 import { createJDownloader } from './jdownloader.js';
-import { createNotifier } from './jellyfin.js';
+import { AGENT_VERSION, createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
 import { conversionProcesses } from './convert.js';
 import { createNetworkMonitor, defaultSource } from './network.js';
@@ -62,18 +62,52 @@ const resources = createResourceMonitor({ source: defaultResourceSource(), ownPr
 const jdownloader = createJDownloader({ settings, log });
 // Load and streams on disk, around the clock while switched on in Manelly; keeps both monitors measuring.
 const recorder = createRecorder({ dir: join(dataDir, 'history'), settings, resources, network, log });
-const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, resources, jdownloader, recorder, tools: currentTools });
+// The scheduled task passes --autostart; started by hand, the agent runs in a console window.
+const autostart = process.argv.includes('--autostart');
+const server = createAgentServer({
+  token: config.token,
+  roots: config.roots,
+  queue,
+  settings,
+  network,
+  resources,
+  jdownloader,
+  recorder,
+  tools: currentTools,
+  process: { pid: process.pid, startedAt: new Date().toISOString(), node: process.version, execPath: process.execPath, autostart, port: config.port },
+  onShutdown: () => shutdown('Beenden angefordert (Manelly oder Installationsskript)'),
+});
+
+/** Who holds the port: an agent (and which version), or another program. */
+async function portHolder(): Promise<string> {
+  try {
+    const health = (await (await fetch(`http://127.0.0.1:${config.port}/api/health`, { signal: AbortSignal.timeout(2000) })).json()) as { status?: string; version?: string };
+    if (health.status === 'ok') return health.version ? `einen Manelly-Agent (Version ${health.version})` : 'einen älteren Manelly-Agent';
+  } catch {
+    // Not an agent, or not answering.
+  }
+  return 'ein anderes Programm';
+}
 
 server.on('error', (error: NodeJS.ErrnoException) => {
-  log(error.code === 'EADDRINUSE' ? `Port ${config.port} ist schon belegt – läuft der Agent bereits?` : error.message);
-  process.exit(1);
+  if (error.code !== 'EADDRINUSE') {
+    log(error.message);
+    process.exit(1);
+  }
+  void portHolder().then((holder) => {
+    log(
+      `Port ${config.port} ist schon belegt, durch ${holder}. Einen laufenden Agent beendest du in Manelly unter Server → Agent ` +
+        'oder mit scripts\\start-agent.cmd -Install (als Administrator), das ihn ersetzt.',
+    );
+    process.exit(1);
+  });
 });
 
 server.listen(config.port, config.host, () => {
   const lines = [
-    `Manelly-Agent läuft auf Port ${config.port}.`,
+    `Manelly-Agent ${AGENT_VERSION} läuft auf Port ${config.port} (Prozess ${process.pid}${autostart ? ', Autostart' : ''}).`,
     '',
-    'In Manelly unter Einstellungen → Agent eintragen:',
+    'In Manelly unter Server → Agent eintragen:',
     `  Adresse:   http://${hostname()}:${config.port}`,
     `  Schlüssel: ${config.token}`,
     '',
@@ -85,14 +119,20 @@ server.listen(config.port, config.host, () => {
   log(lines.join('\n'));
 });
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, () => {
-    log(`${signal} empfangen, beende den Agent …`);
-    server.close();
-    network.stop();
-    resources.stop();
-    jdownloader.stop();
-    recorder.stop();
-    void queue.stop().then(() => process.exit(0));
-  });
+let stopping = false;
+
+/** A running conversion pauses and continues with the next start. */
+function shutdown(reason: string) {
+  if (stopping) return;
+  stopping = true;
+  log(`${reason} – der Agent beendet sich …`);
+  server.close();
+  network.stop();
+  resources.stop();
+  jdownloader.stop();
+  recorder.stop();
+  // Exit code 0: the autostart counts this as a normal end and does not start the agent again.
+  void queue.stop().then(() => process.exit(0));
 }
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => shutdown(`${signal} empfangen`));

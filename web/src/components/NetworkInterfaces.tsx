@@ -16,8 +16,8 @@ export function NetworkInterfaces({ data, agentConfigured }: { data: AgentNetwor
         {agentConfigured
           ? 'Wähle die Netzwerkschnittstellen des Servers, um hier ihre Auslastung zu sehen: '
           : 'Mit dem Manelly-Agent auf dem Jellyfin-Server siehst du hier auch die Auslastung seiner Netzwerkschnittstellen: '}
-        <Link to="/settings" className="font-medium text-accent hover:underline">
-          Einstellungen
+        <Link to={agentConfigured ? '/settings#network' : '/server/agent'} className="font-medium text-accent hover:underline">
+          {agentConfigured ? 'Einstellungen' : 'Server → Agent'}
         </Link>
       </p>
     );

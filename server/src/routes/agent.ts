@@ -236,6 +236,17 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     async (request): Promise<JDownloaderStatus> => requireAgent(agent).setJDownloaderLimit(request.body.enabled, request.body.kbps),
   );
 
+  app.post('/shutdown', async (request, reply) => {
+    const client = requireAgent(agent);
+    const status = await client.status();
+    if (!status.process) {
+      throw new AppError('BAD_REQUEST', `Der Agent auf ${status.hostname} ist zu alt, um sich selbst zu beenden (Version ${status.version}).`, 400);
+    }
+    await client.shutdown();
+    request.log.info(`Agent auf ${status.hostname} beendet (Prozess ${status.process.pid}).`);
+    return reply.status(204).send();
+  });
+
   app.get<{ Querystring: { from: number; to: number } }>(
     '/history',
     {

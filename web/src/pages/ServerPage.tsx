@@ -111,7 +111,7 @@ function HardwareTest() {
         ) : (
           <p className="text-xs text-ink-3">
             Dafür braucht es den{' '}
-            <Link to="/settings" className="font-medium text-accent hover:underline">
+            <Link to="/server/agent" className="font-medium text-accent hover:underline">
               Agent auf dem Jellyfin-Server
             </Link>
             .

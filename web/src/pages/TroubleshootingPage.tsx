@@ -67,8 +67,8 @@ export function TroubleshootingPage() {
             <p className="font-medium">Noch kein Agent eingerichtet</p>
             <p className="mt-1 text-sm text-ink-2">
               Die Aufzeichnung macht der Manelly-Agent auf dem Jellyfin-Server. Adresse und Schlüssel trägst du unter{' '}
-              <Link to="/settings" className="font-medium text-accent hover:underline">
-                Einstellungen
+              <Link to="/server/agent" className="font-medium text-accent hover:underline">
+                Server → Agent
               </Link>{' '}
               ein.
             </p>

@@ -18,8 +18,8 @@ export function ServerLoadPanel({ id, agentConfigured }: { id: string; agentConf
         <p className="text-sm text-ink-2">
           Mit dem Manelly-Agent auf dem Jellyfin-Server siehst du hier, wie stark CPU und GPU ausgelastet sind und wie viel davon das
           Transcoding braucht:{' '}
-          <Link to="/settings" className="font-medium text-accent hover:underline">
-            Einstellungen
+          <Link to="/server/agent" className="font-medium text-accent hover:underline">
+            Server → Agent
           </Link>
         </p>
       )}

@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import type { SessionsResponse } from '@manelly/shared';
 import { BandwidthPanel } from '../components/BandwidthPanel';
 import { DashboardConversions } from '../components/DashboardConversions';
+import { ServerLoadPanel } from '../components/ServerLoadPanel';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { SetupPanel } from '../components/SetupPanel';
 import { StatTile } from '../components/StatTile';
@@ -94,7 +95,9 @@ function Summary({ data }: { data: SessionsResponse }) {
   const idle = idleSessions > 0 ? `${idleSessions} weitere ${idleSessions === 1 ? 'Gerät' : 'Geräte'} verbunden` : null;
   const viewers = streamingUsers(data);
   const panelId = useId();
-  const [bandwidthOpen, setBandwidthOpen] = useState(false);
+  // One panel at a time, below the tiles.
+  const [open, setOpen] = useState<'bandwidth' | 'load' | null>(null);
+  const toggle = (panel: 'bandwidth' | 'load') => setOpen((current) => (current === panel ? null : panel));
   const agentSettings = useAgentSettings();
   const agentConfigured = Boolean(agentSettings.data?.url && agentSettings.data.hasToken);
   // Also while closed: the agent keeps measuring, so the chart already shows the last minutes when it opens.
@@ -136,6 +139,12 @@ function Summary({ data }: { data: SessionsResponse }) {
           }
           icon={Cpu}
           tone={summary.struggling > 0 ? 'bg-critical/12 text-critical' : 'bg-warning/15 text-warning'}
+          toggle={{
+            expanded: open === 'load',
+            controls: `${panelId}-load`,
+            label: open === 'load' ? 'Transcodes: Auslastung ausblenden' : 'Transcodes: Auslastung von CPU und GPU zeigen',
+            onToggle: () => toggle('load'),
+          }}
         />
         <StatTile
           label="Bandbreite"
@@ -144,14 +153,15 @@ function Summary({ data }: { data: SessionsResponse }) {
           icon={Gauge}
           tone="bg-accent/12 text-accent"
           toggle={{
-            expanded: bandwidthOpen,
-            controls: panelId,
-            label: bandwidthOpen ? 'Bandbreite: Details ausblenden' : 'Bandbreite: Bitrate der Streams und Netzwerk des Servers zeigen',
-            onToggle: () => setBandwidthOpen((open) => !open),
+            expanded: open === 'bandwidth',
+            controls: `${panelId}-bandwidth`,
+            label: open === 'bandwidth' ? 'Bandbreite: Details ausblenden' : 'Bandbreite: Bitrate der Streams und Netzwerk des Servers zeigen',
+            onToggle: () => toggle('bandwidth'),
           }}
         />
       </dl>
-      {bandwidthOpen && <BandwidthPanel id={panelId} sessions={data.sessions} network={network.data} agentConfigured={agentConfigured} />}
+      {open === 'bandwidth' && <BandwidthPanel id={`${panelId}-bandwidth`} sessions={data.sessions} network={network.data} agentConfigured={agentConfigured} />}
+      {open === 'load' && <ServerLoadPanel id={`${panelId}-load`} agentConfigured={agentConfigured} />}
     </section>
   );
 }

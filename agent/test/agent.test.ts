@@ -3,10 +3,11 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentNetworkList, AgentNetworkStatus, AgentScheduleStatus, AgentStatus, ConversionJob } from '@manelly/shared';
+import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob } from '@manelly/shared';
 import { createNotifier } from '../src/jellyfin.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
+import { createResourceMonitor, type ResourceMonitor } from '../src/resources.js';
 import { createGate, createSettingsStore } from '../src/schedule.js';
 import { createAgentServer } from '../src/server.js';
 import { discoverTools, type Tools } from '../src/tools.js';
@@ -63,6 +64,7 @@ let free = Number.MAX_SAFE_INTEGER;
 let tools: Tools;
 let queue: JobQueue;
 let network: NetworkMonitor;
+let resources: ResourceMonitor;
 
 // The network interfaces of the server: one Ethernet adapter whose counters grow by 1 MB per second.
 const fakeNetwork: CounterSource = {
@@ -101,11 +103,13 @@ async function start() {
     notify: createNotifier(() => settings.get().jellyfin, { fetch: fakeJellyfin }),
   });
   network = createNetworkMonitor({ source: fakeNetwork, selection: () => settings.get().network, now: () => 2000 });
-  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, tools: async () => tools, freeBytes: async () => free });
+  resources = createResourceMonitor({ source: { start: () => () => {} }, ownProcesses: () => new Set() });
+  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, resources, tools: async () => tools, freeBytes: async () => free });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
     network.stop();
+    resources.stop();
     await queue.stop();
     await new Promise((resolve) => server.close(resolve));
   };
@@ -361,5 +365,13 @@ describe('network', () => {
     expect(status.interfaces).toEqual([
       { id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', up: true, speedBps: 1e9, rxBps: 800_000, txBps: 8_000_000, history: [{ t: 2000, rxBps: 800_000, txBps: 8_000_000 }] },
     ]);
+  });
+});
+
+describe('resources', () => {
+  it('reports CPU and GPU on request', async () => {
+    expect(((await (await call('/api/status')).json()) as AgentStatus).resources).toEqual({ supported: true });
+    const status = (await (await call('/api/resources')).json()) as AgentResourceStatus;
+    expect(status).toMatchObject({ cpu: null, gpus: [], processes: [], intervalMs: 3000, error: null });
   });
 });

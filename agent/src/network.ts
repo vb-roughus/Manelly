@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { networkInterfaces, constants as osConstants, setPriority } from 'node:os';
+import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import type { AgentNetworkInterface, AgentNetworkStatus, MonitoredInterface, NetworkRatePoint } from '@manelly/shared';
+import { ASCII_JSON, defaultPowershell, runPowershell, streamPowershell } from './powershell.js';
 import type { NetworkSelection } from './schedule.js';
 
 /** One reading of the byte counters of the monitored interfaces. */
@@ -20,10 +20,7 @@ export interface CounterSource {
 
 const speedOf = (value: unknown) => (typeof value === 'number' && value > 0 && value < 1e13 ? value : null);
 
-// --- Windows: .NET in Windows PowerShell, which every Windows has ------------------
-// Non-ASCII characters (adapter names like "Bluetooth-Netzwerkverbindung") are escaped,
-// so the output does not depend on the console code page.
-const ASCII_JSON = `[regex]::Replace($json, '[^\\x00-\\x7F]', { param($m) '\\u{0:x4}' -f [int][char]$m.Value })`;
+// --- Windows: the .NET counters, read by Windows PowerShell ------------------------------
 
 const LIST_SCRIPT = `
 $ErrorActionPreference = 'Stop'
@@ -41,7 +38,6 @@ $json = ConvertTo-Json -Compress -Depth 4 -InputObject $list
 [Console]::Out.Write(${ASCII_JSON})
 `;
 
-// One process for as long as the measuring runs; it ends by itself when the agent goes away (its output pipe breaks).
 const sampleScript = (ids: string[], intervalMs: number) => `
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -61,66 +57,33 @@ while ($true) {
 }
 `;
 
-const encode = (script: string) => ['-NoProfile', '-NonInteractive', '-NoLogo', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
-
-export function defaultPowershell(env: NodeJS.ProcessEnv = process.env): string {
-  return path.win32.join(env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-}
-
 export function powershellSource({ executable, now = Date.now }: { executable: string; now?: () => number }): CounterSource {
   return {
-    list: () =>
-      new Promise((resolve, reject) => {
-        const child = spawn(executable, encode(LIST_SCRIPT), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
-        let out = '';
-        let err = '';
-        child.stdout.setEncoding('utf8').on('data', (chunk: string) => (out += chunk));
-        child.stderr.setEncoding('utf8').on('data', (chunk: string) => (err += chunk));
-        child.on('error', (error) => reject(new Error(`PowerShell liess sich nicht starten: ${error.message}`)));
-        child.on('close', (code) => {
-          try {
-            if (code !== 0) throw new Error(err.trim() || `Exit-Code ${code}`);
-            const list = JSON.parse(out) as Array<Omit<AgentNetworkInterface, 'speedBps'> & { speed?: number }>;
-            resolve(list.map(({ speed, ...nic }) => ({ ...nic, description: nic.description || null, addresses: nic.addresses ?? [], speedBps: speedOf(speed) })));
-          } catch (error) {
-            reject(new Error(`Die Netzwerkschnittstellen liessen sich nicht lesen: ${(error as Error).message}`));
-          }
-        });
-      }),
+    async list() {
+      let list: Array<Omit<AgentNetworkInterface, 'speedBps'> & { speed?: number }>;
+      try {
+        list = JSON.parse(await runPowershell(executable, LIST_SCRIPT)) as typeof list;
+      } catch (error) {
+        const message = (error as Error).message;
+        throw new Error(message.startsWith('PowerShell') ? message : `Die Netzwerkschnittstellen liessen sich nicht lesen: ${message}`);
+      }
+      return list.map(({ speed, ...nic }) => ({ ...nic, description: nic.description || null, addresses: nic.addresses ?? [], speedBps: speedOf(speed) }));
+    },
 
     start(ids, intervalMs, onSample, onError) {
-      const child = spawn(executable, encode(sampleScript(ids, intervalMs)), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-      try {
-        if (child.pid) setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
-      } catch {
-        // Measuring works without it.
-      }
-      let stopped = false;
-      let buffer = '';
-      let err = '';
-      child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-        buffer += chunk;
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
+      return streamPowershell(
+        executable,
+        sampleScript(ids, intervalMs),
+        (line) => {
           try {
             const { nics } = JSON.parse(line) as { nics: Array<{ id: string; rx: number; tx: number; up: boolean; speed: number }> };
             onSample({ t: now(), nics: (nics ?? []).map((nic) => ({ ...nic, speed: speedOf(nic.speed) })) });
           } catch {
             // A broken line; the next one follows shortly.
           }
-        }
-      });
-      child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
-        err = (err + chunk).slice(-4000);
-      });
-      child.on('error', (error) => !stopped && onError(`PowerShell liess sich nicht starten: ${error.message}`));
-      child.on('close', (code) => !stopped && onError(`Die Messung endete unerwartet (Exit-Code ${code}). ${err.trim().split(/\r?\n/).slice(-3).join(' ')}`.trim()));
-      return () => {
-        stopped = true;
-        child.kill();
-      };
+        },
+        onError,
+      );
     },
   };
 }

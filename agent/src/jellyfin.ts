@@ -1,6 +1,6 @@
 import type { AgentJellyfinAccess, ConversionJob } from '@manelly/shared';
 
-export const AGENT_VERSION = '0.3.0';
+export const AGENT_VERSION = '0.4.0';
 const TIMEOUT_MS = 8000;
 
 /** What the agent asks Jellyfin: whether anybody streams, and to scan a new file. */

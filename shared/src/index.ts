@@ -760,6 +760,71 @@ export interface AgentNetworkStatus {
   error: string | null;
 }
 
+// --- Agent: CPU and GPU -------------------------------------------------------------
+// How busy the Jellyfin server is, and how much of it Jellyfin's FFmpeg (transcodes)
+// and the agent's own conversion use. Measured only while Manelly shows it.
+
+/** Percent of the whole CPU, or of one GPU engine. */
+export interface ResourceShares {
+  total: number;
+  /** Jellyfin's FFmpeg processes: transcodes, and background tasks like trickplay. */
+  jellyfin: number;
+  /** The agent's conversion (ffmpeg, dovi_tool, mkvmerge). */
+  conversion: number;
+}
+
+export interface GpuEngineUsage extends ResourceShares {
+  /** VideoDecode, VideoEncode, VideoProcessing, 3D, Compute, Copy, … */
+  type: string;
+}
+
+export interface GpuUsage {
+  id: string;
+  name: string;
+  /** Busiest first. */
+  engines: GpuEngineUsage[];
+  /** False when only the total is known (Linux), not the shares of Jellyfin and the conversion. */
+  sharesKnown: boolean;
+}
+
+export type ResourceRole = 'jellyfin' | 'conversion' | 'other';
+
+export interface ResourceProcess {
+  pid: number;
+  name: string;
+  role: ResourceRole;
+  /** Percent of the whole CPU. */
+  cpu: number;
+  /** Busiest GPU engine of this process; null when unknown. */
+  gpu: number | null;
+}
+
+export interface ResourcePoint {
+  t: number;
+  cpu: number;
+  cpuJellyfin: number;
+  cpuConversion: number;
+  /** Busiest GPU engine; null without GPU values. */
+  gpu: number | null;
+  gpuJellyfin: number | null;
+  gpuConversion: number | null;
+}
+
+/** GET /api/resources on the agent. */
+export interface AgentResourceStatus {
+  /** null until two samples are in. */
+  cpu: (ResourceShares & { model: string | null; cores: number }) | null;
+  gpus: GpuUsage[];
+  /** Why there are no GPU values; null when there are. */
+  gpuNote: string | null;
+  processes: ResourceProcess[];
+  /** The last minutes, oldest first. */
+  history: ResourcePoint[];
+  intervalMs: number;
+  /** Why measuring failed; null when it works. */
+  error: string | null;
+}
+
 export interface AgentTool {
   path: string | null;
   version: string | null;
@@ -779,6 +844,8 @@ export interface AgentStatus {
   schedule?: AgentScheduleStatus;
   /** Ids of the monitored network interfaces; missing on agents before 0.3.0. */
   network?: { selected: string[] };
+  /** Whether the agent can measure CPU and GPU here; missing on agents before 0.4.0. */
+  resources?: { supported: boolean };
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */

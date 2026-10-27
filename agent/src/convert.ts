@@ -65,10 +65,18 @@ interface ToolRun {
   okCodes?: number[];
 }
 
+/** Process ids of the tools a conversion runs right now; the CPU/GPU view tells them from Jellyfin's FFmpeg. */
+export const conversionProcesses = new Set<number>();
+
 /** Runs a tool at low priority, so that Jellyfin keeps streaming smoothly meanwhile. */
 function runTool({ tool, label, args, signal, onLine, okCodes = [0] }: ToolRun): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(tool, args, { windowsHide: true, signal, stdio: ['ignore', 'pipe', 'pipe'] });
+    const pid = child.pid;
+    if (pid) {
+      conversionProcesses.add(pid);
+      child.once('exit', () => conversionProcesses.delete(pid));
+    }
     try {
       if (child.pid) setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
     } catch {

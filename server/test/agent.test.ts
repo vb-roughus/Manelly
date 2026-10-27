@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -58,6 +58,9 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname === '/api/network/interfaces') {
         if (init?.method === 'PUT') agent.network = body.interfaces;
         return Response.json({ interfaces: [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: [] }], selected: agent.network });
+      }
+      if (url.pathname === '/api/resources') {
+        return Response.json({ cpu: { total: 60, jellyfin: 40, conversion: 0, model: 'Intel', cores: 6 }, gpus: [], gpuNote: null, processes: [], history: [], intervalMs: 3000, error: null });
       }
       if (url.pathname === '/api/network') {
         return Response.json({ interfaces: agent.network.map((id: string) => ({ id, name: 'Ethernet', description: null, up: true, speedBps: 1e9, rxBps: 1e6, txBps: 4e7, history: [] })), intervalMs: 2000, error: null });
@@ -242,5 +245,12 @@ describe('agent connection', () => {
     expect(saved.json<AgentNetworkList>().selected).toEqual(['{A1}']);
     expect(world.agent.network).toEqual(['{A1}']);
     expect((await app.inject('/api/agent/network')).json<AgentNetworkStatus>().interfaces[0]).toMatchObject({ id: '{A1}', txBps: 4e7 });
+  });
+
+  it('passes on CPU and GPU of the Jellyfin server', async () => {
+    const { app } = await setup();
+    expect((await app.inject('/api/agent/resources')).json<AgentResourceStatus>().cpu).toMatchObject({ total: 60, jellyfin: 40 });
+    const none = await setup(fakeWorld(), null);
+    expect((await none.app.inject('/api/agent/resources')).statusCode).toBe(400);
   });
 });

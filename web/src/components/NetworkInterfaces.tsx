@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import { Link } from 'react-router';
 import type { AgentNetworkStatus, MonitoredInterface, NetworkRatePoint } from '@manelly/shared';
 import { TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { formatBitrate } from '../lib/format';
-
-const WINDOW_MS = 10 * 60_000;
+import { HistoryChart, type ChartSeries } from './HistoryChart';
 
 /**
  * Send and receive rates of the Jellyfin server's interfaces picked in the settings,
@@ -110,9 +108,6 @@ function Utilization({ nic }: { nic: MonitoredInterface }) {
   );
 }
 
-const HEIGHT = 72;
-const PAD = 4;
-
 /** Rounds the top of the scale up to 1, 2 or 5 times a power of ten (at least 1 Mbit/s). */
 function niceMax(value: number): number {
   const target = Math.max(value, 1_000_000);
@@ -120,120 +115,13 @@ function niceMax(value: number): number {
   return [1, 2, 5, 10].map((step) => step * power).find((candidate) => candidate >= target) ?? target;
 }
 
-const clock = (t: number) => new Date(t).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const RATE_SERIES: Array<ChartSeries<NetworkRatePoint>> = [
+  { key: 'txBps', label: 'Senden', stroke: 'stroke-series-send', fill: 'fill-series-send', swatch: 'bg-series-send' },
+  { key: 'rxBps', label: 'Empfangen', stroke: 'stroke-series-receive', fill: 'fill-series-receive', swatch: 'bg-series-receive' },
+];
 
-/** Send and receive over the last ten minutes, on one scale; a crosshair shows the values at a point in time. */
+/** Send and receive over the last ten minutes, on one scale. */
 function RateChart({ history, intervalMs }: { history: NetworkRatePoint[]; intervalMs: number }) {
-  const box = useRef<HTMLDivElement>(null);
-  const width = useWidth(box);
-  const [active, setActive] = useState<number | null>(null);
-  const point = active !== null ? history[active] : undefined;
-
-  const end = history.at(-1)?.t ?? Date.now();
-  const start = end - WINDOW_MS;
   const top = niceMax(Math.max(0, ...history.map((entry) => Math.max(entry.rxBps, entry.txBps))));
-  const x = (t: number) => ((t - start) / WINDOW_MS) * width;
-  const y = (value: number) => HEIGHT - PAD - ((HEIGHT - 2 * PAD) * value) / top;
-
-  // Gaps (the agent did not measure) break the line instead of bridging them.
-  const path = (key: 'rxBps' | 'txBps') =>
-    history
-      .map((entry, index) => {
-        const jump = index === 0 || entry.t - history[index - 1]!.t > 3 * intervalMs;
-        return `${jump ? 'M' : 'L'}${x(entry.t).toFixed(1)},${y(entry[key]).toFixed(1)}`;
-      })
-      .join('');
-
-  function pick(event: PointerEvent<HTMLDivElement>) {
-    if (!history.length || !box.current) return;
-    const rect = box.current.getBoundingClientRect();
-    const t = start + ((event.clientX - rect.left) / rect.width) * WINDOW_MS;
-    let nearest = 0;
-    history.forEach((entry, index) => {
-      if (Math.abs(entry.t - t) < Math.abs(history[nearest]!.t - t)) nearest = index;
-    });
-    setActive(nearest);
-  }
-
-  function step(event: KeyboardEvent<HTMLDivElement>) {
-    if (!history.length) return;
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      event.preventDefault();
-      const from = active ?? history.length - 1;
-      setActive(Math.min(history.length - 1, Math.max(0, from + (event.key === 'ArrowLeft' ? -1 : 1))));
-    }
-    if (event.key === 'Escape') setActive(null);
-  }
-
-  const latest = history.at(-1);
-  const summary = latest
-    ? `Verlauf der letzten 10 Minuten, Skala bis ${formatBitrate(top)}. Zuletzt Senden ${formatBitrate(latest.txBps)}, Empfangen ${formatBitrate(latest.rxBps)}.`
-    : 'Noch kein Verlauf.';
-
-  return (
-    <div className="mt-3">
-      <div className="flex justify-between text-[11px] text-ink-3">
-        <span>{formatBitrate(top)}</span>
-      </div>
-      <div
-        ref={box}
-        role="img"
-        aria-label={summary}
-        tabIndex={0}
-        onPointerMove={pick}
-        onPointerLeave={() => setActive(null)}
-        onKeyDown={step}
-        onBlur={() => setActive(null)}
-        className="relative cursor-crosshair rounded outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        style={{ height: HEIGHT }}
-      >
-        {width > 0 && (
-          <svg width={width} height={HEIGHT} className="block overflow-visible" aria-hidden>
-            <line x1={0} x2={width} y1={HEIGHT - PAD} y2={HEIGHT - PAD} className="stroke-line" strokeWidth={1} />
-            <path d={path('rxBps')} fill="none" className="stroke-series-receive" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-            <path d={path('txBps')} fill="none" className="stroke-series-send" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-            {point && (
-              <g>
-                <line x1={x(point.t)} x2={x(point.t)} y1={0} y2={HEIGHT - PAD} className="stroke-ink-3" strokeWidth={1} />
-                <circle cx={x(point.t)} cy={y(point.rxBps)} r={4} className="fill-series-receive stroke-card" strokeWidth={2} />
-                <circle cx={x(point.t)} cy={y(point.txBps)} r={4} className="fill-series-send stroke-card" strokeWidth={2} />
-              </g>
-            )}
-          </svg>
-        )}
-        {point && (
-          <div
-            className="pointer-events-none absolute -top-2 z-10 w-max -translate-y-full rounded-lg bg-card px-2.5 py-1.5 text-xs shadow-lg ring-1 ring-line"
-            style={x(point.t) > width / 2 ? { right: width - x(point.t) } : { left: x(point.t) }}
-          >
-            <p className="text-ink-3">{clock(point.t)}</p>
-            <p className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-series-send" aria-hidden />
-              <b className="tabular-nums">{formatBitrate(point.txBps)}</b> <span className="text-ink-2">Senden</span>
-            </p>
-            <p className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-series-receive" aria-hidden />
-              <b className="tabular-nums">{formatBitrate(point.rxBps)}</b> <span className="text-ink-2">Empfangen</span>
-            </p>
-          </div>
-        )}
-      </div>
-      <div className="mt-1 flex justify-between text-[11px] text-ink-3">
-        <span>vor 10 min</span>
-        <span>jetzt</span>
-      </div>
-    </div>
-  );
-}
-
-function useWidth(ref: RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry?.contentRect.width ?? 0)));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref]);
-  return width;
+  return <HistoryChart points={history} series={RATE_SERIES} top={top} format={formatBitrate} intervalMs={intervalMs} />;
 }

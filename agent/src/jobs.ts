@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ConversionJob, ConversionRequest } from '@manelly/shared';
 import { discardTemp, overallProgress, PAUSE, runConversion, type ConversionContext, type ConversionResult } from './convert.js';
 import { suspendProcess, type Suspender } from './suspend.js';
 import { AgentError } from './errors.js';
-import { pathApiFor, planOutput, type OutputPlan } from './paths.js';
+import { pathApiFor, planOutput, type OutputPlan, type PathAccess } from './paths.js';
 import type { GateCheck } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 
@@ -32,6 +32,10 @@ export interface JobQueueOptions {
   notify?: (job: ConversionJob) => Promise<boolean>;
   /** Holds and continues the running tool for a pause; injectable for tests. */
   suspend?: Suspender;
+  /** Connects the network drive a path needs; on Windows, started without a logon. */
+  access?: PathAccess;
+  /** Pause between attempts to reach the files of a job that is to start, e.g. right after Windows started. */
+  retryMs?: number;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -45,6 +49,7 @@ const OPEN_GATE: GateCheck = { open: true, pause: false, reason: null, streams: 
 export async function createJobQueue(options: JobQueueOptions) {
   const { dataDir, roots, tools, run = runConversion, freeBytes, gate = async () => OPEN_GATE, tickMs = 60_000, notify, now = () => new Date(), log = () => {} } = options;
   const suspend = options.suspend ?? suspendProcess;
+  const { access, retryMs = 30_000 } = options;
   const file = join(dataDir, JOBS_FILE);
   let entries: StoredJob[] = [];
   try {
@@ -191,6 +196,23 @@ export async function createJobQueue(options: JobQueueOptions) {
     running.controller.abort(reason);
   }
 
+  /**
+   * Whether the files of a job are there for the agent; connects their network drive first. Right after Windows
+   * started, the network may not be up yet: it tries again a few times before the job fails.
+   */
+  async function reachable(entry: StoredJob, signal: AbortSignal): Promise<string | null> {
+    if (!access) return null;
+    for (let attempt = 1; ; attempt++) {
+      const problem = (await access.prepare(entry.request.source)) ?? (await access.prepare(entry.plan.directory));
+      const there = !problem && (await stat(entry.request.source).then(() => true, () => false));
+      if (there || attempt >= 4 || signal.aborted) return problem;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, retryMs);
+        signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
+      });
+    }
+  }
+
   async function next() {
     if (current || stopping) return;
     const entry = [...entries].reverse().find(({ job }) => job.state === 'queued' && !job.paused && (!job.scheduled || lastGate?.open));
@@ -203,6 +225,13 @@ export async function createJobQueue(options: JobQueueOptions) {
     void save();
     log(`Umwandlung ${job.interruptions ? 'fortgesetzt' : 'gestartet'}: ${job.source}`);
     try {
+      const problem = await reachable(entry, controller.signal);
+      if (controller.signal.aborted) throw new AgentError(499, 'Abgebrochen.');
+      if (problem) {
+        // What an interrupted run left there, as far as it can be reached.
+        if (job.interruptions) await discardTemp(job.source, entry.plan, job.id);
+        throw new AgentError(404, problem);
+      }
       const result = await run({
         jobId: job.id,
         request: entry.request,
@@ -283,7 +312,7 @@ export async function createJobQueue(options: JobQueueOptions) {
       if (!toolsReady(await tools())) {
         throw new AgentError(503, 'Es fehlen Werkzeuge (ffmpeg, dovi_tool oder mkvmerge) – siehe Agent-Status in Manelly.');
       }
-      const plan = await planOutput(request, roots);
+      const plan = await planOutput(request, roots, process.platform, access);
       // Two jobs must not write the same file.
       const busy = entries.some(({ job }) => (job.state === 'queued' || job.state === 'running') && (job.output === plan.output || job.source === request.source));
       if (busy) throw new AgentError(409, 'Für diese Datei läuft schon eine Umwandlung.');

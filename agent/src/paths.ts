@@ -44,12 +44,43 @@ function samePath(a: string, b: string, api: PathApi): boolean {
 }
 
 async function kindOf(file: string): Promise<'file' | 'directory' | null> {
+  return (await inspect(file)).kind;
+}
+
+/** What is at a path, and when nothing is reachable there, the error code that says why. */
+async function inspect(file: string): Promise<{ kind: 'file' | 'directory' | null; code: string | null }> {
   try {
     const info = await stat(file);
-    return info.isFile() ? 'file' : info.isDirectory() ? 'directory' : null;
-  } catch {
-    return null;
+    return { kind: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : null, code: null };
+  } catch (error) {
+    return { kind: null, code: (error as NodeJS.ErrnoException).code ?? 'UNKNOWN' };
   }
+}
+
+/** How the agent reaches the paths Manelly names: network drives it connects first, and what helps when it cannot. */
+export interface PathAccess {
+  /** Connects what a path needs, e.g. its network drive; resolves to why it cannot be reached, or null. */
+  prepare(path: string): Promise<string | null>;
+  /** Added when a network path refuses access, e.g. how the agent gets credentials. */
+  networkHint: string | null;
+}
+
+const isNetworkPath = (file: string) => /^\\\\[^\\]/.test(file);
+
+/** Why a path Manelly named is not there for the agent: missing, or not reachable – and what helps. */
+function unreachable(what: 'Die Datei' | 'Der Ordner', file: string, code: string | null, access: PathAccess | undefined): string {
+  const hint = isNetworkPath(file) && access?.networkHint ? ` ${access.networkHint}` : '';
+  if (code === 'EACCES' || code === 'EPERM') return `Kein Zugriff auf ${file}.${hint}`;
+  if (code && code !== 'ENOENT' && code !== 'ENOTDIR') return `${file} ist für den Agent nicht erreichbar (${code}).${hint}`;
+  return `${what} ${file} wurde nicht gefunden.`;
+}
+
+/** The kind of a path, after connecting what it needs; throws why when it is not the expected kind. */
+async function requireKind(what: 'Die Datei' | 'Der Ordner', file: string, kind: 'file' | 'directory', access: PathAccess | undefined): Promise<void> {
+  const problem = await access?.prepare(file);
+  const found = await inspect(file);
+  if (found.kind === kind) return;
+  throw new AgentError(404, problem ?? unreachable(what, file, found.kind ? null : found.code, access));
 }
 
 export interface OutputPlan {
@@ -71,7 +102,7 @@ export function defaultFileName(source: string, mode: ConversionRequest['output'
 }
 
 /** Checks a request and works out where everything goes – before any file is touched. */
-export async function planOutput(request: ConversionRequest, roots: string[], platform: NodeJS.Platform = process.platform): Promise<OutputPlan> {
+export async function planOutput(request: ConversionRequest, roots: string[], platform: NodeJS.Platform = process.platform, access?: PathAccess): Promise<OutputPlan> {
   const { source, output } = request;
   const api = pathApiFor(source, platform);
   const allowed = (file: string) => roots.length === 0 || roots.some((root) => isWithin(file, root, api));
@@ -81,7 +112,7 @@ export async function planOutput(request: ConversionRequest, roots: string[], pl
     throw new AgentError(400, `Dateityp ${api.extname(source) || '(ohne Endung)'} wird nicht unterstützt.`);
   }
   if (!allowed(source)) throw new AgentError(403, `${source} liegt ausserhalb der freigegebenen Ordner.`);
-  if ((await kindOf(source)) !== 'file') throw new AgentError(404, `Die Datei ${source} wurde nicht gefunden.`);
+  await requireKind('Die Datei', source, 'file', access);
 
   const fileName = output.fileName ?? defaultFileName(source, output.mode);
   if (!isValidSegment(fileName) || api.extname(fileName).toLowerCase() !== '.mkv') {
@@ -96,7 +127,7 @@ export async function planOutput(request: ConversionRequest, roots: string[], pl
     const base = output.directory;
     if (!base || !api.isAbsolute(base)) throw new AgentError(400, 'Für «Anderer Ordner» fehlt der Zielordner.');
     if (!allowed(base)) throw new AgentError(403, `${base} liegt ausserhalb der freigegebenen Ordner.`);
-    if ((await kindOf(base)) !== 'directory') throw new AgentError(404, `Der Ordner ${base} wurde nicht gefunden.`);
+    await requireKind('Der Ordner', base, 'directory', access);
     directory = base;
     if (output.subfolder) {
       if (!isValidSegment(output.subfolder)) throw new AgentError(400, `«${output.subfolder}» ist kein gültiger Ordnername.`);

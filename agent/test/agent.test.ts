@@ -429,6 +429,40 @@ describe('pause', () => {
   });
 });
 
+describe('network drives', () => {
+  /** A drive that refuses the given calls, counted from the first; the first is the check when the job is added. */
+  async function queueWithDrive(refuse: (call: number) => boolean) {
+    let calls = 0;
+    const problem = 'Das Netzlaufwerk Z: (\\\\nas\\filme) ist für den Agent nicht erreichbar: das NAS ist nicht erreichbar (Netzwerkpfad nicht gefunden).';
+    const access = { prepare: async () => (refuse(++calls) ? problem : null), networkHint: null };
+    const queue = await createJobQueue({ dataDir: path.join(root, 'drives'), roots: [], tools: async () => tools, tickMs: 0, retryMs: 20, access });
+    return { queue, problem };
+  }
+
+  it('tries again when the drive is not there yet, e.g. right after Windows started', async () => {
+    const { queue: drives } = await queueWithDrive((call) => call === 2 || call === 3);
+    try {
+      const { id } = await drives.add({ source, output: { mode: 'alongside' } });
+      for (let attempt = 0; attempt < 200 && drives.get(id).state !== 'done'; attempt++) await sleep(25);
+      expect(drives.get(id).state).toBe('done');
+    } finally {
+      await drives.stop();
+    }
+  });
+
+  it('fails with the reason when the drive stays away', async () => {
+    const { queue: drives, problem } = await queueWithDrive((call) => call > 1);
+    try {
+      const { id } = await drives.add({ source, output: { mode: 'alongside' } });
+      for (let attempt = 0; attempt < 200 && drives.get(id).state !== 'failed'; attempt++) await sleep(25);
+      expect(drives.get(id)).toMatchObject({ state: 'failed', error: problem });
+      expect(await toolCalls()).toEqual([]);
+    } finally {
+      await drives.stop();
+    }
+  });
+});
+
 describe('restart', () => {
   it('continues a conversion that a restart interrupted', async () => {
     // A restart during the mux step: the converted video and the checkpoint are there.

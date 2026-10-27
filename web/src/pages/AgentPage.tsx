@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AgentOverview, AgentStatus } from '@manelly/shared';
-import { Activity, CloudDownload, LoaderCircle, Plug, Power, RotateCw } from 'lucide-react';
+import { Activity, CircleCheck, CircleX, CloudDownload, LoaderCircle, Plug, Power, RotateCw } from 'lucide-react';
 import clsx from 'clsx';
 import { AgentForm } from '../components/AgentForm';
 import { Code, Message } from '../components/ConnectionForm';
@@ -123,6 +123,23 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
             </Detail>
             <Detail label="Gestartet">{process.autostart ? 'vom Autostart' : 'von Hand, in einem Fenster'}</Detail>
             <Detail label="Node.js">{process.node}</Detail>
+            {/* Started without a logon, the agent connects the user's network drives itself. */}
+            {status.drives && status.drives.length > 0 && (
+              <Detail label="Netzlaufwerke">
+                <ul className="space-y-1">
+                  {status.drives.map((drive) => (
+                    <li key={drive.letter}>
+                      <span className="inline-flex items-center gap-1.5">
+                        {drive.connected ? <CircleCheck className="size-3.5 shrink-0 text-good" aria-hidden /> : <CircleX className="size-3.5 shrink-0 text-critical" aria-hidden />}
+                        <b className="font-medium">{drive.letter}</b> {drive.remote}
+                        <span className="text-ink-3">· {drive.connected ? 'erreichbar' : 'nicht erreichbar'}</span>
+                      </span>
+                      {drive.error && <p className="text-xs text-critical">{drive.error}</p>}
+                    </li>
+                  ))}
+                </ul>
+              </Detail>
+            )}
             {/* Right after an update, the result below says the same. */}
             {process.lastUpdate && !(finished?.update && finished.after) && (
               <Detail label="Letztes Update">

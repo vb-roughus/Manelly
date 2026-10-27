@@ -1,6 +1,8 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AddToCollectionRequest,
+  AgentNetworkList,
+  AgentNetworkStatus,
   AgentOverview,
   AgentScheduleStatus,
   AgentSettingsView,
@@ -284,5 +286,40 @@ export function useTranscodingReport(enabled = true) {
 export function useHardwareTest() {
   return useMutation({
     mutationFn: () => sendJson<HardwareTestResult>('POST', '/api/server/transcoding/test'),
+  });
+}
+
+// --- Agent: network ---------------------------------------------------------------
+
+/** All interfaces of the Jellyfin server; listing them takes the agent a moment on Windows. */
+export function useNetworkInterfaces(enabled: boolean) {
+  return useQuery({
+    queryKey: ['network-interfaces'],
+    queryFn: ({ signal }) => fetchJson<AgentNetworkList>('/api/agent/network/interfaces', signal),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useSaveNetworkInterfaces() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => sendJson<AgentNetworkList>('PUT', '/api/agent/network/interfaces', { interfaces: ids }),
+    onSuccess: (list) => {
+      queryClient.setQueryData(['network-interfaces'], list);
+      void queryClient.invalidateQueries({ queryKey: ['agent'] });
+      void queryClient.invalidateQueries({ queryKey: ['network'] });
+    },
+  });
+}
+
+/** Rates of the monitored interfaces; asking keeps the agent measuring. Slow polling while nothing is monitored. */
+export function useAgentNetwork(enabled: boolean) {
+  return useQuery({
+    queryKey: ['network'],
+    queryFn: ({ signal }) => fetchJson<AgentNetworkStatus>('/api/agent/network', signal),
+    refetchInterval: (query) => (query.state.data?.interfaces.length ? 4_000 : 60_000),
+    enabled,
+    retry: false,
   });
 }

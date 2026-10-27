@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentJellyfinAccess, AgentOverview, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -34,7 +34,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
   };
   const jobs: ConversionJob[] = [];
   // Agents from 0.2.0 on report their schedule and what Jellyfin they know.
-  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus };
+  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus, network: [] as string[] };
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -54,6 +54,13 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         sent.schedules.push(body);
         Object.assign(agent.schedule, body);
         return Response.json(agent.schedule);
+      }
+      if (url.pathname === '/api/network/interfaces') {
+        if (init?.method === 'PUT') agent.network = body.interfaces;
+        return Response.json({ interfaces: [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: [] }], selected: agent.network });
+      }
+      if (url.pathname === '/api/network') {
+        return Response.json({ interfaces: agent.network.map((id: string) => ({ id, name: 'Ethernet', description: null, up: true, speedBps: 1e9, rxBps: 1e6, txBps: 4e7, history: [] })), intervalMs: 2000, error: null });
       }
       const start = url.pathname.match(/^\/api\/jobs\/(\w+)\/start$/);
       if (start && init?.method === 'POST') {
@@ -224,5 +231,16 @@ describe('agent connection', () => {
     await app.inject('/api/agent/jobs');
     expect(world.sent.mediaUpdates).toEqual([]);
     await app.close();
+  });
+
+  it('lets Manelly pick the network interfaces the agent measures', async () => {
+    const { app, world } = await setup();
+    expect((await app.inject('/api/agent/network/interfaces')).json<AgentNetworkList>().interfaces[0]?.name).toBe('Ethernet');
+    const tooMany = await app.inject({ method: 'PUT', url: '/api/agent/network/interfaces', payload: { interfaces: Array.from({ length: 17 }, (_, i) => `{${i}}`) } });
+    expect(tooMany.statusCode).toBe(400);
+    const saved = await app.inject({ method: 'PUT', url: '/api/agent/network/interfaces', payload: { interfaces: ['{A1}'] } });
+    expect(saved.json<AgentNetworkList>().selected).toEqual(['{A1}']);
+    expect(world.agent.network).toEqual(['{A1}']);
+    expect((await app.inject('/api/agent/network')).json<AgentNetworkStatus>().interfaces[0]).toMatchObject({ id: '{A1}', txBps: 4e7 });
   });
 });

@@ -1,12 +1,15 @@
 import { useEffect } from 'react';
-import { Plug, WandSparkles } from 'lucide-react';
+import { Network, Plug, WandSparkles } from 'lucide-react';
 import { AgentForm } from '../components/AgentForm';
 import { ConnectionForm } from '../components/ConnectionForm';
+import { NetworkInterfacesForm } from '../components/NetworkInterfacesForm';
+import { useAgentSettings } from '../hooks/queries';
 
 export function SettingsPage() {
   useEffect(() => {
     document.title = 'Einstellungen · Manelly';
   }, []);
+  const agentSettings = useAgentSettings();
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -46,6 +49,25 @@ export function SettingsPage() {
         </div>
         <AgentForm />
       </section>
+
+      {agentSettings.data?.url && (
+        <section id="network" aria-labelledby="network-heading" className="mt-6 scroll-mt-6 rounded-2xl border border-line bg-card p-5 shadow-sm shadow-black/5 sm:p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="grid size-9 place-items-center rounded-xl bg-accent/12 text-accent">
+              <Network className="size-4" aria-hidden />
+            </span>
+            <div>
+              <h2 id="network-heading" className="font-semibold">
+                Netzwerk des Jellyfin-Servers
+              </h2>
+              <p className="text-sm text-ink-2">
+                Welche Schnittstellen das Dashboard zeigt. Der Agent misst nur diese, und nur solange Manelly sie anzeigt.
+              </p>
+            </div>
+          </div>
+          <NetworkInterfacesForm />
+        </section>
+      )}
     </div>
   );
 }

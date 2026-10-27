@@ -39,6 +39,9 @@ Live-Übersicht der laufenden Streams:
   viele nicht nachkommen), geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
 - Laufende und in den letzten 12 Stunden beendete [Umwandlungen](#umwandlungen-mit-agent) mit Fortschritt (mit Agent)
+- **Netzwerk des Jellyfin-Servers** (mit Agent): Senden und Empfangen der unter Einstellungen gewählten Schnittstellen,
+  Auslastung gemessen an der Link-Geschwindigkeit (ab 70 % gelb, ab 90 % rot) und der Verlauf der letzten 10 Minuten. Der
+  Agent misst nur die gewählten Schnittstellen und nur, solange Manelly sie anzeigt (danach noch 10 Minuten)
 
 ### Medien
 
@@ -190,6 +193,9 @@ Nur nötig für die [Umwandlungen](#umwandlungen-mit-agent). Auf dem Windows-PC,
 - Konfiguration in `agent\data\agent.json`: `port`, `token` (der Schlüssel), `tools` (Pfade, falls ein Werkzeug nicht
   gefunden wird; `-Install` trägt Werkzeuge ein, die nur über den PATH gefunden werden) und `roots` – eine Liste von Ordnern, auf die der Agent sich beschränken soll (leer: jeder Ordner, den
   Manelly nennt). Nach Änderungen den Agent neu starten.
+- Netzwerk: Unter **Einstellungen → Netzwerk des Jellyfin-Servers** die Schnittstellen wählen, die das Dashboard zeigen
+  soll. Auf Windows liest der Agent dafür die Zähler von Windows über PowerShell (ein Prozess, solange gemessen wird), auf
+  Linux aus `/sys/class/net`.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
 - Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen (als Administrator). Eine laufende

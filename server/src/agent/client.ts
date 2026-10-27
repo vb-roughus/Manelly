@@ -2,6 +2,8 @@ import type {
   AgentCheckRequest,
   AgentCheckResponse,
   AgentJellyfinAccess,
+  AgentNetworkList,
+  AgentNetworkStatus,
   AgentScheduleStatus,
   AgentStatus,
   ConversionJob,
@@ -32,6 +34,10 @@ export interface AgentClient {
   setSchedule(schedule: ConversionSchedule): Promise<AgentScheduleStatus>;
   /** Lets the agent see streams and report new files to Jellyfin. */
   setJellyfin(access: AgentJellyfinAccess): Promise<void>;
+  networkInterfaces(): Promise<AgentNetworkList>;
+  setNetworkInterfaces(ids: string[]): Promise<AgentNetworkList>;
+  /** Rates of the monitored interfaces; asking keeps the agent measuring. */
+  network(): Promise<AgentNetworkStatus>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -80,5 +86,9 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     testHardware: (request) => call('POST', '/api/hwtest', request, 5 * 60_000),
     setSchedule: (schedule) => call('PUT', '/api/schedule', schedule),
     setJellyfin: (access) => call('PUT', '/api/jellyfin', access),
+    // Listing the interfaces starts a PowerShell on Windows, which can take a few seconds.
+    networkInterfaces: () => call('GET', '/api/network/interfaces', undefined, 30_000),
+    setNetworkInterfaces: (ids) => call('PUT', '/api/network/interfaces', { interfaces: ids }, 30_000),
+    network: () => call('GET', '/api/network'),
   };
 }

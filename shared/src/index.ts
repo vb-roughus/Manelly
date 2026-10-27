@@ -704,6 +704,62 @@ export interface AgentJellyfinAccess {
   apiKey: string;
 }
 
+// --- Agent: network ------------------------------------------------------------
+// The agent measures the network interfaces of the Jellyfin server, but only those
+// picked in Manelly, and only while somebody looks.
+
+/** A network interface of the Jellyfin server. */
+export interface AgentNetworkInterface {
+  /** Stable id: the adapter GUID on Windows, the name on Linux. */
+  id: string;
+  /** e.g. "Ethernet" or "WLAN" */
+  name: string;
+  /** e.g. "Intel(R) Ethernet Connection I219-V"; null on Linux. */
+  description: string | null;
+  /** e.g. Ethernet, Wireless80211 */
+  type: string | null;
+  up: boolean;
+  /** Link speed in bits per second; null when unknown. */
+  speedBps: number | null;
+  addresses: string[];
+}
+
+/** GET /api/network/interfaces on the agent. */
+export interface AgentNetworkList {
+  interfaces: AgentNetworkInterface[];
+  /** Ids of the monitored interfaces. */
+  selected: string[];
+}
+
+export interface NetworkRatePoint {
+  /** Milliseconds since the epoch. */
+  t: number;
+  rxBps: number;
+  txBps: number;
+}
+
+export interface MonitoredInterface {
+  id: string;
+  name: string;
+  description: string | null;
+  up: boolean;
+  speedBps: number | null;
+  /** Bits per second; null until two samples are in. */
+  rxBps: number | null;
+  txBps: number | null;
+  /** The last minutes, oldest first. */
+  history: NetworkRatePoint[];
+}
+
+/** GET /api/network on the agent: the monitored interfaces with their current rates. */
+export interface AgentNetworkStatus {
+  interfaces: MonitoredInterface[];
+  /** Time between two samples. */
+  intervalMs: number;
+  /** Why measuring failed; null when it works. */
+  error: string | null;
+}
+
 export interface AgentTool {
   path: string | null;
   version: string | null;
@@ -721,6 +777,8 @@ export interface AgentStatus {
   ready: boolean;
   /** Missing on agents before 0.2.0. */
   schedule?: AgentScheduleStatus;
+  /** Ids of the monitored network interfaces; missing on agents before 0.3.0. */
+  network?: { selected: string[] };
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */

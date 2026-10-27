@@ -19,6 +19,8 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LinkGrabberContainerAnswer,
+  LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
 } from '@manelly/shared';
@@ -59,6 +61,8 @@ export interface AgentClient {
   controlJDownloader(action: JDownloaderAction): Promise<JDownloaderStatus>;
   setJDownloaderLimit(enabled: boolean, kbps: number): Promise<JDownloaderStatus>;
   linkGrabber(): Promise<LinkGrabberStatus>;
+  /** From agent 0.15.0: a DLC file for the link grabber; JDownloader reads it in the background. */
+  addLinkGrabberContainer(request: LinkGrabberContainerRequest): Promise<LinkGrabberContainerAnswer>;
   /** Moves packages and links from the link grabber to the download list; answers with what is left. */
   moveFromLinkGrabber(request: LinkGrabberMoveRequest): Promise<LinkGrabberStatus>;
   /** From agent 0.13.0. */
@@ -135,6 +139,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     controlJDownloader: (action) => call('POST', '/api/jdownloader/control', { action }, 20_000),
     setJDownloaderLimit: (enabled, kbps) => call('PUT', '/api/jdownloader/limit', { enabled, kbps }, 20_000),
     linkGrabber: () => call('GET', '/api/jdownloader/linkgrabber', undefined, 20_000),
+    addLinkGrabberContainer: (request) => call('POST', '/api/jdownloader/linkgrabber/container', request, 30_000),
     moveFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/move', request, 30_000),
     jdownloaderAccounts: () => call('GET', '/api/jdownloader/accounts', undefined, 20_000),
     refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),

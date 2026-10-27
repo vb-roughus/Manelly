@@ -17,6 +17,8 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LinkGrabberContainerAnswer,
+  LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
   SaveAgentSettingsRequest,
@@ -329,6 +331,28 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     '/jdownloader/accounts/refresh',
     { schema: { body: { type: 'object', additionalProperties: false, required: ['ids'], properties: { ids: { type: 'array', maxItems: 500, items: { type: 'integer', minimum: 0 } } } } } },
     async (request, reply) => reply.status(202).send(await requireAgent(agent).refreshJDownloaderAccounts(request.body.ids)),
+  );
+
+  // A DLC file from the browser, as base64 (a third larger than the file, at most 1 MB); the agent checks the rest.
+  const maxContent = Math.ceil((1024 * 1024) / 3) * 4;
+  app.post<{ Body: LinkGrabberContainerRequest }>(
+    '/jdownloader/linkgrabber/container',
+    {
+      bodyLimit: maxContent + 4096,
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'content'],
+          properties: { name: { type: 'string', minLength: 1, maxLength: 255 }, content: { type: 'string', minLength: 1, maxLength: maxContent } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const answer: LinkGrabberContainerAnswer = await requireAgent(agent).addLinkGrabberContainer(request.body);
+      request.log.info(`JDownloader: ${request.body.name} an den Link Grabber übergeben`);
+      return reply.status(202).send(answer);
+    },
   );
 
   const ids = { type: 'array', maxItems: 5000, items: { type: 'integer', minimum: 0 } };

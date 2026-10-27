@@ -92,6 +92,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       }
       if (url.pathname.startsWith('/api/jdownloader/linkgrabber')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        if (url.pathname.endsWith('/container')) return Response.json({ added: body.name }, { status: 202 });
         return Response.json({ collecting: false, packages: [] });
       }
       if (url.pathname.startsWith('/api/jdownloader')) {
@@ -365,6 +366,21 @@ describe('agent connection', () => {
       { method: 'GET', path: '/api/jdownloader/linkgrabber', body: undefined },
       { method: 'POST', path: '/api/jdownloader/linkgrabber/move', body: { packageIds: [11, 12], linkIds: [101] } },
     ]);
+  });
+
+  it('passes DLC files on to the agent, up to 1 MB', async () => {
+    const { app, world } = await setup();
+    const dlc = { name: 'Dune.dlc', content: Buffer.from('dlc').toString('base64') };
+    const added = await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/container', payload: dlc });
+    expect(added.statusCode).toBe(202);
+    expect(added.json()).toEqual({ added: 'Dune.dlc' });
+    expect(world.sent.jdownloader).toEqual([{ method: 'POST', path: '/api/jdownloader/linkgrabber/container', body: dlc }]);
+    // Larger than the 1 MB of the default body limit, but within the file's.
+    const large = { name: 'Gross.dlc', content: Buffer.alloc(1024 * 1024).toString('base64') };
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/container', payload: large })).statusCode).toBe(202);
+    const tooLarge = { name: 'Zu gross.dlc', content: Buffer.alloc(1024 * 1024 + 3).toString('base64') };
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/container', payload: tooLarge })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/container', payload: { name: 'Dune.dlc' } })).statusCode).toBe(400);
   });
 
   it('ends the agent on request, but not an agent too old to end itself', async () => {

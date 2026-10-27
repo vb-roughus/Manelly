@@ -20,6 +20,7 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LinkGrabberContainerAnswer,
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
   SaveAgentSettingsRequest,
@@ -48,6 +49,7 @@ import { manellyRestartProgress } from '../lib/manellyRestart';
 import { firstUpdateStep, restartDeadline, restartsNow, type PendingRestart } from '../lib/restart';
 import type { RestartStore } from './restartStore';
 import { fetchJson, sendJson } from '../lib/api';
+import { readBase64 } from '../lib/containers';
 import { toSearchParams, type MediaFilters } from '../lib/media';
 
 export const SESSIONS_REFRESH_MS = 5_000;
@@ -592,6 +594,19 @@ export function useRefreshJDownloaderAccounts() {
     mutationFn: (ids: number[]) => sendJson<{ refreshing: number }>('POST', '/api/agent/jdownloader/accounts/refresh', { ids }),
     onSuccess: () => {
       for (const delay of [3_000, 10_000]) setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'accounts'] }), delay);
+    },
+  });
+}
+
+/** A DLC file for the link grabber (agent from 0.15.0); JDownloader reads it in the background. */
+export function useAddLinkGrabberContainer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) =>
+      sendJson<LinkGrabberContainerAnswer>('POST', '/api/agent/jdownloader/linkgrabber/container', { name: file.name, content: await readBase64(file) }),
+    // Collecting at once, the packages a moment later.
+    onSuccess: () => {
+      for (const delay of [0, 2_000]) setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['linkgrabber'] }), delay);
     },
   });
 }

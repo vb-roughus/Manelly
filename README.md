@@ -153,7 +153,10 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     **Starten, Stoppen, Pausieren, Fortsetzen** und das **Tempo-Limit** von JDownloader
     überschreiben (gilt sofort, auch während des Bremsens beim Streamen)
   - **Link Grabber:** was JDownloader gesammelt hat, nach Paketen, mit dem Status jedes Links (online, offline,
-    unbekannt) und ob er noch sammelt; ein Link, ein Paket oder alle in die **Downloads übernehmen**
+    unbekannt) und ob er noch sammelt; ein Link, ein Paket oder alle in die **Downloads übernehmen**.
+    **DLC-Dateien** (ab Agent 0.15.0) mit «DLC hochladen» auswählen oder auf den Link Grabber ziehen, auch mehrere
+    auf einmal (je höchstens 1 MB): Manelly gibt sie über den Agent an JDownloader weiter, der sie entschlüsselt – die
+    Pakete erscheinen ein paar Sekunden später im Link Grabber
   - **Premium-Accounts** (ab Agent 0.13.0): die in JDownloader eingerichteten Accounts mit Hoster, Benutzer und Zustand
     (aktiv, vorübergehend gesperrt, abgelaufen, ungültig, ausgeschaltet), dem **restlichen Traffic** (mit Balken, oder
     «unbegrenzt») und wie lange das **Premium** noch läuft (rot ab sieben Tagen). «Neu prüfen» lässt JDownloader die

@@ -5,6 +5,7 @@ import type { AppConfig } from './config.js';
 import type { JellyfinConnection } from './connection.js';
 import { errorBody, handleError } from './errors.js';
 import type { ManellyProcess } from './manelly.js';
+import { createLibraryScanner } from './media/scan.js';
 import { createMediaIndexStore, type MediaIndexStore } from './media/store.js';
 import { agentRoutes } from './routes/agent.js';
 import { apiRoutes } from './routes/api.js';
@@ -71,7 +72,9 @@ export async function buildApp({ config, connection, mediaStore, agent, manelly 
   await app.register(settingsRoutes, { prefix: '/api/settings', connection });
   await app.register(imageRoutes, { prefix: '/api/images', connection });
   const store = mediaStore ?? createMediaIndexStore(connection, { log: app.log });
-  await app.register(mediaRoutes, { prefix: '/api/media', connection, store });
+  const scanner = createLibraryScanner(connection, store, { log: app.log });
+  app.addHook('onClose', async () => scanner.stop());
+  await app.register(mediaRoutes, { prefix: '/api/media', connection, store, scanner });
   await app.register(collectionsRoutes, { prefix: '/api/collections', connection, store });
   const agentConnection = agent ?? (await createAgentConnection({ store: noAgentStore }));
   await app.register(agentRoutes, { prefix: '/api/agent', connection, store, agent: agentConnection });

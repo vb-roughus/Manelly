@@ -20,6 +20,7 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LibraryScanStatus,
   LinkGrabberContainerAnswer,
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
@@ -41,7 +42,7 @@ import type {
   TranscodingReport,
   UpdateProgress,
 } from '@manelly/shared';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { agentRestart, useAgentRestart } from './useAgentRestart';
 import { manellyRestart, useManellyRestart } from './useManellyRestart';
 import { agentRestartProgress, isAgentQuery, updatesWhileRunning } from '../lib/agentRestart';
@@ -162,6 +163,33 @@ export function useRefreshMedia() {
   return useMutation({
     mutationFn: () => sendJson<MediaIndexStatus>('POST', '/api/media/refresh', {}),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['media'] }),
+  });
+}
+
+/** Jellyfin's scan of all its libraries: often while it runs, `idlePollMs` otherwise (to see scans started in Jellyfin). */
+export function useLibraryScan(enabled: boolean, idlePollMs: number | false = false) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ['library-scan'],
+    queryFn: ({ signal }) => fetchJson<LibraryScanStatus>('/api/media/scan', signal),
+    refetchInterval: (q) => (q.state.data && q.state.data.state !== 'idle' ? 2_000 : idlePollMs),
+    enabled,
+  });
+  // Once a scan ended, the server reads the media again: show that.
+  const state = query.data?.state;
+  const previous = useRef(state);
+  useEffect(() => {
+    if (previous.current && previous.current !== 'idle' && state === 'idle') void queryClient.invalidateQueries({ queryKey: ['media'] });
+    previous.current = state;
+  }, [state, queryClient]);
+  return query;
+}
+
+export function useLibraryScanAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: 'start' | 'cancel') => sendJson<LibraryScanStatus>(action === 'start' ? 'POST' : 'DELETE', '/api/media/scan'),
+    onSuccess: (status) => queryClient.setQueryData(['library-scan'], status),
   });
 }
 

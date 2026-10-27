@@ -139,6 +139,23 @@ export interface JfServerConfiguration {
   RemoteClientBitrateLimit?: number;
 }
 
+/** A scheduled task as GET /ScheduledTasks lists it; the library scan is the one with Key "RefreshLibrary". */
+export interface JfTaskInfo {
+  Id?: string;
+  Key?: string;
+  Name?: string;
+  /** Idle, Running or Cancelling. */
+  State?: string;
+  CurrentProgressPercentage?: number | null;
+  LastExecutionResult?: {
+    StartTimeUtc?: string;
+    EndTimeUtc?: string;
+    /** Completed, Failed, Cancelled or Aborted. */
+    Status?: string;
+    ErrorMessage?: string | null;
+  } | null;
+}
+
 export interface JfVirtualFolder {
   Name?: string;
   ItemId?: string;

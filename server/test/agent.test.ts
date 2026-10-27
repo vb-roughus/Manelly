@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -25,7 +25,15 @@ const movie = (videoRangeType: string, DvProfile?: number) => ({
 });
 
 function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agentVersion?: string } = {}) {
-  const sent: { jobs: ConversionRequest[]; mediaUpdates: unknown[]; jellyfin: AgentJellyfinAccess[]; schedules: ConversionSchedule[]; started: string[] } = {
+  const sent: {
+    jobs: ConversionRequest[];
+    mediaUpdates: unknown[];
+    jellyfin: AgentJellyfinAccess[];
+    schedules: ConversionSchedule[];
+    started: string[];
+    jdownloader: Array<{ method: string; path: string; body: unknown }>;
+  } = {
+    jdownloader: [],
     jobs: [],
     mediaUpdates: [],
     jellyfin: [],
@@ -58,6 +66,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname === '/api/network/interfaces') {
         if (init?.method === 'PUT') agent.network = body.interfaces;
         return Response.json({ interfaces: [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: [] }], selected: agent.network });
+      }
+      if (url.pathname.startsWith('/api/jdownloader')) {
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        return Response.json({ settings: body ?? { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } }, reachable: true, error: null, state: 'RUNNING', speedBps: 0, limit: null, packages: [], throttling: { active: false, reason: null } });
       }
       if (url.pathname === '/api/resources') {
         return Response.json({ cpu: { total: 60, jellyfin: 40, conversion: 0, model: 'Intel', cores: 6 }, gpus: [], gpuNote: null, processes: [], history: [], intervalMs: 3000, error: null });
@@ -252,5 +264,23 @@ describe('agent connection', () => {
     expect((await app.inject('/api/agent/resources')).json<AgentResourceStatus>().cpu).toMatchObject({ total: 60, jellyfin: 40 });
     const none = await setup(fakeWorld(), null);
     expect((await none.app.inject('/api/agent/resources')).statusCode).toBe(400);
+  });
+
+  it('passes JDownloader settings and commands to the agent, and hands over Jellyfin for the throttle', async () => {
+    const { app, world } = await setup();
+    const invalid = await app.inject({ method: 'PUT', url: '/api/agent/jdownloader/settings', payload: { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'fast', limitKBps: 1 } } });
+    expect(invalid.statusCode).toBe(400);
+    const settings = { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'limit', limitKBps: 2048 } };
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/jdownloader/settings', payload: settings })).statusCode).toBe(200);
+    expect(world.sent.jellyfin).toHaveLength(1);
+    await app.inject({ method: 'POST', url: '/api/agent/jdownloader/control', payload: { action: 'pause' } });
+    await app.inject({ method: 'PUT', url: '/api/agent/jdownloader/limit', payload: { enabled: true, kbps: 512 } });
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/control', payload: { action: 'explode' } })).statusCode).toBe(400);
+    expect(world.sent.jdownloader).toEqual([
+      { method: 'PUT', path: '/api/jdownloader/settings', body: settings },
+      { method: 'POST', path: '/api/jdownloader/control', body: { action: 'pause' } },
+      { method: 'PUT', path: '/api/jdownloader/limit', body: { enabled: true, kbps: 512 } },
+    ]);
+    expect((await app.inject('/api/agent/jdownloader')).json<JDownloaderStatus>().state).toBe('RUNNING');
   });
 });

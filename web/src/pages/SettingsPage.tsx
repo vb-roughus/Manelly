@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { Network, Plug, WandSparkles } from 'lucide-react';
+import { Download, Network, Plug, WandSparkles } from 'lucide-react';
 import { AgentForm } from '../components/AgentForm';
 import { ConnectionForm } from '../components/ConnectionForm';
+import { JDownloaderForm } from '../components/JDownloaderForm';
 import { NetworkInterfacesForm } from '../components/NetworkInterfacesForm';
 import { useAgentSettings } from '../hooks/queries';
 
@@ -66,6 +67,23 @@ export function SettingsPage() {
             </div>
           </div>
           <NetworkInterfacesForm />
+        </section>
+      )}
+
+      {agentSettings.data?.url && (
+        <section aria-labelledby="jdownloader-heading" className="mt-6 rounded-2xl border border-line bg-card p-5 shadow-sm shadow-black/5 sm:p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="grid size-9 place-items-center rounded-xl bg-accent/12 text-accent">
+              <Download className="size-4" aria-hidden />
+            </span>
+            <div>
+              <h2 id="jdownloader-heading" className="font-semibold">
+                JDownloader
+              </h2>
+              <p className="text-sm text-ink-2">Downloads im Dashboard sehen und steuern, und bremsen, solange jemand streamt.</p>
+            </div>
+          </div>
+          <JDownloaderForm />
         </section>
       )}
     </div>

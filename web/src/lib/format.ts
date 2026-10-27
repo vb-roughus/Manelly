@@ -31,6 +31,21 @@ export function formatBytes(bytes: number): string {
   return `${number(bytes / 1024, 0)} KB`;
 }
 
+/** Download speed in bytes per second → "2.4 MB/s", "850 KB/s". */
+export function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond >= 1024 ** 3) return `${number(bytesPerSecond / 1024 ** 3, 1)} GB/s`;
+  if (bytesPerSecond >= 1024 ** 2) return `${number(bytesPerSecond / 1024 ** 2, bytesPerSecond >= 100 * 1024 ** 2 ? 0 : 1)} MB/s`;
+  return `${number(bytesPerSecond / 1024, 0)} KB/s`;
+}
+
+/** Seconds still to go → "45 s", "12 min", "1 h 5 min". */
+export function formatEta(seconds: number): string {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return minutes % 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes / 60} h`;
+}
+
 /** "vor 4 s", "vor 3 min" – for timestamps in the recent past. */
 export function formatAgo(timestamp: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - timestamp) / 1000));

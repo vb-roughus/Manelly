@@ -3,8 +3,9 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob } from '@manelly/shared';
+import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob, JDownloaderStatus } from '@manelly/shared';
 import { createNotifier } from '../src/jellyfin.js';
+import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
 import { createResourceMonitor, type ResourceMonitor } from '../src/resources.js';
@@ -65,6 +66,7 @@ let tools: Tools;
 let queue: JobQueue;
 let network: NetworkMonitor;
 let resources: ResourceMonitor;
+let jdownloader: JDownloader;
 
 // The network interfaces of the server: one Ethernet adapter whose counters grow by 1 MB per second.
 const fakeNetwork: CounterSource = {
@@ -104,12 +106,14 @@ async function start() {
   });
   network = createNetworkMonitor({ source: fakeNetwork, selection: () => settings.get().network, now: () => 2000 });
   resources = createResourceMonitor({ source: { start: () => () => {} }, ownProcesses: () => new Set() });
-  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, resources, tools: async () => tools, freeBytes: async () => free });
+  jdownloader = createJDownloader({ settings, fetch: fakeJellyfin, tickMs: 0 });
+  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, resources, jdownloader, tools: async () => tools, freeBytes: async () => free });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
     network.stop();
     resources.stop();
+    jdownloader.stop();
     await queue.stop();
     await new Promise((resolve) => server.close(resolve));
   };
@@ -373,5 +377,18 @@ describe('resources', () => {
     expect(((await (await call('/api/status')).json()) as AgentStatus).resources).toEqual({ supported: true });
     const status = (await (await call('/api/resources')).json()) as AgentResourceStatus;
     expect(status).toMatchObject({ cpu: null, gpus: [], processes: [], intervalMs: 3000, error: null });
+  });
+});
+
+describe('JDownloader routes', () => {
+  it('checks the settings and refuses to control a JDownloader that is switched off', async () => {
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false });
+    expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
+    expect((await put('/api/jdownloader/settings', { enabled: true, url: 'ftp://x', throttle: { mode: 'off', limitKBps: 1024 } })).status).toBe(400);
+    expect((await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'fast', limitKBps: 1024 } })).status).toBe(400);
+    const saved = await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128/', throttle: { mode: 'limit', limitKBps: 2048 } });
+    expect(saved.status).toBe(200);
+    expect(((await saved.json()) as JDownloaderStatus).settings).toEqual({ enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'limit', limitKBps: 2048 } });
+    expect((await post('/api/jdownloader/control', { action: 'jump' })).status).toBe(400);
   });
 });

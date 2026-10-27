@@ -825,6 +825,55 @@ export interface AgentResourceStatus {
   error: string | null;
 }
 
+// --- Agent: JDownloader ----------------------------------------------------------------
+// JDownloader on the Jellyfin server, through its local API on port 3128 ("Deprecated API"
+// in JDownloader's advanced settings). Only the agent talks to it.
+
+/** While somebody streams: leave JDownloader alone, limit its speed, or pause it. */
+export type JDownloaderThrottleMode = 'off' | 'limit' | 'pause';
+
+export interface JDownloaderSettings {
+  enabled: boolean;
+  /** As the agent reaches it, e.g. http://127.0.0.1:3128. */
+  url: string;
+  throttle: { mode: JDownloaderThrottleMode; limitKBps: number };
+}
+
+export interface JDownloaderPackage {
+  uuid: number;
+  name: string;
+  bytesLoaded: number;
+  bytesTotal: number;
+  speedBps: number;
+  /** Seconds; null when unknown. */
+  eta: number | null;
+  finished: boolean;
+  running: boolean;
+  enabled: boolean;
+  /** JDownloader's own status text, e.g. "Entpacken OK"; null when none. */
+  status: string | null;
+  saveTo: string | null;
+  hosts: string[];
+  childCount: number;
+}
+
+/** GET /api/jdownloader on the agent. */
+export interface JDownloaderStatus {
+  settings: JDownloaderSettings;
+  reachable: boolean;
+  /** Why JDownloader could not be reached or asked. */
+  error: string | null;
+  /** RUNNING, PAUSE, IDLE, STOPPING, STOPPED – as JDownloader names it. */
+  state: string | null;
+  speedBps: number | null;
+  limit: { enabled: boolean; bytesPerSecond: number } | null;
+  packages: JDownloaderPackage[];
+  /** Whether the agent holds JDownloader back right now because somebody streams. */
+  throttling: { active: boolean; reason: string | null };
+}
+
+export type JDownloaderAction = 'start' | 'stop' | 'pause' | 'resume';
+
 export interface AgentTool {
   path: string | null;
   version: string | null;
@@ -846,6 +895,8 @@ export interface AgentStatus {
   network?: { selected: string[] };
   /** Whether the agent can measure CPU and GPU here; missing on agents before 0.4.0. */
   resources?: { supported: boolean };
+  /** Missing on agents before 0.5.0. */
+  jdownloader?: { enabled: boolean };
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */

@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dataDirFrom, loadConfig } from './config.js';
+import { createJDownloader } from './jdownloader.js';
 import { createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
 import { conversionProcesses } from './convert.js';
@@ -56,7 +57,9 @@ const queue = await createJobQueue({
 const network = createNetworkMonitor({ source: defaultSource(), selection: () => settings.get().network, log });
 // CPU and GPU, with the shares of Jellyfin's FFmpeg and of the agent's own conversion; also only while somebody looks.
 const resources = createResourceMonitor({ source: defaultResourceSource(), ownProcesses: () => conversionProcesses, log });
-const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, resources, tools: currentTools });
+// JDownloader on this machine: read and controlled from Manelly, held back while somebody streams.
+const jdownloader = createJDownloader({ settings, log });
+const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, resources, jdownloader, tools: currentTools });
 
 server.on('error', (error: NodeJS.ErrnoException) => {
   log(error.code === 'EADDRINUSE' ? `Port ${config.port} ist schon belegt – läuft der Agent bereits?` : error.message);
@@ -85,6 +88,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     server.close();
     network.stop();
     resources.stop();
+    jdownloader.stop();
     void queue.stop().then(() => process.exit(0));
   });
 }

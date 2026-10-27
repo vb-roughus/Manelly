@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow } from '@manelly/shared';
+import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, JDownloaderSettings } from '@manelly/shared';
 import { AgentError } from './errors.js';
 import { createJellyfinApi } from './jellyfin.js';
 
@@ -11,11 +11,22 @@ export interface NetworkSelection {
   description: string | null;
 }
 
+/** What the agent changed on JDownloader while somebody streamed, to put it back afterwards – also after a restart. */
+export interface JDownloaderHold {
+  mode: 'limit' | 'pause';
+  /** The speed limit as it was before. */
+  previousLimit: { enabled: boolean; bytesPerSecond: number } | null;
+  /** JDownloader was paused already; then it stays paused. */
+  wasPaused: boolean;
+}
+
 /** What Manelly sends the agent; kept apart from agent.json, which people edit by hand. */
 export interface AgentSettings {
   schedule: ConversionSchedule;
   jellyfin: AgentJellyfinAccess | null;
   network: NetworkSelection[];
+  jdownloader: JDownloaderSettings;
+  jdownloaderHold: JDownloaderHold | null;
 }
 
 const SETTINGS_FILE = 'settings.json';
@@ -42,18 +53,34 @@ export function parseJellyfinAccess(input: unknown): AgentJellyfinAccess {
   return { url: url.replace(/\/+$/, ''), apiKey };
 }
 
+export const DEFAULT_JDOWNLOADER: JDownloaderSettings = { enabled: false, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } };
+
+export function parseJDownloaderSettings(input: unknown): JDownloaderSettings {
+  const { enabled, url, throttle } = (input ?? {}) as Partial<JDownloaderSettings>;
+  if (typeof enabled !== 'boolean' || typeof url !== 'string' || !/^https?:\/\/[^\s/]+(:\d+)?\/?$/i.test(url)) {
+    throw new AgentError(400, 'Die JDownloader-Adresse ist ungültig, z. B. http://127.0.0.1:3128.');
+  }
+  const mode = throttle?.mode;
+  const limitKBps = Number(throttle?.limitKBps);
+  if (mode !== 'off' && mode !== 'limit' && mode !== 'pause') throw new AgentError(400, 'Unbekannte Art der Drosselung.');
+  if (!Number.isInteger(limitKBps) || limitKBps < 1 || limitKBps > 10_000_000) throw new AgentError(400, 'Das Tempo-Limit muss zwischen 1 KB/s und 10 GB/s liegen.');
+  return { enabled, url: url.replace(/\/+$/, ''), throttle: { mode, limitKBps } };
+}
+
 const isSelection = (value: unknown): value is NetworkSelection =>
   typeof (value as NetworkSelection)?.id === 'string' && typeof (value as NetworkSelection).name === 'string';
 
 export async function createSettingsStore(dataDir: string) {
   const file = join(dataDir, SETTINGS_FILE);
-  let current: AgentSettings = { schedule: DEFAULT_SCHEDULE, jellyfin: null, network: [] };
+  let current: AgentSettings = { schedule: DEFAULT_SCHEDULE, jellyfin: null, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null };
   try {
     const stored = JSON.parse(await readFile(file, 'utf8')) as Partial<AgentSettings>;
     current = {
       schedule: stored.schedule ? parseSchedule(stored.schedule) : DEFAULT_SCHEDULE,
       jellyfin: stored.jellyfin ? parseJellyfinAccess(stored.jellyfin) : null,
       network: Array.isArray(stored.network) ? stored.network.filter(isSelection) : [],
+      jdownloader: stored.jdownloader ? parseJDownloaderSettings(stored.jdownloader) : DEFAULT_JDOWNLOADER,
+      jdownloaderHold: stored.jdownloaderHold && (stored.jdownloaderHold.mode === 'limit' || stored.jdownloaderHold.mode === 'pause') ? stored.jdownloaderHold : null,
     };
   } catch {
     // Missing or damaged: Manelly sends both again.
@@ -72,6 +99,8 @@ export async function createSettingsStore(dataDir: string) {
     setSchedule: (schedule: ConversionSchedule) => save({ ...current, schedule }),
     setJellyfin: (jellyfin: AgentJellyfinAccess) => save({ ...current, jellyfin }),
     setNetwork: (network: NetworkSelection[]) => save({ ...current, network }),
+    setJDownloader: (jdownloader: JDownloaderSettings) => save({ ...current, jdownloader }),
+    setJDownloaderHold: (jdownloaderHold: JDownloaderHold | null) => save({ ...current, jdownloaderHold }),
   };
 }
 

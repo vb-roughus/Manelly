@@ -11,6 +11,9 @@ import type {
   ConversionOptions,
   ConversionSchedule,
   HardwareTestResult,
+  JDownloaderAction,
+  JDownloaderSettings,
+  JDownloaderStatus,
   SaveAgentSettingsRequest,
   StartConversionRequest,
   AddToCollectionResponse,
@@ -335,3 +338,35 @@ export function useAgentResources(enabled: boolean) {
     retry: false,
   });
 }
+
+// --- Agent: JDownloader ---------------------------------------------------------------
+
+export function useJDownloader(enabled: boolean, pollMs: number | false = 4_000) {
+  return useQuery({
+    queryKey: ['jdownloader'],
+    queryFn: ({ signal }) => fetchJson<JDownloaderStatus>('/api/agent/jdownloader', signal),
+    refetchInterval: pollMs,
+    enabled,
+    retry: false,
+  });
+}
+
+function useJDownloaderMutation<T>(send: (request: T) => Promise<JDownloaderStatus>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: send,
+    onSuccess: (status) => {
+      queryClient.setQueryData(['jdownloader'], status);
+      void queryClient.invalidateQueries({ queryKey: ['agent'] });
+    },
+  });
+}
+
+export const useSaveJDownloaderSettings = () =>
+  useJDownloaderMutation((settings: JDownloaderSettings) => sendJson<JDownloaderStatus>('PUT', '/api/agent/jdownloader/settings', settings));
+
+export const useControlJDownloader = () =>
+  useJDownloaderMutation((action: JDownloaderAction) => sendJson<JDownloaderStatus>('POST', '/api/agent/jdownloader/control', { action }));
+
+export const useJDownloaderLimit = () =>
+  useJDownloaderMutation((limit: { enabled: boolean; kbps: number }) => sendJson<JDownloaderStatus>('PUT', '/api/agent/jdownloader/limit', limit));

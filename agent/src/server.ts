@@ -10,15 +10,17 @@ import type {
   AgentStatus,
   ConversionRequest,
   HardwareTestRequest,
+  JDownloaderAction,
 } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import { AgentError } from './errors.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
+import type { JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
 import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
-import { parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
+import { parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -31,6 +33,7 @@ export interface AgentServerOptions {
   settings: SettingsStore;
   network: NetworkMonitor;
   resources: ResourceMonitor;
+  jdownloader: JDownloader;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -68,7 +71,9 @@ function send(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** The agent's HTTP API. Everything but the health check needs the token from agent.json. */
-export function createAgentServer({ token, roots, queue, settings, network, resources, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+const JDOWNLOADER_ACTIONS: JDownloaderAction[] = ['start', 'stop', 'pause', 'resume'];
+
+export function createAgentServer({ token, roots, queue, settings, network, resources, jdownloader, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
   async function networkList(): Promise<AgentNetworkList> {
     const interfaces = await network.list().catch((error: Error) => {
       throw new AgentError(503, error.message);
@@ -85,6 +90,16 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
       gate: gate && { open: gate.open, reason: gate.reason, streams: gate.streams, checkedAt: gate.checkedAt },
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
+  }
+
+  /** JDownloader must be switched on in Manelly; its errors are reported as such. */
+  async function jdownloaderCall(action: () => Promise<void>) {
+    if (!settings.get().jdownloader.enabled) throw new AgentError(409, 'JDownloader ist in Manelly nicht eingeschaltet.');
+    try {
+      await action();
+    } catch (error) {
+      throw new AgentError(502, (error as Error).message);
+    }
   }
 
   async function handle(request: IncomingMessage, response: ServerResponse) {
@@ -106,6 +121,7 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
+        jdownloader: { enabled: settings.get().jdownloader.enabled },
       };
       return send(response, 200, status);
     }
@@ -142,6 +158,25 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
     }
     if (route === 'GET /api/network') return send(response, 200, network.status());
     if (route === 'GET /api/resources') return send(response, 200, resources.status());
+    if (route === 'GET /api/jdownloader') return send(response, 200, await jdownloader.status());
+    if (route === 'PUT /api/jdownloader/settings') {
+      await settings.setJDownloader(parseJDownloaderSettings(await readJson(request)));
+      // Turned off or switched to another JDownloader: let go of it now.
+      await jdownloader.check();
+      return send(response, 200, await jdownloader.status());
+    }
+    if (route === 'POST /api/jdownloader/control') {
+      const { action } = await readJson<{ action?: JDownloaderAction }>(request);
+      if (!action || !JDOWNLOADER_ACTIONS.includes(action)) throw new AgentError(400, 'Unbekannte Aktion für JDownloader.');
+      await jdownloaderCall(() => jdownloader.control(action));
+      return send(response, 200, await jdownloader.status());
+    }
+    if (route === 'PUT /api/jdownloader/limit') {
+      const { enabled, kbps } = await readJson<{ enabled?: boolean; kbps?: number }>(request);
+      if (typeof enabled !== 'boolean' || !Number.isInteger(kbps) || kbps! < 1 || kbps! > 10_000_000) throw new AgentError(400, 'Ungültiges Tempo-Limit.');
+      await jdownloaderCall(() => jdownloader.setLimit(enabled, kbps! * 1024));
+      return send(response, 200, await jdownloader.status());
+    }
     if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
     if (route === 'PUT /api/network/interfaces') {
       const body = await readJson<{ interfaces?: unknown }>(request);

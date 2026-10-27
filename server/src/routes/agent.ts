@@ -10,6 +10,9 @@ import type {
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
+  JDownloaderAction,
+  JDownloaderSettings,
+  JDownloaderStatus,
   SaveAgentSettingsRequest,
   StartConversionRequest,
 } from '@manelly/shared';
@@ -165,6 +168,71 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   app.get('/network', async (): Promise<AgentNetworkStatus> => requireAgent(agent).network());
 
   app.get('/resources', async (): Promise<AgentResourceStatus> => requireAgent(agent).resources());
+
+  app.get('/jdownloader', async (): Promise<JDownloaderStatus> => requireAgent(agent).jdownloader());
+
+  app.put<{ Body: JDownloaderSettings }>(
+    '/jdownloader/settings',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['enabled', 'url', 'throttle'],
+          properties: {
+            enabled: { type: 'boolean' },
+            url: { type: 'string', minLength: 1, maxLength: 256 },
+            throttle: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['mode', 'limitKBps'],
+              properties: { mode: { type: 'string', enum: ['off', 'limit', 'pause'] }, limitKBps: { type: 'integer', minimum: 1, maximum: 10_000_000 } },
+            },
+          },
+        },
+      },
+    },
+    async (request): Promise<JDownloaderStatus> => {
+      const client = requireAgent(agent);
+      // The throttle needs Jellyfin to see whether anybody streams.
+      if (request.body.throttle.mode !== 'off') await handOverJellyfin(client);
+      return client.setJDownloaderSettings(request.body);
+    },
+  );
+
+  app.post<{ Body: { action: JDownloaderAction } }>(
+    '/jdownloader/control',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['action'],
+          properties: { action: { type: 'string', enum: ['start', 'stop', 'pause', 'resume'] } },
+        },
+      },
+    },
+    async (request): Promise<JDownloaderStatus> => {
+      const status = await requireAgent(agent).controlJDownloader(request.body.action);
+      request.log.info(`JDownloader: ${request.body.action}`);
+      return status;
+    },
+  );
+
+  app.put<{ Body: { enabled: boolean; kbps: number } }>(
+    '/jdownloader/limit',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['enabled', 'kbps'],
+          properties: { enabled: { type: 'boolean' }, kbps: { type: 'integer', minimum: 1, maximum: 10_000_000 } },
+        },
+      },
+    },
+    async (request): Promise<JDownloaderStatus> => requireAgent(agent).setJDownloaderLimit(request.body.enabled, request.body.kbps),
+  );
 
   const time = { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' };
   app.put<{ Body: ConversionSchedule }>(

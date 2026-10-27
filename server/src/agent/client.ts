@@ -17,6 +17,8 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LinkGrabberMoveRequest,
+  LinkGrabberStatus,
 } from '@manelly/shared';
 import { AppError } from '../errors.js';
 
@@ -50,6 +52,9 @@ export interface AgentClient {
   setJDownloaderSettings(settings: JDownloaderSettings): Promise<JDownloaderStatus>;
   controlJDownloader(action: JDownloaderAction): Promise<JDownloaderStatus>;
   setJDownloaderLimit(enabled: boolean, kbps: number): Promise<JDownloaderStatus>;
+  linkGrabber(): Promise<LinkGrabberStatus>;
+  /** Moves packages and links from the link grabber to the download list; answers with what is left. */
+  moveFromLinkGrabber(request: LinkGrabberMoveRequest): Promise<LinkGrabberStatus>;
   /** Recorded load and streams between two times (milliseconds since the epoch). */
   history(from: number, to: number): Promise<HistoryResponse>;
   setHistorySettings(settings: HistorySettings): Promise<HistorySettings>;
@@ -114,6 +119,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     setJDownloaderSettings: (settings) => call('PUT', '/api/jdownloader/settings', settings, 20_000),
     controlJDownloader: (action) => call('POST', '/api/jdownloader/control', { action }, 20_000),
     setJDownloaderLimit: (enabled, kbps) => call('PUT', '/api/jdownloader/limit', { enabled, kbps }, 20_000),
+    linkGrabber: () => call('GET', '/api/jdownloader/linkgrabber', undefined, 20_000),
+    moveFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/move', request, 30_000),
     // A long range means reading many days of records.
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),
     setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),

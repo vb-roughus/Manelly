@@ -874,6 +874,47 @@ export interface JDownloaderStatus {
 
 export type JDownloaderAction = 'start' | 'stop' | 'pause' | 'resume';
 
+/** Whether the hoster says the file is there: JDownloader checks this while it collects links. */
+export type LinkAvailability = 'ONLINE' | 'OFFLINE' | 'UNKNOWN' | 'TEMP_UNKNOWN';
+
+export interface LinkGrabberLink {
+  uuid: number;
+  name: string;
+  bytesTotal: number;
+  host: string | null;
+  availability: LinkAvailability;
+  enabled: boolean;
+}
+
+/** A package in JDownloader's link grabber, before it goes to the download list. */
+export interface LinkGrabberPackage {
+  uuid: number;
+  name: string;
+  bytesTotal: number;
+  childCount: number;
+  hosts: string[];
+  saveTo: string | null;
+  enabled: boolean;
+  /** Links by availability; unknown includes those JDownloader could not check for now. */
+  online: number;
+  offline: number;
+  unknown: number;
+  links: LinkGrabberLink[];
+}
+
+/** GET /api/jdownloader/linkgrabber on the agent. */
+export interface LinkGrabberStatus {
+  /** JDownloader is still collecting or checking links. */
+  collecting: boolean;
+  packages: LinkGrabberPackage[];
+}
+
+/** POST /api/jdownloader/linkgrabber/move: whole packages and single links go to the download list. */
+export interface LinkGrabberMoveRequest {
+  packageIds: number[];
+  linkIds: number[];
+}
+
 // --- Agent: recorded history ------------------------------------------------------------
 // While recording is on, the agent keeps the server's load and every stream on disk, one file
 // per day, so the Troubleshooting page can look back. Times the agent was off are gaps.
@@ -1011,8 +1052,8 @@ export interface AgentStatus {
   network?: { selected: string[] };
   /** Whether the agent can measure CPU and GPU here; missing on agents before 0.4.0. */
   resources?: { supported: boolean };
-  /** Missing on agents before 0.5.0. */
-  jdownloader?: { enabled: boolean };
+  /** Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0. */
+  jdownloader?: { enabled: boolean; linkgrabber?: boolean };
   /** Whether the agent records the history; missing on agents before 0.6.0. */
   history?: { enabled: boolean };
   /** Missing on agents before 0.7.0, which cannot be stopped from Manelly either. */

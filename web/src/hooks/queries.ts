@@ -16,6 +16,8 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LinkGrabberMoveRequest,
+  LinkGrabberStatus,
   SaveAgentSettingsRequest,
   StartConversionRequest,
   AddToCollectionResponse,
@@ -383,6 +385,28 @@ export const useControlJDownloader = () =>
 
 export const useJDownloaderLimit = () =>
   useJDownloaderMutation((limit: { enabled: boolean; kbps: number }) => sendJson<JDownloaderStatus>('PUT', '/api/agent/jdownloader/limit', limit));
+
+export function useLinkGrabber(enabled: boolean, pollMs: number) {
+  return useQuery({
+    queryKey: ['linkgrabber'],
+    queryFn: ({ signal }) => fetchJson<LinkGrabberStatus>('/api/agent/jdownloader/linkgrabber', signal),
+    refetchInterval: pollMs,
+    enabled,
+    retry: false,
+  });
+}
+
+/** Packages and links go to JDownloader's download list; the answer is what is left in the link grabber. */
+export function useMoveFromLinkGrabber() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: LinkGrabberMoveRequest) => sendJson<LinkGrabberStatus>('POST', '/api/agent/jdownloader/linkgrabber/move', request),
+    onSuccess: (status) => {
+      queryClient.setQueryData(['linkgrabber'], status);
+      void queryClient.invalidateQueries({ queryKey: ['jdownloader'] });
+    },
+  });
+}
 
 // --- Agent: recorded history ------------------------------------------------------------
 

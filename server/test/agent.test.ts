@@ -81,6 +81,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (init?.method === 'PUT') agent.network = body.interfaces;
         return Response.json({ interfaces: [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: [] }], selected: agent.network });
       }
+      if (url.pathname.startsWith('/api/jdownloader/linkgrabber')) {
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        return Response.json({ collecting: false, packages: [] });
+      }
       if (url.pathname.startsWith('/api/jdownloader')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         return Response.json({ settings: body ?? { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } }, reachable: true, error: null, state: 'RUNNING', speedBps: 0, limit: null, packages: [], throttling: { active: false, reason: null } });
@@ -308,6 +312,19 @@ describe('agent connection', () => {
       { method: 'PUT', path: '/api/jdownloader/limit', body: { enabled: true, kbps: 512 } },
     ]);
     expect((await app.inject('/api/agent/jdownloader')).json<JDownloaderStatus>().state).toBe('RUNNING');
+  });
+
+  it('passes the link grabber and moves from it to the agent', async () => {
+    const { app, world } = await setup();
+    expect((await app.inject('/api/agent/jdownloader/linkgrabber')).json()).toEqual({ collecting: false, packages: [] });
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/move', payload: { packageIds: ['x'], linkIds: [] } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/move', payload: { packageIds: [11] } })).statusCode).toBe(400);
+    const moved = await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/move', payload: { packageIds: [11, 12], linkIds: [101] } });
+    expect(moved.statusCode).toBe(200);
+    expect(world.sent.jdownloader).toEqual([
+      { method: 'GET', path: '/api/jdownloader/linkgrabber', body: undefined },
+      { method: 'POST', path: '/api/jdownloader/linkgrabber/move', body: { packageIds: [11, 12], linkIds: [101] } },
+    ]);
   });
 
   it('ends the agent on request, but not an agent too old to end itself', async () => {

@@ -137,6 +137,26 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
   demselben Rechner). Dann in Manelly unter **Einstellungen → JDownloader** «JDownloader einbinden» wählen; die Adresse
   ist meist `http://127.0.0.1:3128`
 
+### Troubleshooting (Aufzeichnung, mit Agent)
+
+Was lief auf dem Server, als es ruckelte? Unter **Troubleshooting** zeichnet der Agent auf Wunsch rund um die Uhr auf und
+Manelly zeigt den Verlauf – das Dashboard bleibt dabei schlank wie bisher:
+
+- **Aufzeichnung starten** auf der Seite Troubleshooting; die Aufbewahrung ist wählbar (7 Tage bis 1 Jahr, ältere Tage
+  löscht der Agent selbst). Ein Tag braucht etwa 1 MB im Ordner `agent\data\history`
+- Alle 15 Sekunden: **CPU** und **GPU** (gesamt und die Anteile von Jellyfins FFmpeg und der Umwandlung), die gewählten
+  **Netzwerkschnittstellen** (Senden und Empfangen) und die Zahl der **Streams** und Transcodes
+- Jeder **Stream** mit Start, Ende und jedem Wechsel dazwischen: wer mit welchem Client und Gerät was abgespielt hat,
+  wie (Direct Play, Remux, Direct Stream, Transcode) und – bei einem Transcode – **warum**, mit Quelle und Ziel
+  (z. B. «HEVC 4K Dolby Vision · TrueHD 7.1 → H.264 1080p · AAC Stereo»)
+- Zeitraum von 1 Stunde bis 30 Tage, frei verschiebbar; ein Fadenkreuz zeigt in allen Diagrammen die Werte zur selben
+  Zeit. Streams erscheinen als Balken über den Diagrammen und als gestrichelte Linien darin; ein Klick markiert die Zeit
+  des Streams überall, «Ausschnitt zeigen» zoomt darauf
+- Lief der Agent nicht (Neustart, ausgeschaltet), bleibt eine **Lücke**. Ein Stream, der in dieser Zeit endete, endet in
+  der Aufzeichnung, als der Agent ihn zuletzt sah
+- Solange nur aufgezeichnet wird und niemand zuschaut, misst der Agent CPU und GPU alle 10 statt alle 3 Sekunden – die
+  Messung kostet unter Windows selbst etwas Leistung
+
 ### Allgemein
 
 - Hell- und Dunkelmodus (folgt dem System, umschaltbar)
@@ -144,7 +164,7 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
 - Jellyfin-Verbindung (Adresse und API-Schlüssel) direkt in der Oberfläche einrichten – Manelly testet sie vor dem Speichern
 - Verständliche Fehlerhinweise, wenn Jellyfin nicht erreichbar ist oder der API-Schlüssel nicht stimmt
 
-Geplant: weiteres Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und Troubleshooting (Logs, Wiedergabe-Analyse).
+Geplant: weiteres Server-Management (Bibliotheken, geplante Aufgaben, Benutzer) und mehr Troubleshooting (Logs).
 
 ## Schnellstart auf dem Mac
 
@@ -186,7 +206,9 @@ Update: `git pull`, dann das Skript erneut starten. Die Einstellungen liegen in 
 
 ## Agent auf dem Jellyfin-Server (Windows)
 
-Nur nötig für die [Umwandlungen](#umwandlungen-mit-agent). Auf dem Windows-PC, auf dem Jellyfin läuft:
+Nötig für die [Umwandlungen](#umwandlungen-mit-agent), die [Aufzeichnung](#troubleshooting-aufzeichnung-mit-agent),
+die Auslastung von CPU, GPU und Netzwerk und für [JDownloader](#downloads-jdownloader-mit-agent). Auf dem Windows-PC, auf
+dem Jellyfin läuft:
 
 1. Manelly herunterladen (`git clone https://github.com/vb-roughus/Manelly.git`) und im Manelly-Ordner eine
    PowerShell **als Administrator** öffnen, dann den Agent mit Autostart einrichten:
@@ -221,6 +243,8 @@ Nur nötig für die [Umwandlungen](#umwandlungen-mit-agent). Auf dem Windows-PC,
 - Netzwerk: Unter **Einstellungen → Netzwerk des Jellyfin-Servers** die Schnittstellen wählen, die das Dashboard zeigen
   soll. Auf Windows liest der Agent dafür die Zähler von Windows über PowerShell (ein Prozess, solange gemessen wird), auf
   Linux aus `/sys/class/net`.
+- Aufzeichnung: `agent\data\history`, eine Datei pro Tag und Art (Messwerte, Streams). Löschen geht auch auf der Seite
+  Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
 - Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen (als Administrator). Eine laufende
@@ -329,5 +353,7 @@ Proxy mit Authentifizierung und mache es nicht direkt im Internet erreichbar.
 Der Agent verlangt bei jeder Anfrage seinen Schlüssel, spricht aber unverschlüsseltes HTTP – gib seinen Port nur im
 Heimnetz frei. Er liest und schreibt nur die Dateien und Ordner, die Manelly ihm nennt (auf Wunsch zusätzlich beschränkt
 mit `roots`), legt nur eigene Unterordner an und löscht keine Originale. Den Jellyfin-API-Schlüssel, den Manelly ihm für
-den Zeitplan gibt, nutzt er nur für die Liste der laufenden Streams und um neue Dateien zu melden. Die «Deprecated API»
+den Zeitplan gibt, nutzt er nur für die Liste der laufenden Streams und um neue Dateien zu melden. Die Aufzeichnung
+enthält, wer wann was geschaut hat, samt IP-Adresse des Clients – sie bleibt auf dem Jellyfin-Server, und jeder, der
+Manelly öffnen kann, sieht sie. Die «Deprecated API»
 von JDownloader hat keinen Schlüssel – lass sie auf «nur localhost», dann erreicht sie nur der Agent auf demselben Rechner.

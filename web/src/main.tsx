@@ -8,6 +8,7 @@ import { MediaPage } from './pages/MediaPage';
 import { ConversionsPage } from './pages/ConversionsPage';
 import { ServerPage } from './pages/ServerPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { TroubleshootingPage } from './pages/TroubleshootingPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -30,6 +31,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/media" element={<MediaPage />} />
             <Route path="/conversions" element={<ConversionsPage />} />
             <Route path="/server" element={<ServerPage />} />
+            <Route path="/troubleshooting" element={<TroubleshootingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -14,13 +14,14 @@ import type {
 } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import { AgentError } from './errors.js';
+import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import type { JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
 import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
-import { parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
+import { parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -34,6 +35,7 @@ export interface AgentServerOptions {
   network: NetworkMonitor;
   resources: ResourceMonitor;
   jdownloader: JDownloader;
+  recorder: Recorder;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -73,7 +75,7 @@ function send(response: ServerResponse, status: number, body: unknown) {
 /** The agent's HTTP API. Everything but the health check needs the token from agent.json. */
 const JDOWNLOADER_ACTIONS: JDownloaderAction[] = ['start', 'stop', 'pause', 'resume'];
 
-export function createAgentServer({ token, roots, queue, settings, network, resources, jdownloader, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+export function createAgentServer({ token, roots, queue, settings, network, resources, jdownloader, recorder, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
   async function networkList(): Promise<AgentNetworkList> {
     const interfaces = await network.list().catch((error: Error) => {
       throw new AgentError(503, error.message);
@@ -122,6 +124,7 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
         jdownloader: { enabled: settings.get().jdownloader.enabled },
+        history: { enabled: settings.get().history.enabled },
       };
       return send(response, 200, status);
     }
@@ -176,6 +179,22 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
       if (typeof enabled !== 'boolean' || !Number.isInteger(kbps) || kbps! < 1 || kbps! > 10_000_000) throw new AgentError(400, 'Ungültiges Tempo-Limit.');
       await jdownloaderCall(() => jdownloader.setLimit(enabled, kbps! * 1024));
       return send(response, 200, await jdownloader.status());
+    }
+    if (route === 'GET /api/history') {
+      const to = Number(url.searchParams.get('to') ?? Date.now());
+      const from = Number(url.searchParams.get('from') ?? to - 6 * 3_600_000);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to || to - from > MAX_RANGE_MS) throw new AgentError(400, 'Ungültiger Zeitraum.');
+      return send(response, 200, await recorder.query(from, to));
+    }
+    if (route === 'PUT /api/history/settings') {
+      await settings.setHistory(parseHistorySettings(await readJson(request)));
+      // Starts, stops or prunes right away.
+      await recorder.tick();
+      return send(response, 200, settings.get().history);
+    }
+    if (route === 'DELETE /api/history') {
+      await recorder.clear();
+      return send(response, 204, undefined);
     }
     if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
     if (route === 'PUT /api/network/interfaces') {

@@ -24,8 +24,6 @@ interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  /** Not built yet; shown so the planned scope is visible. */
-  soon?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -33,7 +31,7 @@ const NAV: NavItem[] = [
   { to: '/media', label: 'Medien', icon: Library },
   { to: '/conversions', label: 'Umwandlungen', icon: WandSparkles },
   { to: '/server', label: 'Server', icon: Server },
-  { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope, soon: true },
+  { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope },
 ];
 
 const SETTINGS: NavItem = { to: '/settings', label: 'Einstellungen', icon: Settings };
@@ -133,22 +131,6 @@ function NavEntry({ item, compact }: { item: NavItem; compact: boolean }) {
   );
   // In the rail the label stays readable for screen readers and shows as a tooltip.
   const label = <span className={clsx(compact && 'lg:sr-only')}>{item.label}</span>;
-  if (item.soon) {
-    return (
-      <span aria-disabled title={compact ? `${item.label} – bald verfügbar` : undefined} className={clsx(base, 'cursor-not-allowed text-ink-3')}>
-        <Icon className="size-4 shrink-0" aria-hidden />
-        {label}
-        <span
-          className={clsx(
-            'ml-auto hidden rounded-full bg-card-2 px-1.5 py-0.5 text-[0.625rem] font-medium tracking-wide uppercase ring-1 ring-line',
-            !compact && 'lg:inline',
-          )}
-        >
-          Bald
-        </span>
-      </span>
-    );
-  }
   return (
     <NavLink
       to={item.to}

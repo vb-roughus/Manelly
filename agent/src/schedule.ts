@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, JDownloaderSettings } from '@manelly/shared';
+import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, HistorySettings, JDownloaderSettings } from '@manelly/shared';
 import { AgentError } from './errors.js';
 import { createJellyfinApi } from './jellyfin.js';
 
@@ -27,6 +27,7 @@ export interface AgentSettings {
   network: NetworkSelection[];
   jdownloader: JDownloaderSettings;
   jdownloaderHold: JDownloaderHold | null;
+  history: HistorySettings;
 }
 
 const SETTINGS_FILE = 'settings.json';
@@ -67,12 +68,21 @@ export function parseJDownloaderSettings(input: unknown): JDownloaderSettings {
   return { enabled, url: url.replace(/\/+$/, ''), throttle: { mode, limitKBps } };
 }
 
+export const DEFAULT_HISTORY: HistorySettings = { enabled: false, retentionDays: 30 };
+
+export function parseHistorySettings(input: unknown): HistorySettings {
+  const { enabled, retentionDays } = (input ?? {}) as Partial<HistorySettings>;
+  if (typeof enabled !== 'boolean') throw new AgentError(400, 'Unvollständige Einstellungen der Aufzeichnung.');
+  if (!Number.isInteger(retentionDays) || retentionDays! < 1 || retentionDays! > 3650) throw new AgentError(400, 'Die Aufbewahrung muss zwischen 1 und 3650 Tagen liegen.');
+  return { enabled, retentionDays: retentionDays! };
+}
+
 const isSelection = (value: unknown): value is NetworkSelection =>
   typeof (value as NetworkSelection)?.id === 'string' && typeof (value as NetworkSelection).name === 'string';
 
 export async function createSettingsStore(dataDir: string) {
   const file = join(dataDir, SETTINGS_FILE);
-  let current: AgentSettings = { schedule: DEFAULT_SCHEDULE, jellyfin: null, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null };
+  let current: AgentSettings = { schedule: DEFAULT_SCHEDULE, jellyfin: null, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null, history: DEFAULT_HISTORY };
   try {
     const stored = JSON.parse(await readFile(file, 'utf8')) as Partial<AgentSettings>;
     current = {
@@ -81,6 +91,7 @@ export async function createSettingsStore(dataDir: string) {
       network: Array.isArray(stored.network) ? stored.network.filter(isSelection) : [],
       jdownloader: stored.jdownloader ? parseJDownloaderSettings(stored.jdownloader) : DEFAULT_JDOWNLOADER,
       jdownloaderHold: stored.jdownloaderHold && (stored.jdownloaderHold.mode === 'limit' || stored.jdownloaderHold.mode === 'pause') ? stored.jdownloaderHold : null,
+      history: stored.history ? parseHistorySettings(stored.history) : DEFAULT_HISTORY,
     };
   } catch {
     // Missing or damaged: Manelly sends both again.
@@ -101,6 +112,7 @@ export async function createSettingsStore(dataDir: string) {
     setNetwork: (network: NetworkSelection[]) => save({ ...current, network }),
     setJDownloader: (jdownloader: JDownloaderSettings) => save({ ...current, jdownloader }),
     setJDownloaderHold: (jdownloaderHold: JDownloaderHold | null) => save({ ...current, jdownloaderHold }),
+    setHistory: (history: HistorySettings) => save({ ...current, history }),
   };
 }
 

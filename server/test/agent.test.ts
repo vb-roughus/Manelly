@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, HistoryResponse, HistorySettings, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -32,8 +32,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
     schedules: ConversionSchedule[];
     started: string[];
     jdownloader: Array<{ method: string; path: string; body: unknown }>;
+    history: Array<{ method: string; path: string; body: unknown }>;
   } = {
     jdownloader: [],
+    history: [],
     jobs: [],
     mediaUpdates: [],
     jellyfin: [],
@@ -70,6 +72,14 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname.startsWith('/api/jdownloader')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         return Response.json({ settings: body ?? { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } }, reachable: true, error: null, state: 'RUNNING', speedBps: 0, limit: null, packages: [], throttling: { active: false, reason: null } });
+      }
+      if (url.pathname.startsWith('/api/history')) {
+        sent.history.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
+        if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+        if (init?.method === 'PUT') return Response.json(body);
+        const from = Number(url.searchParams.get('from'));
+        const to = Number(url.searchParams.get('to'));
+        return Response.json({ settings: { enabled: true, retentionDays: 30 }, from, to, step: 15_000, points: [], streams: [], interfaces: [], oldest: null, bytes: 0, error: null });
       }
       if (url.pathname === '/api/resources') {
         return Response.json({ cpu: { total: 60, jellyfin: 40, conversion: 0, model: 'Intel', cores: 6 }, gpus: [], gpuNote: null, processes: [], history: [], intervalMs: 3000, error: null });
@@ -282,5 +292,22 @@ describe('agent connection', () => {
       { method: 'PUT', path: '/api/jdownloader/limit', body: { enabled: true, kbps: 512 } },
     ]);
     expect((await app.inject('/api/agent/jdownloader')).json<JDownloaderStatus>().state).toBe('RUNNING');
+  });
+
+  it('passes the recording settings and queries to the agent, and hands over Jellyfin to record streams', async () => {
+    const { app, world } = await setup();
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/history/settings', payload: { enabled: true, retentionDays: 0 } })).statusCode).toBe(400);
+    expect((await app.inject('/api/agent/history?from=abc&to=5')).statusCode).toBe(400);
+
+    const saved = await app.inject({ method: 'PUT', url: '/api/agent/history/settings', payload: { enabled: true, retentionDays: 30 } });
+    expect(saved.json<HistorySettings>()).toEqual({ enabled: true, retentionDays: 30 });
+    expect(world.sent.jellyfin).toHaveLength(1);
+    expect((await app.inject('/api/agent/history?from=1000&to=61000')).json<HistoryResponse>()).toMatchObject({ from: 1000, to: 61000, step: 15_000 });
+    expect((await app.inject({ method: 'DELETE', url: '/api/agent/history' })).statusCode).toBe(204);
+    expect(world.sent.history).toEqual([
+      { method: 'PUT', path: '/api/history/settings', body: { enabled: true, retentionDays: 30 } },
+      { method: 'GET', path: '/api/history?from=1000&to=61000', body: undefined },
+      { method: 'DELETE', path: '/api/history', body: undefined },
+    ]);
   });
 });

@@ -874,6 +874,108 @@ export interface JDownloaderStatus {
 
 export type JDownloaderAction = 'start' | 'stop' | 'pause' | 'resume';
 
+// --- Agent: recorded history ------------------------------------------------------------
+// While recording is on, the agent keeps the server's load and every stream on disk, one file
+// per day, so the Troubleshooting page can look back. Times the agent was off are gaps.
+
+export interface HistorySettings {
+  enabled: boolean;
+  /** Older days are deleted. */
+  retentionDays: number;
+}
+
+/** The source of a stream, or what Jellyfin turns it into. */
+export interface RecordedMedia {
+  container: string | null;
+  videoCodec: string | null;
+  /** Lines, e.g. 2160. */
+  height: number | null;
+  /** Jellyfin's VideoRangeType, e.g. DOVI, HDR10, SDR; source only. */
+  videoRange: string | null;
+  audioCodec: string | null;
+  audioChannels: number | null;
+}
+
+export type StreamEventType = 'start' | 'change' | 'stop';
+
+/** A stream started, changed how it plays (e.g. from direct play to a transcode), or stopped. */
+export interface StreamEvent {
+  t: number;
+  type: StreamEventType;
+  /** Session and item; the same for the start, the changes and the stop of one stream. */
+  stream: string;
+  user: string;
+  client: string;
+  device: string;
+  remoteAddress: string | null;
+  /** E.g. "Family Guy · S01E02 · Death Has a Shadow" or "Dune (2021)". */
+  title: string;
+  itemType: string | null;
+  method: PlayMethod;
+  source: RecordedMedia;
+  /** What Jellyfin sends instead; null when it plays the file as it is. */
+  transcoding: (RecordedMedia & { videoDirect: boolean; audioDirect: boolean; hardware: string | null }) | null;
+  /** Jellyfin's TranscodeReasons, e.g. VideoCodecNotSupported. */
+  reasons: string[];
+  /** Bits per second, estimated like on the dashboard. */
+  bitrate: number | null;
+}
+
+/** One stream from start to end, with every change in between. */
+export interface StreamSpan {
+  id: string;
+  start: number;
+  /** null while it plays, or when the agent was off when it ended. */
+  end: number | null;
+  /** Still playing, as far as the agent knows. */
+  ongoing: boolean;
+  /** How it played at the start, then after every change. */
+  phases: StreamEvent[];
+}
+
+/** Averages over one step of the history; a step without records is left out. */
+export interface HistoryPoint {
+  t: number;
+  /** Percent of the whole CPU; null when nothing was measured. */
+  cpu: number | null;
+  /** The highest single record within the step. */
+  cpuMax: number | null;
+  cpuJellyfin: number | null;
+  cpuConversion: number | null;
+  /** Busiest GPU engine. */
+  gpu: number | null;
+  gpuMax: number | null;
+  gpuJellyfin: number | null;
+  gpuConversion: number | null;
+  /** Most streams at once within the step; null when Jellyfin could not be asked. */
+  streams: number | null;
+  transcodes: number | null;
+  /** Estimated bitrate of all streams together, bits per second. */
+  bitrate: number | null;
+  /** Per interface id, bits per second. */
+  network: Record<string, { rx: number; tx: number }>;
+}
+
+/** GET /api/history on the agent. */
+export interface HistoryResponse {
+  settings: HistorySettings;
+  from: number;
+  to: number;
+  /** Length of one point. */
+  step: number;
+  points: HistoryPoint[];
+  /** Streams that ran at some time within the range. */
+  streams: StreamSpan[];
+  /** The interfaces in the points, with the names they had when picked. */
+  interfaces: Array<{ id: string; name: string }>;
+  /** Start of the oldest recorded day; null without records. */
+  oldest: number | null;
+  /** Disk space of all records. */
+  bytes: number;
+  /** Why streams cannot be recorded right now; null when they can. */
+  error: string | null;
+}
+
 export interface AgentTool {
   path: string | null;
   version: string | null;
@@ -897,6 +999,8 @@ export interface AgentStatus {
   resources?: { supported: boolean };
   /** Missing on agents before 0.5.0. */
   jdownloader?: { enabled: boolean };
+  /** Whether the agent records the history; missing on agents before 0.6.0. */
+  history?: { enabled: boolean };
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */

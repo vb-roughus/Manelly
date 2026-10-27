@@ -143,7 +143,8 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
   steht es rot mit dem Grund von JDownloader da. Erfolgreich entpackte Pakete zählen zu den fertigen («entpackt»)
 - Seite **Server → JDownloader** mit zwei Reitern:
   - **Downloads:** alle Pakete; ein Klick auf ein Paket klappt seine **einzelnen Dateien (Parts)** auf, jede mit
-    Fortschritt, Tempo, Restzeit, Status und ob sie entpackt ist. Die fertigen Pakete klappen ebenfalls auf.
+    Fortschritt, Tempo, Restzeit, Status und ob sie entpackt ist; «Fertige ausblenden» zeigt nur die Dateien, die noch
+    nicht fertig sind (die Wahl gilt auch für die nächsten Pakete). Die fertigen Pakete klappen ebenfalls auf.
     **Starten, Stoppen, Pausieren, Fortsetzen** und das **Tempo-Limit** von JDownloader
     überschreiben (gilt sofort, auch während des Bremsens beim Streamen)
   - **Link Grabber:** was JDownloader gesammelt hat, nach Paketen, mit dem Status jedes Links (online, offline,

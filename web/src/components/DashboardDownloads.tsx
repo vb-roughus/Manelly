@@ -285,15 +285,35 @@ function PackageRow({ pkg, expandable = false }: { pkg: JDownloaderPackage; expa
         {extraction?.state === 'failed' && extraction.message && <p className="text-xs text-critical">{extraction.message}</p>}
         <Bar label={pkg.name} extraction={extraction} share={share} running={pkg.running} finished={pkg.finished} />
       </div>
-      {open && parts && (
-        <ul id={`parts-${pkg.uuid}`} className="mt-2 ml-5.5 divide-y divide-line rounded-xl border border-line">
-          {parts.length === 0 && <li className="px-3 py-2 text-xs text-ink-3">JDownloader hat für dieses Paket keine Dateien gemeldet.</li>}
-          {parts.map((link) => (
-            <PartRow key={link.uuid} link={link} />
-          ))}
-        </ul>
-      )}
+      {open && parts && <PartList id={`parts-${pkg.uuid}`} parts={parts} />}
     </li>
+  );
+}
+
+/** The parts of an opened package; finished ones can be hidden, and the next opened package remembers that. */
+function PartList({ id, parts }: { id: string; parts: JDownloaderLink[] }) {
+  const [hideFinished, setHideFinished] = usePersistentFlag('manelly.jdownloader.hideFinishedParts', false);
+  const finished = parts.filter((link) => link.finished).length;
+  const shown = hideFinished ? parts.filter((link) => !link.finished) : parts;
+  return (
+    <div id={id} className="mt-2 ml-5.5 rounded-xl border border-line">
+      {parts.length > 0 && (
+        <label className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-xs text-ink-2">
+          <input type="checkbox" checked={hideFinished} onChange={(event) => setHideFinished(event.target.checked)} className="size-3.5 accent-accent" />
+          Fertige ausblenden
+          <span className="text-ink-3 tabular-nums">
+            · {finished} von {parts.length} fertig
+          </span>
+        </label>
+      )}
+      <ul className="divide-y divide-line">
+        {parts.length === 0 && <li className="px-3 py-2 text-xs text-ink-3">JDownloader hat für dieses Paket keine Dateien gemeldet.</li>}
+        {parts.length > 0 && shown.length === 0 && <li className="px-3 py-2 text-xs text-ink-3">Alle Dateien sind fertig.</li>}
+        {shown.map((link) => (
+          <PartRow key={link.uuid} link={link} />
+        ))}
+      </ul>
+    </div>
   );
 }
 

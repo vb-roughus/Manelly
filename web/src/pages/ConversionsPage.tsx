@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { ConversionJob } from '@manelly/shared';
-import { Ban, Clock, Play, RotateCcw, Trash2, TriangleAlert } from 'lucide-react';
+import { Ban, Clock, Pause, Play, RotateCcw, Trash2, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
-import { ConversionProgress, isActive, MODE_LABELS, StateBadge } from '../components/ConversionStatus';
+import { ConversionProgress, isActive, MODE_LABELS, StateBadge, STEP_LABELS } from '../components/ConversionStatus';
 import { ResourceUsage } from '../components/ResourceUsage';
 import { SchedulePanel } from '../components/SchedulePanel';
-import { useAgent, useAgentResources, useCancelConversion, useConversions, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
+import { useAgent, useAgentResources, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
 import { formatAgo } from '../lib/format';
 
 export function ConversionsPage() {
@@ -86,7 +86,10 @@ function JobCard({ job }: { job: ConversionJob }) {
   const cancel = useCancelConversion();
   const remove = useRemoveConversion();
   const startNow = useStartConversionNow();
+  const pause = usePauseConversion();
   const active = isActive(job);
+  // Agents before 0.12.0 cannot pause; their jobs lack the field.
+  const pausable = active && job.paused !== undefined;
 
   return (
     <article className="rounded-2xl border border-line bg-card p-4 shadow-sm shadow-black/5">
@@ -104,6 +107,18 @@ function JobCard({ job }: { job: ConversionJob }) {
               <Play className="size-3.5" aria-hidden /> Jetzt starten
             </button>
           )}
+          {pausable &&
+            (job.paused ? (
+              <button type="button" onClick={() => pause.mutate({ id: job.id, pause: false })} disabled={pause.isPending} className={smallButton}>
+                <Play className="size-3.5" aria-hidden /> Fortsetzen
+              </button>
+            ) : (
+              job.state === 'running' && (
+                <button type="button" onClick={() => pause.mutate({ id: job.id, pause: true })} disabled={pause.isPending} className={smallButton}>
+                  <Pause className="size-3.5" aria-hidden /> Pausieren
+                </button>
+              )
+            ))}
           {active ? (
             <button type="button" onClick={() => cancel.mutate(job.id)} disabled={cancel.isPending} className={smallButton}>
               <Ban className="size-3.5" aria-hidden /> Abbrechen
@@ -121,6 +136,13 @@ function JobCard({ job }: { job: ConversionJob }) {
           <ConversionProgress job={job} />
         </div>
       )}
+      {job.state === 'running' && job.paused && (
+        <p className="mt-2 flex gap-2 text-sm text-ink-2">
+          <Pause className="mt-0.5 size-4 shrink-0" aria-hidden />
+          Pausiert – {job.step ? `«${STEP_LABELS[job.step]}»` : 'die Umwandlung'} ist angehalten und macht beim Fortsetzen genau dort weiter. Andere Umwandlungen
+          warten so lange.
+        </p>
+      )}
       {job.state === 'running' && <ServerLoad />}
       {job.state === 'queued' && (
         <p className="mt-3 flex gap-2 text-sm text-ink-2">
@@ -135,6 +157,7 @@ function JobCard({ job }: { job: ConversionJob }) {
         </p>
       )}
       {startNow.isError && <p className="mt-2 text-sm text-critical">{startNow.error.message}</p>}
+      {pause.isError && <p className="mt-2 text-sm text-critical">{pause.error.message}</p>}
 
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
         <dt className="text-ink-3">Quelle</dt>

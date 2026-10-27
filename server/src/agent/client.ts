@@ -38,6 +38,9 @@ export interface AgentClient {
   cancelJob(id: string): Promise<ConversionJob>;
   /** Starts a scheduled conversion without waiting for the schedule. */
   startJob(id: string): Promise<ConversionJob>;
+  /** From agent 0.12.0: holds the running tool, or keeps a queued job waiting. */
+  pauseJob(id: string): Promise<ConversionJob>;
+  resumeJob(id: string): Promise<ConversionJob>;
   removeJob(id: string): Promise<void>;
   testHardware(request: HardwareTestRequest): Promise<HardwareTestResult>;
   setSchedule(schedule: ConversionSchedule): Promise<AgentScheduleStatus>;
@@ -109,6 +112,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     createJob: (request) => call('POST', '/api/jobs', request),
     cancelJob: (id) => call('POST', `/api/jobs/${encodeURIComponent(id)}/cancel`),
     startJob: (id) => call('POST', `/api/jobs/${encodeURIComponent(id)}/start`),
+    pauseJob: (id) => call('POST', `/api/jobs/${encodeURIComponent(id)}/pause`),
+    resumeJob: (id) => call('POST', `/api/jobs/${encodeURIComponent(id)}/resume`),
     removeJob: (id) => call('DELETE', `/api/jobs/${encodeURIComponent(id)}`),
     // Several short FFmpeg runs; each may take up to a minute on a struggling machine.
     testHardware: (request) => call('POST', '/api/hwtest', request, 5 * 60_000),

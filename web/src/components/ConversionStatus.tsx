@@ -1,5 +1,5 @@
 import type { ConversionJob, ConversionStep } from '@manelly/shared';
-import { Ban, CalendarClock, CircleCheck, CircleX, Clock, LoaderCircle } from 'lucide-react';
+import { Ban, CalendarClock, CircleCheck, CircleX, Clock, LoaderCircle, Pause } from 'lucide-react';
 import clsx from 'clsx';
 
 export const STEP_LABELS: Record<ConversionStep, string> = {
@@ -26,13 +26,14 @@ const STATES = {
   canceled: { icon: Ban, label: 'Abgebrochen', className: 'text-ink-2' },
 } as const;
 const SCHEDULED = { icon: CalendarClock, label: 'Geplant', className: 'text-ink-2' } as const;
+const PAUSED = { icon: Pause, label: 'Pausiert', className: 'text-ink-2' } as const;
 
 export function StateBadge({ job }: { job: ConversionJob }) {
-  const meta = job.state === 'queued' && job.scheduled ? SCHEDULED : STATES[job.state];
+  const meta = isActive(job) && job.paused ? PAUSED : job.state === 'queued' && job.scheduled ? SCHEDULED : STATES[job.state];
   const Icon = meta.icon;
   return (
     <span className={clsx('inline-flex shrink-0 items-center gap-1 text-xs font-medium', meta.className)}>
-      <Icon className={clsx('size-3.5', job.state === 'running' && 'animate-spin')} aria-hidden />
+      <Icon className={clsx('size-3.5', job.state === 'running' && !job.paused && 'animate-spin')} aria-hidden />
       {meta.label}
     </span>
   );
@@ -44,12 +45,20 @@ export function ConversionProgress({ job }: { job: ConversionJob }) {
   return (
     <div>
       <div className="flex justify-between gap-2 text-xs text-ink-2">
-        <span className="truncate">{job.step ? STEP_LABELS[job.step] : 'Startet …'}</span>
+        <span className="truncate">
+          {job.step ? STEP_LABELS[job.step] : 'Startet …'}
+          {job.paused && ' · pausiert'}
+        </span>
         {percent !== null && <span className="tabular-nums">{percent} %</span>}
       </div>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-card-2" role="progressbar" aria-label="Fortschritt" aria-valuenow={percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
         <div
-          className={clsx('bg-brand h-full rounded-full transition-[width] duration-700', percent === null && 'w-1/3 animate-pulse')}
+          className={clsx(
+            'h-full rounded-full transition-[width] duration-700',
+            job.paused ? 'bg-ink-3/45' : 'bg-brand',
+            percent === null && 'w-1/3',
+            percent === null && !job.paused && 'animate-pulse',
+          )}
           style={percent !== null ? { width: `${percent}%` } : undefined}
         />
       </div>

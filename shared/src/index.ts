@@ -662,6 +662,11 @@ export interface ConversionJob {
   interruptions?: number;
   /** The agent told Jellyfin about the new file itself. */
   jellyfinNotified?: boolean;
+  /**
+   * Paused by hand: while running, its tool is held where it is; while queued, it waits to be continued.
+   * Missing before agent 0.12.0, which cannot pause.
+   */
+  paused?: boolean;
 }
 
 /** "HH:MM" in the time zone of the agent (the Jellyfin server); may span midnight. */

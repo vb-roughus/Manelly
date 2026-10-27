@@ -120,6 +120,11 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         sent.started.push(start[1]!);
         return Response.json({ ...jobs.find((job) => job.id === start[1]), scheduled: false });
       }
+      const pause = url.pathname.match(/^\/api\/jobs\/(\w+)\/(pause|resume)$/);
+      if (pause && init?.method === 'POST') {
+        sent.started.push(`${pause[2]} ${pause[1]}`);
+        return Response.json({ ...jobs.find((job) => job.id === pause[1]), paused: pause[2] === 'pause' });
+      }
       if (url.pathname === '/api/check') {
         return Response.json({ sourceBytes: 40_000_000_000, directories: body.directories.map((path: string) => ({ path, freeBytes: 500_000_000_000 })) });
       }
@@ -275,6 +280,14 @@ describe('agent connection', () => {
     const started = await app.inject({ method: 'POST', url: '/api/agent/jobs/job1/start' });
     expect(started.json<ConversionJob>()).toMatchObject({ id: 'job1', scheduled: false });
     expect(world.sent.started).toEqual(['job1']);
+  });
+
+  it('pauses and continues a conversion on the agent', async () => {
+    const { app, world } = await setup();
+    await app.inject({ method: 'POST', url: '/api/agent/jobs', payload: { itemId: 'movie', output: { mode: 'alongside' } } });
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jobs/job1/pause' })).json<ConversionJob>()).toMatchObject({ id: 'job1', paused: true });
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jobs/job1/resume' })).json<ConversionJob>()).toMatchObject({ id: 'job1', paused: false });
+    expect(world.sent.started).toEqual(['pause job1', 'resume job1']);
   });
 
   it('leaves telling Jellyfin to agents that did it themselves', async () => {

@@ -35,7 +35,9 @@ const FAKES: Record<string, string> = {
     const args = process.argv.slice(2);
     if (process.env.FAKE_DOVI_FAIL) { console.error('Error: no RPU found'); process.exit(1); }
     const done = () => fs.copyFileSync(args[args.indexOf('--discard') + 1], args[args.indexOf('-o') + 1]);
-    setTimeout(done, Number(process.env.FAKE_DOVI_SLEEP || 0));`,
+    // Signs of life while it works; a held process leaves none.
+    if (process.env.FAKE_DOVI_TICKS) setInterval(() => fs.appendFileSync(process.env.FAKE_DOVI_TICKS, 'x'), 20);
+    setTimeout(() => { done(); process.exit(0); }, Number(process.env.FAKE_DOVI_SLEEP || 0));`,
   mkvmerge: `
     const args = process.argv.slice(2);
     fs.writeFileSync(process.env.FAKE_LOG, JSON.stringify(args));
@@ -180,6 +182,7 @@ beforeEach(async () => {
   process.env.FAKE_CALLS = path.join(root, 'calls.txt');
   delete process.env.FAKE_DOVI_FAIL;
   delete process.env.FAKE_DOVI_SLEEP;
+  delete process.env.FAKE_DOVI_TICKS;
   delete process.env.FAKE_NO_DV;
   await start();
 });
@@ -344,6 +347,85 @@ describe('schedule', () => {
     expect((await put('/api/jellyfin', { url: 'ftp://x', apiKey: 'key' })).status).toBe(400);
     const saved = (await (await put('/api/schedule', { window: null, idleOnly: false })).json()) as AgentScheduleStatus;
     expect(saved).toMatchObject({ window: null, idleOnly: false, jellyfinUrl: 'http://jellyfin:8096' });
+  });
+});
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe('pause', () => {
+  it.skipIf(process.platform === 'win32')('holds the running tool and lets it go on right there', async () => {
+    process.env.FAKE_DOVI_SLEEP = '1000';
+    process.env.FAKE_DOVI_TICKS = path.join(root, 'ticks');
+    const ticks = async () => (await readFile(process.env.FAKE_DOVI_TICKS!, 'utf8').catch(() => '')).length;
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' } })).json()) as ConversionJob;
+    await waitFor(created.id, (job) => job.step === 'convert');
+    await sleep(100);
+
+    expect(await (await post(`/api/jobs/${created.id}/pause`)).json()).toMatchObject({ state: 'running', paused: true });
+    await sleep(100);
+    const held = await ticks();
+    // Longer than dovi_tool needs: held, it neither works nor ends.
+    await sleep(1500);
+    expect(await ticks()).toBe(held);
+    expect(await (await call(`/api/jobs/${created.id}`)).json()).toMatchObject({ state: 'running', step: 'convert', paused: true });
+
+    expect(await (await post(`/api/jobs/${created.id}/resume`)).json()).toMatchObject({ paused: false });
+    expect(await waitFor(created.id, finished)).toMatchObject({ state: 'done', interruptions: 0 });
+    // Not started again: the same dovi_tool went on.
+    expect((await toolCalls()).filter((tool) => tool === 'dovi_tool')).toHaveLength(1);
+  });
+
+  it('stays paused across a restart, then goes on after the last finished step', async () => {
+    process.env.FAKE_DOVI_SLEEP = '5000';
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' } })).json()) as ConversionJob;
+    await waitFor(created.id, (job) => job.step === 'convert');
+    await post(`/api/jobs/${created.id}/pause`);
+    await close();
+
+    delete process.env.FAKE_DOVI_SLEEP;
+    const restarted = await createJobQueue({ dataDir: path.join(root, 'data'), roots: [], tools: async () => tools, tickMs: 0 });
+    try {
+      await sleep(200);
+      expect(restarted.get(created.id)).toMatchObject({ state: 'queued', paused: true, interruptions: 1, waitReason: 'Pausiert – geht nach «Fortsetzen» beim zuletzt fertigen Schritt weiter.' });
+      await restarted.resume(created.id);
+      for (let attempt = 0; attempt < 200 && restarted.get(created.id).state !== 'done'; attempt++) await sleep(25);
+      expect(restarted.get(created.id)).toMatchObject({ state: 'done', paused: false });
+      // The video was extracted only once.
+      expect((await toolCalls()).filter((tool) => tool === 'ffmpeg')).toHaveLength(1);
+    } finally {
+      await restarted.stop();
+    }
+  });
+
+  it('stops after the last finished step where a tool cannot be held', async () => {
+    process.env.FAKE_DOVI_SLEEP = '5000';
+    const dataDir = path.join(root, 'no-suspend');
+    const logged: string[] = [];
+    const strict = await createJobQueue({
+      dataDir,
+      roots: [],
+      tools: async () => tools,
+      tickMs: 0,
+      log: (line) => logged.push(line),
+      suspend: async () => {
+        throw new Error('nicht erlaubt');
+      },
+    });
+    try {
+      const { id } = await strict.add({ source, output: { mode: 'alongside' } });
+      for (let attempt = 0; attempt < 200 && strict.get(id).step !== 'convert'; attempt++) await sleep(25);
+      await strict.pause(id);
+      for (let attempt = 0; attempt < 200 && strict.get(id).state !== 'queued'; attempt++) await sleep(25);
+      expect(strict.get(id)).toMatchObject({ state: 'queued', paused: true, interruptions: 1 });
+      expect(logged.some((line) => line.startsWith('Anhalten ging nicht (nicht erlaubt)'))).toBe(true);
+
+      delete process.env.FAKE_DOVI_SLEEP;
+      await strict.resume(id);
+      for (let attempt = 0; attempt < 200 && strict.get(id).state !== 'done'; attempt++) await sleep(25);
+      expect(strict.get(id).state).toBe('done');
+    } finally {
+      await strict.stop();
+    }
   });
 });
 

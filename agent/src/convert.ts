@@ -15,6 +15,16 @@ export interface ConversionContext {
   onProgress: (step: ConversionStep, progress: number | null) => void;
   /** Injectable for tests: free bytes on the volume of `directory`. */
   freeBytes?: (directory: string) => Promise<number | null>;
+  /** Lets the job pause: it learns which tool runs, and holds the next one back while paused. */
+  control?: ToolControl;
+}
+
+/** How a paused job holds its tools: the running one is suspended, the next one waits. */
+export interface ToolControl {
+  /** Resolves once the job may go on: at once, or when it is continued or aborted. */
+  proceed(): Promise<void>;
+  started(pid: number): void;
+  ended(pid: number): void;
 }
 
 export interface ConversionResult {
@@ -60,6 +70,7 @@ interface ToolRun {
   label: string;
   args: string[];
   signal: AbortSignal;
+  control?: ToolControl;
   onLine?: (line: string) => void;
   /** mkvmerge exits with 1 for warnings, which still means success. */
   okCodes?: number[];
@@ -68,14 +79,20 @@ interface ToolRun {
 /** Process ids of the tools a conversion runs right now; the CPU/GPU view tells them from Jellyfin's FFmpeg. */
 export const conversionProcesses = new Set<number>();
 
-/** Runs a tool at low priority, so that Jellyfin keeps streaming smoothly meanwhile. */
-function runTool({ tool, label, args, signal, onLine, okCodes = [0] }: ToolRun): Promise<void> {
+/** Runs a tool at low priority, so that Jellyfin keeps streaming smoothly meanwhile; not while the job is paused. */
+async function runTool({ tool, label, args, signal, control, onLine, okCodes = [0] }: ToolRun): Promise<void> {
+  await control?.proceed();
+  if (signal.aborted) throw new AgentError(499, 'Abgebrochen.');
   return new Promise((resolve, reject) => {
     const child = spawn(tool, args, { windowsHide: true, signal, stdio: ['ignore', 'pipe', 'pipe'] });
     const pid = child.pid;
     if (pid) {
       conversionProcesses.add(pid);
-      child.once('exit', () => conversionProcesses.delete(pid));
+      control?.started(pid);
+      child.once('exit', () => {
+        conversionProcesses.delete(pid);
+        control?.ended(pid);
+      });
     }
     try {
       if (child.pid) setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
@@ -130,6 +147,7 @@ async function probe(ctx: ConversionContext): Promise<Probe> {
       label: 'ffprobe',
       args: ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate:stream_side_data=dv_profile:format=duration', '-of', 'json', ctx.request.source],
       signal: ctx.signal,
+      control: ctx.control,
       onLine: (line) => (json += line),
     });
   } catch (error) {
@@ -234,6 +252,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
         label: 'ffmpeg',
         args: ['-hide_banner', '-nostdin', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', request.source, '-map', '0:v:0', '-c:v', 'copy', '-bsf:v', 'hevc_mp4toannexb', '-f', 'hevc', video],
         signal,
+        control: ctx.control,
         onLine: (line) => {
           const match = line.match(/^out_time_us=(\d+)/);
           if (match && info.durationMs) ctx.onProgress('extract', Number(match[1]) / 1000 / info.durationMs);
@@ -253,7 +272,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
         );
       }, 1000);
       try {
-        await runTool({ tool: tools.doviTool.path, label: 'dovi_tool', args: ['-m', '2', 'convert', '--discard', video, '-o', converted], signal });
+        await runTool({ tool: tools.doviTool.path, label: 'dovi_tool', args: ['-m', '2', 'convert', '--discard', video, '-o', converted], signal, control: ctx.control });
       } finally {
         clearInterval(watch);
       }
@@ -277,6 +296,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
         request.source,
       ],
       signal,
+      control: ctx.control,
       okCodes: [0, 1],
       onLine: (line) => {
         const match = line.match(/^#GUI#progress (\d+)%/);

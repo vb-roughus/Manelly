@@ -254,10 +254,12 @@ export function createAgentServer(options: AgentServerOptions) {
     if (route === 'GET /api/jobs') return send(response, 200, queue.list());
     if (route === 'POST /api/jobs') return send(response, 201, await queue.add(await readJson<ConversionRequest>(request)));
 
-    const job = url.pathname.match(/^\/api\/jobs\/([\w-]+)(\/cancel|\/start)?$/);
+    const job = url.pathname.match(/^\/api\/jobs\/([\w-]+)(\/cancel|\/start|\/pause|\/resume)?$/);
     if (job && request.method === 'GET' && !job[2]) return send(response, 200, queue.get(job[1]!));
     if (job && request.method === 'POST' && job[2] === '/cancel') return send(response, 200, queue.cancel(job[1]!));
     if (job && request.method === 'POST' && job[2] === '/start') return send(response, 200, queue.startNow(job[1]!));
+    if (job && request.method === 'POST' && job[2] === '/pause') return send(response, 200, await queue.pause(job[1]!));
+    if (job && request.method === 'POST' && job[2] === '/resume') return send(response, 200, await queue.resume(job[1]!));
     if (job && request.method === 'DELETE' && !job[2]) {
       await queue.remove(job[1]!);
       return send(response, 204, undefined);

@@ -188,7 +188,8 @@ function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, numb
   }
 
   return (
-    <div role="tablist" aria-label="JDownloader" onKeyDown={onKeyDown} className="flex gap-1 overflow-x-auto border-b border-line">
+    // Scrolls sideways only where three tabs do not fit; the line below is drawn inside, so nothing sticks out to scroll.
+    <div role="tablist" aria-label="JDownloader" onKeyDown={onKeyDown} className="flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--line)]">
       {TABS.map(({ id, label, short, icon: Icon }) => (
         <button
           key={id}
@@ -203,7 +204,7 @@ function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, numb
           tabIndex={tab === id ? 0 : -1}
           onClick={() => onSelect(id)}
           className={clsx(
-            '-mb-px flex shrink-0 items-center gap-2 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap transition outline-none focus-visible:ring-2 focus-visible:ring-accent sm:px-3',
+            'flex shrink-0 items-center gap-2 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap transition outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset sm:px-3',
             tab === id ? 'border-accent text-ink' : 'border-transparent text-ink-2 hover:text-ink',
           )}
         >

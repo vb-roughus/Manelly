@@ -7,6 +7,7 @@ import type {
   AgentResourceStatus,
   AgentScheduleStatus,
   AgentSettingsView,
+  AgentStatus,
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
@@ -35,6 +36,9 @@ import type {
   SessionsResponse,
   TranscodingReport,
 } from '@manelly/shared';
+import { useEffect, useRef } from 'react';
+import { agentRestart, useAgentRestart } from './useAgentRestart';
+import { isAgentQuery, restartDeadline, restartProgress } from '../lib/agentRestart';
 import { fetchJson, sendJson } from '../lib/api';
 import { toSearchParams, type MediaFilters } from '../lib/media';
 
@@ -180,6 +184,12 @@ export function useAddToCollection() {
 
 // --- Agent -------------------------------------------------------------------
 
+/** False while the agent restarts: its queries keep what they last had instead of failing meanwhile. */
+function useAgentLive(enabled: boolean): boolean {
+  const { pending } = useAgentRestart();
+  return enabled && pending === null;
+}
+
 /** `refreshTools` (settings page) lets the agent look for newly installed tools. */
 export function useAgent(options: { enabled?: boolean; refreshTools?: boolean; pollMs?: number } = {}) {
   const { enabled = true, refreshTools = false, pollMs = 30_000 } = options;
@@ -187,7 +197,7 @@ export function useAgent(options: { enabled?: boolean; refreshTools?: boolean; p
     queryKey: ['agent', refreshTools],
     queryFn: ({ signal }) => fetchJson<AgentOverview>(`/api/agent${refreshTools ? '?refresh=1' : ''}`, signal),
     refetchInterval: pollMs,
-    enabled,
+    enabled: useAgentLive(enabled),
   });
 }
 
@@ -227,9 +237,50 @@ export function useStopAgent() {
 
 /** Ends the agent so its runner starts it again – after a git pull and a build when `update` is set. */
 export function useRestartAgent() {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (update: boolean) => sendJson<{ restarting: boolean }>('POST', '/api/agent/restart', { update }),
+    mutationFn: ({ update }: { update: boolean; before: AgentStatus }) => sendJson<{ restarting: boolean }>('POST', '/api/agent/restart', { update }),
+    // Hold the agent's queries before it goes away, and drop answers still on their way.
+    onMutate: ({ update, before }) => {
+      agentRestart.begin(update, before);
+      void queryClient.cancelQueries({ predicate: (query) => isAgentQuery(query.queryKey) });
+    },
+    onError: () => agentRestart.abandon(),
   });
+}
+
+/**
+ * While the agent restarts, asks every two seconds whether a new process answers, and gives up after a while.
+ * Either way the agent's queries run again afterwards, and show errors again if there are any.
+ */
+export function useWatchAgentRestart() {
+  const queryClient = useQueryClient();
+  const { pending } = useAgentRestart();
+  const poll = useQuery({
+    queryKey: ['agent-restart'],
+    queryFn: ({ signal }) => fetchJson<AgentOverview>('/api/agent', signal),
+    refetchInterval: 2_000,
+    enabled: pending !== null,
+    retry: false,
+  });
+  const status = poll.data?.status;
+
+  useEffect(() => {
+    if (!pending) return;
+    const progress = restartProgress(pending, status, Date.now());
+    if (progress !== 'waiting') {
+      agentRestart.end(progress === 'back' ? (status ?? null) : null);
+      return;
+    }
+    const timer = window.setTimeout(() => agentRestart.end(null), restartDeadline(pending) - Date.now());
+    return () => window.clearTimeout(timer);
+  }, [pending, status]);
+
+  const waiting = useRef(pending !== null);
+  useEffect(() => {
+    if (waiting.current && !pending) void queryClient.invalidateQueries({ predicate: (query) => isAgentQuery(query.queryKey) });
+    waiting.current = pending !== null;
+  }, [pending, queryClient]);
 }
 
 export function useConversions(enabled = true) {
@@ -237,7 +288,7 @@ export function useConversions(enabled = true) {
     queryKey: ['conversions'],
     queryFn: ({ signal }) => fetchJson<ConversionJob[]>('/api/agent/jobs', signal),
     refetchInterval: (query) => (query.state.data?.some(isActive) ? 2_000 : 15_000),
-    enabled,
+    enabled: useAgentLive(enabled),
   });
 }
 
@@ -246,7 +297,7 @@ export function useConversionOptions(itemId: string, mediaSourceId: string | nul
   return useQuery({
     queryKey: ['conversion-options', itemId, mediaSourceId],
     queryFn: ({ signal }) => fetchJson<ConversionOptions>(`/api/agent/conversions/options?${params}`, signal),
-    enabled,
+    enabled: useAgentLive(enabled),
     // Free space changes; always ask again when the dialog opens.
     staleTime: 0,
     gcTime: 0,
@@ -322,7 +373,7 @@ export function useNetworkInterfaces(enabled: boolean) {
   return useQuery({
     queryKey: ['network-interfaces'],
     queryFn: ({ signal }) => fetchJson<AgentNetworkList>('/api/agent/network/interfaces', signal),
-    enabled,
+    enabled: useAgentLive(enabled),
     retry: false,
   });
 }
@@ -345,7 +396,7 @@ export function useAgentNetwork(enabled: boolean) {
     queryKey: ['network'],
     queryFn: ({ signal }) => fetchJson<AgentNetworkStatus>('/api/agent/network', signal),
     refetchInterval: (query) => (query.state.data?.interfaces.length ? 4_000 : 60_000),
-    enabled,
+    enabled: useAgentLive(enabled),
     retry: false,
   });
 }
@@ -356,7 +407,7 @@ export function useAgentResources(enabled: boolean) {
     queryKey: ['resources'],
     queryFn: ({ signal }) => fetchJson<AgentResourceStatus>('/api/agent/resources', signal),
     refetchInterval: 3_000,
-    enabled,
+    enabled: useAgentLive(enabled),
     retry: false,
   });
 }
@@ -369,7 +420,7 @@ export function useJDownloader(enabled: boolean, pollMs: number | false = 4_000,
     queryKey: links ? ['jdownloader', 'links'] : ['jdownloader'],
     queryFn: ({ signal }) => fetchJson<JDownloaderStatus>(links ? '/api/agent/jdownloader?links=1' : '/api/agent/jdownloader', signal),
     refetchInterval: pollMs,
-    enabled,
+    enabled: useAgentLive(enabled),
     retry: false,
   });
 }
@@ -401,7 +452,7 @@ export function useLinkGrabber(enabled: boolean, pollMs: number) {
     queryKey: ['linkgrabber'],
     queryFn: ({ signal }) => fetchJson<LinkGrabberStatus>('/api/agent/jdownloader/linkgrabber', signal),
     refetchInterval: pollMs,
-    enabled,
+    enabled: useAgentLive(enabled),
     retry: false,
   });
 }
@@ -428,7 +479,7 @@ export function useHistory(span: number, end: number | null, enabled: boolean) {
       const to = Math.round(end ?? Date.now());
       return fetchJson<HistoryResponse>(`/api/agent/history?from=${to - Math.round(span)}&to=${to}`, signal);
     },
-    enabled,
+    enabled: useAgentLive(enabled),
     // The charts keep showing the last range while the next one loads.
     placeholderData: keepPreviousData,
     // The agent records every 15 s; long ranges change slowly.

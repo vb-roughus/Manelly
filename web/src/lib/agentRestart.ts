@@ -15,14 +15,15 @@ export const agentRestartProgress = (pending: PendingRestart<AgentStatus>, statu
 export const updatesWhileRunning = (status: AgentStatus): boolean => status.process?.update !== undefined;
 
 /** What the restart or update brought, in a sentence: the new process and, with an update, its report. */
-export function agentRestartSummary({ update, before, after, since, ended }: FinishedRestart<AgentStatus>): { ok: boolean; text: string } {
+export function agentRestartSummary(finished: FinishedRestart<AgentStatus>): { ok: boolean; text: string } {
+  const { update, before, after, since, ended } = finished;
   if (!after) {
     return {
       ok: false,
       text: `Der Agent hat sich nach ${formatSpan(ended - since)} nicht zurückgemeldet. In agent\\data\\agent.log auf dem Server steht, woran es hängt.`,
     };
   }
-  const fresh = update ? freshReport(before.process?.lastUpdate, after.process?.lastUpdate) : null;
+  const fresh = update ? freshReport(finished, before.process?.lastUpdate, after.process?.lastUpdate) : null;
   if (fresh && !fresh.ok) return { ok: false, text: `Update fehlgeschlagen: ${fresh.message}` };
   if (fresh?.upToDate) return { ok: true, text: `${fresh.message} Der Agent läuft weiter, ohne Neustart (Version ${after.version}).` };
   const version = before.version === after.version ? `Version ${after.version}` : `Version ${before.version} → ${after.version}`;

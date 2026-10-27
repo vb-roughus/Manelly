@@ -12,14 +12,15 @@ export const manellyRestartProgress = (pending: PendingRestart<ManellyStatus>, s
   restartProgress(pending, status, manellyView, now);
 
 /** What the restart or update brought, in a sentence: the new process and, with an update, its report. */
-export function manellyRestartSummary({ update, before, after, since, ended }: FinishedRestart<ManellyStatus>): { ok: boolean; text: string } {
+export function manellyRestartSummary(finished: FinishedRestart<ManellyStatus>): { ok: boolean; text: string } {
+  const { update, before, after, since, ended } = finished;
   if (!after) {
     return {
       ok: false,
       text: `Manelly hat sich nach ${formatSpan(ended - since)} nicht zurückgemeldet. Im Fenster, in dem das Start-Skript läuft, steht, woran es hängt.`,
     };
   }
-  const fresh = update ? freshReport(before.lastUpdate, after.lastUpdate) : null;
+  const fresh = update ? freshReport(finished, before.lastUpdate, after.lastUpdate) : null;
   if (fresh && !fresh.ok) return { ok: false, text: `Update fehlgeschlagen: ${fresh.message}` };
   if (fresh?.upToDate) return { ok: true, text: `${fresh.message} Manelly läuft weiter, ohne Neustart.` };
   if (fresh) return { ok: true, text: `${fresh.message} Neu gestartet, Prozess ${after.pid}.` };

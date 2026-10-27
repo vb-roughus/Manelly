@@ -90,6 +90,13 @@ describe('Manelly restart', () => {
     expect(restartsNow({ ...waiting(true), progress: update, away: true })).toBe(true);
   });
 
+  it('takes the report of an update adopted late, although it was already written then', () => {
+    const report1 = report('2026-10-27T10:01:00Z', true, 'Aktualisiert von c76436b auf 24b94a1.');
+    const adopted = { ...waiting(true), before: { ...old, lastUpdate: report1 }, startedAt: '2026-10-27T10:00:50Z' };
+    const after = manelly(11, 'y', '24b94a1', report1);
+    expect(manellyRestartSummary({ ...adopted, after, ended: 1_030_000 }).text).toBe('Aktualisiert von c76436b auf 24b94a1. Neu gestartet, Prozess 11.');
+  });
+
   it('tells the update report, or the commit after a plain restart', () => {
     const done = (update: boolean, after: ManellyStatus | null) => ({ ...waiting(update), after, ended: 1_030_000 });
     const updated = manelly(11, 'y', '24b94a1', report('2026-10-27T10:01:00Z', true, 'Aktualisiert von c76436b auf 24b94a1.'));

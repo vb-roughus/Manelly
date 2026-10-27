@@ -62,9 +62,18 @@ export function restartProgress<S>(pending: PendingRestart<S>, current: S | null
   return now > restartDeadline(pending) ? 'timeout' : 'waiting';
 }
 
-/** The update report this restart brought; null while the process still shows the one from before. */
-export function freshReport(before: AgentUpdateResult | null | undefined, after: AgentUpdateResult | null | undefined): AgentUpdateResult | null {
-  return after && after.at !== before?.at ? after : null;
+/**
+ * The report this update brought: written after the process said the update began, or else unlike the one from
+ * before; null while the process still shows an older one.
+ */
+export function freshReport(
+  pending: Pick<PendingRestart<unknown>, 'startedAt'>,
+  before: AgentUpdateResult | null | undefined,
+  after: AgentUpdateResult | null | undefined,
+): AgentUpdateResult | null {
+  if (!after) return null;
+  if (pending.startedAt) return Date.parse(after.at) >= Date.parse(pending.startedAt) ? after : null;
+  return after.at !== before?.at ? after : null;
 }
 
 /** The first step of an update that runs while the process keeps answering. */

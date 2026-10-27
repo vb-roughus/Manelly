@@ -83,6 +83,15 @@ const GRABBER_PACKAGE_QUERY = {
 const MAX_GRABBER_LINKS = 2000;
 const GRABBER_LINK_QUERY = { availability: true, bytesTotal: true, enabled: true, host: true, startAt: 0, maxResults: MAX_GRABBER_LINKS };
 const AVAILABILITIES: LinkAvailability[] = ['ONLINE', 'OFFLINE', 'UNKNOWN', 'TEMP_UNKNOWN'];
+/** Container files JDownloader reads into the link grabber, by extension. */
+const CONTAINER_TYPES = ['dlc'];
+export const MAX_CONTAINER_BYTES = 1024 * 1024;
+
+/** What JDownloader is told the file is, from its name; null for a file it should not get. */
+export function containerType(name: string): string | null {
+  const type = name.match(/\.(\w+)$/)?.[1]?.toLowerCase();
+  return type && CONTAINER_TYPES.includes(type) ? type : null;
+}
 
 interface RawPackage {
   uuid?: number;
@@ -163,11 +172,20 @@ interface RawCrawledLink {
  * GET /namespace/method?param1&param2, every parameter as JSON.
  */
 export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetch) {
-  async function call<T>(path: string, ...params: unknown[]): Promise<T> {
-    const query = params.length ? `?${params.map((param) => encodeURIComponent(JSON.stringify(param))).join('&')}` : '';
+  const call = <T>(path: string, ...params: unknown[]) => request<T>('GET', path, params);
+
+  /** With POST the parameters go in the body, encoded as in the address: for what is too big for an address. */
+  async function request<T>(method: 'GET' | 'POST', path: string, params: unknown[]): Promise<T> {
+    const encoded = params.map((param) => encodeURIComponent(JSON.stringify(param))).join('&');
+    const query = method === 'GET' && encoded ? `?${encoded}` : '';
     let response: Response;
     try {
-      response = await fetchImpl(`${url}/${path}${query}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      response = await fetchImpl(`${url}/${path}${query}`, {
+        method,
+        headers: { Accept: 'application/json', ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' } : {}) },
+        body: method === 'POST' ? encoded : undefined,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
     } catch (error) {
       const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : (error as Error).message;
       throw new Error(`JDownloader ist unter ${url} nicht erreichbar (${cause}). Läuft er, und ist die «Deprecated API» eingeschaltet?`);
@@ -204,6 +222,19 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
     grabberLinks: () => call<RawCrawledLink[]>('linkgrabberv2/queryLinks', GRABBER_LINK_QUERY),
     collecting: () => call<boolean>('linkgrabberv2/isCollecting'),
     moveToDownloads: (linkIds: number[], packageIds: number[]) => call<void>('linkgrabberv2/moveToDownloadlist', linkIds, packageIds),
+    /**
+     * Hands JDownloader a container file as a data URL; it reads the links in the background. The file goes in the
+     * body, where a large one fits; a JDownloader that only reads the address gets it there. Answers the job's id.
+     */
+    async addContainer(type: string, file: Buffer): Promise<number> {
+      const params = [type, `data:application/${type};base64,${file.toString('base64')}`];
+      const job = await request<{ id?: number } | null>('POST', 'linkgrabberv2/addContainer', params)
+        .then((answer) => (answer?.id === undefined ? null : answer))
+        .catch(() => null);
+      const id = (job ?? (await call<{ id?: number } | null>('linkgrabberv2/addContainer', ...params)))?.id;
+      if (id === undefined) throw new Error('JDownloader hat die Datei nicht angenommen.');
+      return id;
+    },
     async limit(): Promise<{ enabled: boolean; bytesPerSecond: number }> {
       const [enabled, bytes] = await Promise.all([getSetting('DownloadSpeedLimitEnabled'), getSetting('DownloadSpeedLimit')]);
       return { enabled: enabled === true || enabled === 'true', bytesPerSecond: Number(bytes) || 0 };
@@ -457,6 +488,11 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
     /** Lets JDownloader ask the hosters again; the new numbers come in after a moment. */
     async refreshAccounts(ids: number[]): Promise<void> {
       await api().refreshAccounts(ids);
+    },
+
+    /** A container file (see containerType) for the link grabber; its packages show up there once JDownloader has read it. */
+    async addContainer(type: string, file: Buffer): Promise<void> {
+      await api().addContainer(type, file);
     },
 
     /** Whole packages and single links from the link grabber to the download list. */

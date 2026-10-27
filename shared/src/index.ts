@@ -946,6 +946,19 @@ export interface LinkGrabberStatus {
   packages: LinkGrabberPackage[];
 }
 
+/** POST /api/jdownloader/linkgrabber/container (agent from 0.15.0): a container file for the link grabber. */
+export interface LinkGrabberContainerRequest {
+  /** The file's name; it ends in .dlc. */
+  name: string;
+  /** The file itself, base64; at most 1 MB. */
+  content: string;
+}
+
+/** JDownloader reads the file in the background; its packages show up in the link grabber a moment later. */
+export interface LinkGrabberContainerAnswer {
+  added: string;
+}
+
 /** POST /api/jdownloader/linkgrabber/move: whole packages and single links go to the download list. */
 export interface LinkGrabberMoveRequest {
   packageIds: number[];
@@ -1201,8 +1214,8 @@ export interface AgentStatus {
   network?: { selected: string[] };
   /** Whether the agent can measure CPU and GPU here; missing on agents before 0.4.0. */
   resources?: { supported: boolean };
-  /** Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0. */
-  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean };
+  /** Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0. */
+  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
   /** Whether the agent records the history; missing on agents before 0.6.0. */

@@ -13,6 +13,8 @@ import type {
   ConversionRequest,
   HardwareTestRequest,
   JDownloaderAction,
+  LinkGrabberContainerAnswer,
+  LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
   NetworkDrive,
 } from '@manelly/shared';
@@ -21,7 +23,7 @@ import { AgentError } from './errors.js';
 import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
-import type { JDownloader } from './jdownloader.js';
+import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
 import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
@@ -31,6 +33,9 @@ import type { Updater } from './updater.js';
 import type { PathAccess } from './paths.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
+/** A container file comes as base64, a third larger than the file. */
+const MAX_CONTAINER_BODY_BYTES = Math.ceil(MAX_CONTAINER_BYTES / 3) * 4 + 4096;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const MAX_MONITORED = 16;
 const MAX_MOVED = 5000;
 
@@ -66,12 +71,12 @@ function authorized(request: IncomingMessage, token: string): boolean {
   return given.length > 0 && timingSafeEqual(digest(given), digest(token));
 }
 
-async function readJson<T>(request: IncomingMessage): Promise<T> {
+async function readJson<T>(request: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<T> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new AgentError(413, 'Anfrage zu gross.');
+    if (size > maxBytes) throw new AgentError(413, 'Anfrage zu gross.');
     chunks.push(chunk as Buffer);
   }
   try {
@@ -141,7 +146,7 @@ export function createAgentServer(options: AgentServerOptions) {
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
-        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true },
+        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
         drives: (await options.drives?.()) ?? [],
@@ -253,6 +258,19 @@ export function createAgentServer(options: AgentServerOptions) {
       if (!packageIds || !linkIds || packageIds.length + linkIds.length === 0) throw new AgentError(400, 'Keine Pakete oder Links zum Übernehmen angegeben.');
       await jdownloaderCall(() => jdownloader.moveToDownloads(packageIds, linkIds));
       return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
+    }
+    if (route === 'POST /api/jdownloader/linkgrabber/container') {
+      const { name, content } = await readJson<Partial<LinkGrabberContainerRequest>>(request, MAX_CONTAINER_BODY_BYTES);
+      if (typeof name !== 'string' || !name || name.length > 255 || typeof content !== 'string' || !content || !BASE64.test(content)) {
+        throw new AgentError(400, 'Name und Inhalt der Datei (base64) erwartet.');
+      }
+      const type = containerType(name);
+      if (!type) throw new AgentError(400, `${name} ist keine DLC-Datei.`);
+      const file = Buffer.from(content, 'base64');
+      if (file.length > MAX_CONTAINER_BYTES) throw new AgentError(413, `${name} ist zu gross (höchstens 1 MB).`);
+      await jdownloaderCall(() => jdownloader.addContainer(type, file));
+      const answer: LinkGrabberContainerAnswer = { added: name };
+      return send(response, 202, answer);
     }
     if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
     if (route === 'PUT /api/network/interfaces') {

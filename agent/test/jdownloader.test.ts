@@ -2,20 +2,34 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createJDownloader, createJDownloaderApi, packageExtraction } from '../src/jdownloader.js';
+import { containerType, createJDownloader, createJDownloaderApi, packageExtraction } from '../src/jdownloader.js';
 import { createSettingsStore, type SettingsStore } from '../src/schedule.js';
 
 /** JDownloader's local API and Jellyfin's sessions, as the agent sees them. */
 function fakeWorld() {
-  const jd = { state: 'RUNNING', limitEnabled: false, limit: 0, streams: 0, up: true, calls: [] as string[], grabber: [11, 12], linksFail: false };
-  const fetch: typeof globalThis.fetch = async (input) => {
+  const jd = {
+    state: 'RUNNING',
+    limitEnabled: false,
+    limit: 0,
+    streams: 0,
+    up: true,
+    calls: [] as string[],
+    grabber: [11, 12],
+    linksFail: false,
+    /** Whether parameters in a POST body count, or only those in the address. */
+    readsBody: true,
+    containers: [] as unknown[][],
+  };
+  const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     if (url.host === 'jellyfin:8096') {
       return Response.json(Array.from({ length: jd.streams }, () => ({ NowPlayingItem: { Name: 'Film' } })));
     }
     if (!jd.up) throw new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED 127.0.0.1:3128') });
-    jd.calls.push(`${url.pathname}${url.search}`);
-    const params = url.search ? url.search.slice(1).split('&').map((param) => JSON.parse(decodeURIComponent(param)) as unknown) : [];
+    const post = init?.method === 'POST';
+    jd.calls.push(post ? `POST ${url.pathname}` : `${url.pathname}${url.search}`);
+    const encoded = post ? (jd.readsBody ? String(init.body) : '') : url.search.slice(1);
+    const params = encoded ? encoded.split('&').map((param) => JSON.parse(decodeURIComponent(param)) as unknown) : [];
     // Some answers come wrapped, some as they are – the agent takes both.
     const wrapped = (data: unknown) => Response.json({ data });
     switch (url.pathname) {
@@ -55,6 +69,11 @@ function fakeWorld() {
             { uuid: 201, packageUUID: 12, name: 'unklar.mkv', host: 'example.com', availability: 'SOMETHING_NEW' },
           ].filter((link) => jd.grabber.includes(link.packageUUID)),
         );
+      case '/linkgrabberv2/addContainer':
+        // Without a type JDownloader answers null, as it does for files it cannot read.
+        if (typeof params[0] !== 'string') return wrapped(null);
+        jd.containers.push(params);
+        return wrapped({ id: 4242 });
       case '/linkgrabberv2/moveToDownloadlist':
         jd.grabber = jd.grabber.filter((uuid) => !(params[1] as number[]).includes(uuid));
         return wrapped(null);
@@ -316,6 +335,39 @@ describe('JDownloader', () => {
     // Link ids first, then package ids, as JDownloader's method takes them.
     expect(jd.calls).toEqual(['/linkgrabberv2/moveToDownloadlist?%5B%5D&%5B11%5D']);
     expect((await jdownloader.linkgrabber()).packages.map((pkg) => pkg.uuid)).toEqual([12]);
+  });
+
+  it('hands a container file to the link grabber as a data URL, in the body or else in the address', async () => {
+    const { jd, fetch } = fakeWorld();
+    const api = createJDownloaderApi('http://127.0.0.1:3128', fetch);
+    const file = Buffer.from('RExDIGZpbGU=');
+    expect(await api.addContainer('dlc', file)).toBe(4242);
+    expect(jd.calls).toEqual(['POST /linkgrabberv2/addContainer']);
+    expect(jd.containers).toEqual([['dlc', `data:application/dlc;base64,${file.toString('base64')}`]]);
+
+    // A JDownloader that reads parameters only from the address gets them there.
+    jd.readsBody = false;
+    jd.calls = [];
+    expect(await api.addContainer('dlc', file)).toBe(4242);
+    expect(jd.calls).toEqual(['POST /linkgrabberv2/addContainer', `/linkgrabberv2/addContainer?%22dlc%22&${encodeURIComponent(JSON.stringify(jd.containers[0]![1]))}`]);
+    expect(jd.containers).toHaveLength(2);
+
+    jd.up = false;
+    await expect(api.addContainer('dlc', file)).rejects.toThrow('JDownloader ist unter http://127.0.0.1:3128 nicht erreichbar');
+  });
+
+  it('says when JDownloader does not take the file', async () => {
+    const { fetch } = fakeWorld();
+    const refusing: typeof globalThis.fetch = async (input, init) =>
+      new URL(String(input)).pathname === '/linkgrabberv2/addContainer' ? Response.json({ data: null }) : fetch(input, init);
+    await expect(createJDownloaderApi('http://127.0.0.1:3128', refusing).addContainer('dlc', Buffer.from('x'))).rejects.toThrow('JDownloader hat die Datei nicht angenommen.');
+  });
+
+  it('takes DLC files only', () => {
+    expect(containerType('Dune.Part.Two.DLC')).toBe('dlc');
+    expect(containerType('links.dlc')).toBe('dlc');
+    expect(containerType('links.txt')).toBeNull();
+    expect(containerType('dlc')).toBeNull();
   });
 
   it('starts, stops, pauses and resumes', async () => {

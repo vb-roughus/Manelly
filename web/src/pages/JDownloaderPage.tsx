@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type { JDownloaderAccount, JDownloaderAccounts, JDownloaderAccountState, LinkAvailability, LinkGrabberPackage, LinkGrabberStatus } from '@manelly/shared';
 import {
@@ -10,6 +10,7 @@ import {
   CircleX,
   Clock,
   Download,
+  FileUp,
   KeyRound,
   Link2,
   LoaderCircle,
@@ -23,7 +24,17 @@ import clsx from 'clsx';
 import { Downloads, downloadsSummary, isActivePackage } from '../components/DashboardDownloads';
 import { Code, Message } from '../components/ConnectionForm';
 import { JDownloaderForm } from '../components/JDownloaderForm';
-import { useAgent, useAgentSettings, useJDownloader, useJDownloaderAccounts, useLinkGrabber, useMoveFromLinkGrabber, useRefreshJDownloaderAccounts } from '../hooks/queries';
+import {
+  useAddLinkGrabberContainer,
+  useAgent,
+  useAgentSettings,
+  useJDownloader,
+  useJDownloaderAccounts,
+  useLinkGrabber,
+  useMoveFromLinkGrabber,
+  useRefreshJDownloaderAccounts,
+} from '../hooks/queries';
+import { containerProblem } from '../lib/containers';
 import { formatBytes } from '../lib/format';
 
 type Tab = 'downloads' | 'linkgrabber' | 'accounts';
@@ -136,7 +147,14 @@ export function JDownloaderPage() {
           ) : !grabber.data ? (
             grabber.error ? <Message tone="critical">{grabber.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
           ) : (
-            <LinkGrabber status={grabber.data} />
+            <LinkGrabber
+              status={grabber.data}
+              tooOld={
+                status.jdownloader?.containers
+                  ? null
+                  : `Der Agent auf ${status.hostname} ist zu alt für DLC-Dateien (Version ${status.version}). Unter Server → Agent «Aktualisieren & neu starten».`
+              }
+            />
           )}
         </div>
       </>
@@ -330,9 +348,52 @@ function Availability({ state, count }: { state: LinkAvailability; count?: numbe
   );
 }
 
-/** What waits in JDownloader's link grabber, and moving it to the download list. */
-function LinkGrabber({ status }: { status: LinkGrabberStatus }) {
+interface Upload {
+  key: number;
+  name: string;
+  state: 'sending' | 'added' | 'failed';
+  message: string | null;
+}
+
+/** DLC files for the link grabber, one after the other, each with how it went. */
+function useContainerUploads(tooOld: string | null) {
+  const add = useAddLinkGrabberContainer();
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const nextKey = useRef(0);
+
+  async function upload(files: File[]) {
+    if (!files.length) return;
+    const batch = files.map((file): Upload => ({ key: nextKey.current++, name: file.name, state: 'sending', message: null }));
+    setUploads(batch);
+    const update = (key: number, change: Pick<Upload, 'state' | 'message'>) =>
+      setUploads((current) => current.map((entry) => (entry.key === key ? { ...entry, ...change } : entry)));
+    for (const [index, file] of files.entries()) {
+      const { key } = batch[index]!;
+      const problem = containerProblem(file);
+      if (tooOld || problem) {
+        update(key, { state: 'failed', message: tooOld ?? `${file.name} ${problem}` });
+        continue;
+      }
+      try {
+        await add.mutateAsync(file);
+        update(key, { state: 'added', message: null });
+      } catch (error) {
+        update(key, { state: 'failed', message: (error as Error).message });
+      }
+    }
+  }
+
+  return { uploads, upload, busy: uploads.some((entry) => entry.state === 'sending'), clear: () => setUploads([]) };
+}
+
+const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files');
+
+/** What waits in JDownloader's link grabber, and moving it to the download list; DLC files are picked or dropped onto it. */
+function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: string | null }) {
   const move = useMoveFromLinkGrabber();
+  const { uploads, upload, busy, clear } = useContainerUploads(tooOld);
+  const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const links = status.packages.reduce((sum, pkg) => sum + pkg.childCount, 0);
   const bytes = status.packages.reduce((sum, pkg) => sum + pkg.bytesTotal, 0);
@@ -344,8 +405,46 @@ function LinkGrabber({ status }: { status: LinkGrabberStatus }) {
       return next;
     });
 
+  function onDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setDragging(true);
+  }
+
   return (
-    <div className="space-y-3">
+    <div
+      className="relative space-y-3"
+      onDragEnter={onDragOver}
+      onDragOver={onDragOver}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        setDragging(false);
+        void upload([...event.dataTransfer.files]);
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute -inset-2 z-10 grid place-items-center rounded-2xl border-2 border-dashed border-accent bg-card/90 text-sm font-medium text-accent">
+          <span className="flex items-center gap-2">
+            <FileUp className="size-5" aria-hidden /> DLC-Dateien hier ablegen
+          </span>
+        </div>
+      )}
+      <input
+        ref={picker}
+        type="file"
+        multiple
+        hidden
+        onChange={(event) => {
+          void upload([...(event.target.files ?? [])]);
+          // The same file again counts as a change, too.
+          event.target.value = '';
+        }}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
           <span className="whitespace-nowrap">
@@ -359,16 +458,34 @@ function LinkGrabber({ status }: { status: LinkGrabberStatus }) {
             </span>
           )}
         </p>
-        <button
-          type="button"
-          className={button}
-          disabled={move.isPending || status.packages.length === 0}
-          onClick={() => move.mutate({ packageIds: status.packages.map((pkg) => pkg.uuid), linkIds: [] })}
-        >
-          <ArrowRightToLine className="size-4" aria-hidden /> Alle in die Downloads
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={button} disabled={busy} onClick={() => picker.current?.click()}>
+            {busy ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <FileUp className="size-4" aria-hidden />} DLC hochladen
+          </button>
+          <button
+            type="button"
+            className={button}
+            disabled={move.isPending || status.packages.length === 0}
+            onClick={() => move.mutate({ packageIds: status.packages.map((pkg) => pkg.uuid), linkIds: [] })}
+          >
+            <ArrowRightToLine className="size-4" aria-hidden /> Alle in die Downloads
+          </button>
+        </div>
       </div>
       {move.isError && <Message tone="critical">{move.error.message}</Message>}
+      <Uploads uploads={uploads} busy={busy} onClear={clear} />
+
+      {status.packages.length === 0 && (
+        <button
+          type="button"
+          onClick={() => picker.current?.click()}
+          disabled={busy}
+          className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed border-line px-4 py-8 text-sm text-ink-2 transition hover:border-accent hover:text-ink disabled:cursor-wait"
+        >
+          <FileUp className="size-6 text-ink-3" aria-hidden />
+          DLC-Datei auswählen oder hierher ziehen
+        </button>
+      )}
 
       {status.packages.length > 0 && (
         <ul className="space-y-2">
@@ -377,6 +494,46 @@ function LinkGrabber({ status }: { status: LinkGrabberStatus }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** How the DLC files went: handed over, or why not. */
+function Uploads({ uploads, busy, onClear }: { uploads: Upload[]; busy: boolean; onClear: () => void }) {
+  if (!uploads.length) return null;
+  const added = uploads.some((entry) => entry.state === 'added');
+  return (
+    <div role="status" className="rounded-xl border border-line bg-card p-3 text-sm shadow-sm shadow-black/5">
+      <div className="flex items-start justify-between gap-3">
+        <ul className="min-w-0 space-y-1">
+          {uploads.map((entry) => (
+            <li key={entry.key} className="flex items-start gap-2">
+              {entry.state === 'sending' ? (
+                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-accent" aria-hidden />
+              ) : entry.state === 'added' ? (
+                <CircleCheck className="mt-0.5 size-4 shrink-0 text-good" aria-hidden />
+              ) : (
+                <CircleX className="mt-0.5 size-4 shrink-0 text-critical" aria-hidden />
+              )}
+              <span className="min-w-0 break-words">
+                {entry.state === 'failed' ? (
+                  entry.message
+                ) : (
+                  <>
+                    <b className="font-medium">{entry.name}</b> <span className="text-ink-2">{entry.state === 'sending' ? 'wird übergeben …' : 'an JDownloader übergeben'}</span>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {!busy && (
+          <button type="button" onClick={onClear} aria-label="Meldungen schliessen" className="grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-card-2 hover:text-ink">
+            <X className="size-4" aria-hidden />
+          </button>
+        )}
+      </div>
+      {added && !busy && <p className="mt-2 text-xs text-ink-3">JDownloader liest die Dateien jetzt – ihre Pakete erscheinen gleich hier.</p>}
     </div>
   );
 }

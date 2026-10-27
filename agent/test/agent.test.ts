@@ -91,6 +91,8 @@ const fakeJellyfin: typeof fetch = async (input, init) => {
     // Idle sessions (an open app, Manelly itself) have no NowPlayingItem.
     return Response.json([{ DeviceName: 'Manelly' }, ...Array.from({ length: streams }, () => ({ NowPlayingItem: { Name: 'Film' } }))]);
   }
+  // JDownloader, for the container files.
+  if (url.pathname === '/linkgrabberv2/addContainer') return Response.json({ data: { id: 4242 } });
   return new Response(null, { status: 204 });
 };
 let clock = new Date(2026, 9, 26, 2, 0);
@@ -531,7 +533,7 @@ describe('resources', () => {
 
 describe('JDownloader routes', () => {
   it('checks the settings and refuses to control a JDownloader that is switched off', async () => {
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
     expect((await call('/api/jdownloader/accounts')).status).toBe(409);
@@ -545,6 +547,26 @@ describe('JDownloader routes', () => {
     expect((await post('/api/jdownloader/linkgrabber/move', { packageIds: [], linkIds: [] })).status).toBe(400);
     expect((await post('/api/jdownloader/linkgrabber/move', { packageIds: ['1'] })).status).toBe(400);
     expect(await (await call('/api/jdownloader/linkgrabber')).json()).toEqual({ collecting: false, packages: [] });
+  });
+
+  it('hands DLC files to the link grabber', async () => {
+    const dlc = { name: 'Dune.dlc', content: Buffer.from('ZGxj').toString('base64') };
+    expect((await post('/api/jdownloader/linkgrabber/container', dlc)).status).toBe(409);
+    await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } });
+    const added = await post('/api/jdownloader/linkgrabber/container', dlc);
+    expect(added.status).toBe(202);
+    expect(await added.json()).toEqual({ added: 'Dune.dlc' });
+    expect(jellyfinCalls).toContain('POST /linkgrabberv2/addContainer');
+
+    const refused = async (body: unknown) => {
+      const response = await post('/api/jdownloader/linkgrabber/container', body);
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refused({ ...dlc, name: 'Dune.txt' })).toEqual([400, 'Dune.txt ist keine DLC-Datei.']);
+    expect(await refused({ ...dlc, content: 'kein base64!' })).toEqual([400, 'Name und Inhalt der Datei (base64) erwartet.']);
+    expect(await refused({ name: 'Dune.dlc' })).toEqual([400, 'Name und Inhalt der Datei (base64) erwartet.']);
+    expect(await refused({ ...dlc, content: Buffer.alloc(1024 * 1024 + 1).toString('base64') })).toEqual([413, 'Dune.dlc ist zu gross (höchstens 1 MB).']);
+    expect((await post('/api/jdownloader/linkgrabber/container', { ...dlc, content: 'A'.repeat(2 * 1024 * 1024) })).status).toBe(413);
   });
 });
 

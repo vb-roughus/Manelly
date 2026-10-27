@@ -3,6 +3,7 @@ import { Activity, CircleCheck, Cpu, Gauge, MonitorPlay, RefreshCw, Shuffle, Tri
 import clsx from 'clsx';
 import type { SessionsResponse } from '@manelly/shared';
 import { DashboardConversions } from '../components/DashboardConversions';
+import { DashboardNetwork } from '../components/DashboardNetwork';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { SetupPanel } from '../components/SetupPanel';
 import { StatTile } from '../components/StatTile';
@@ -36,6 +37,7 @@ export function DashboardPage() {
         <>
           {error && <StaleBanner error={error} />}
           <Summary data={data} />
+          <DashboardNetwork />
           <DashboardConversions />
           <StreamList data={data} sampledAt={dataUpdatedAt} />
         </>

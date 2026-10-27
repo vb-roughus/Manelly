@@ -4,10 +4,18 @@ import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, Conversio
 import { AgentError } from './errors.js';
 import { createJellyfinApi } from './jellyfin.js';
 
+/** A network interface picked in Manelly; name and description as they were then, for the display. */
+export interface NetworkSelection {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 /** What Manelly sends the agent; kept apart from agent.json, which people edit by hand. */
 export interface AgentSettings {
   schedule: ConversionSchedule;
   jellyfin: AgentJellyfinAccess | null;
+  network: NetworkSelection[];
 }
 
 const SETTINGS_FILE = 'settings.json';
@@ -34,14 +42,18 @@ export function parseJellyfinAccess(input: unknown): AgentJellyfinAccess {
   return { url: url.replace(/\/+$/, ''), apiKey };
 }
 
+const isSelection = (value: unknown): value is NetworkSelection =>
+  typeof (value as NetworkSelection)?.id === 'string' && typeof (value as NetworkSelection).name === 'string';
+
 export async function createSettingsStore(dataDir: string) {
   const file = join(dataDir, SETTINGS_FILE);
-  let current: AgentSettings = { schedule: DEFAULT_SCHEDULE, jellyfin: null };
+  let current: AgentSettings = { schedule: DEFAULT_SCHEDULE, jellyfin: null, network: [] };
   try {
     const stored = JSON.parse(await readFile(file, 'utf8')) as Partial<AgentSettings>;
     current = {
       schedule: stored.schedule ? parseSchedule(stored.schedule) : DEFAULT_SCHEDULE,
       jellyfin: stored.jellyfin ? parseJellyfinAccess(stored.jellyfin) : null,
+      network: Array.isArray(stored.network) ? stored.network.filter(isSelection) : [],
     };
   } catch {
     // Missing or damaged: Manelly sends both again.
@@ -59,6 +71,7 @@ export async function createSettingsStore(dataDir: string) {
     get: (): AgentSettings => current,
     setSchedule: (schedule: ConversionSchedule) => save({ ...current, schedule }),
     setJellyfin: (jellyfin: AgentJellyfinAccess) => save({ ...current, jellyfin }),
+    setNetwork: (network: NetworkSelection[]) => save({ ...current, network }),
   };
 }
 

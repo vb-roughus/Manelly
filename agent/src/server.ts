@@ -2,22 +2,33 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
-import type { AgentCheckRequest, AgentCheckResponse, AgentScheduleStatus, AgentStatus, ConversionRequest, HardwareTestRequest } from '@manelly/shared';
+import type {
+  AgentCheckRequest,
+  AgentCheckResponse,
+  AgentNetworkList,
+  AgentScheduleStatus,
+  AgentStatus,
+  ConversionRequest,
+  HardwareTestRequest,
+} from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import { AgentError } from './errors.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import type { JobQueue } from './jobs.js';
+import type { NetworkMonitor } from './network.js';
 import { parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_MONITORED = 16;
 
 export interface AgentServerOptions {
   token: string;
   roots: string[];
   queue: JobQueue;
   settings: SettingsStore;
+  network: NetworkMonitor;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -55,7 +66,14 @@ function send(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** The agent's HTTP API. Everything but the health check needs the token from agent.json. */
-export function createAgentServer({ token, roots, queue, settings, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+export function createAgentServer({ token, roots, queue, settings, network, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+  async function networkList(): Promise<AgentNetworkList> {
+    const interfaces = await network.list().catch((error: Error) => {
+      throw new AgentError(503, error.message);
+    });
+    return { interfaces, selected: settings.get().network.map((entry) => entry.id) };
+  }
+
   function schedule(): AgentScheduleStatus {
     const { schedule: current, jellyfin } = settings.get();
     const gate = queue.gate();
@@ -84,6 +102,7 @@ export function createAgentServer({ token, roots, queue, settings, tools, freeBy
         roots,
         ready: toolsReady(found),
         schedule: schedule(),
+        network: { selected: settings.get().network.map((entry) => entry.id) },
       };
       return send(response, 200, status);
     }
@@ -117,6 +136,23 @@ export function createAgentServer({ token, roots, queue, settings, tools, freeBy
       const found = await tools();
       const ffmpegPath = typeof body.ffmpegPath === 'string' && body.ffmpegPath && (await isFile(body.ffmpegPath)) ? body.ffmpegPath : found.ffmpeg.path;
       return send(response, 200, await runHardwareTest({ ...body, tests }, ffmpegPath));
+    }
+    if (route === 'GET /api/network') return send(response, 200, network.status());
+    if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
+    if (route === 'PUT /api/network/interfaces') {
+      const body = await readJson<{ interfaces?: unknown }>(request);
+      const ids = Array.isArray(body.interfaces) ? [...new Set(body.interfaces.filter((id): id is string => typeof id === 'string'))] : null;
+      if (!ids || ids.length > MAX_MONITORED) throw new AgentError(400, `Eine Liste von höchstens ${MAX_MONITORED} Schnittstellen erwartet.`);
+      // Only interfaces this machine has; their names are kept for the display.
+      const available = ids.length ? await network.list() : [];
+      const selection = ids.map((id) => {
+        const nic = available.find((candidate) => candidate.id === id);
+        if (!nic) throw new AgentError(400, 'Diese Netzwerkschnittstelle gibt es auf dem Server nicht (mehr).');
+        return { id: nic.id, name: nic.name, description: nic.description };
+      });
+      await settings.setNetwork(selection);
+      network.restart();
+      return send(response, 200, await networkList());
     }
     if (route === 'GET /api/jobs') return send(response, 200, queue.list());
     if (route === 'POST /api/jobs') return send(response, 201, await queue.add(await readJson<ConversionRequest>(request)));

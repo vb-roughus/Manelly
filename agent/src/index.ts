@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dataDirFrom, loadConfig } from './config.js';
 import { createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
+import { createNetworkMonitor, defaultSource } from './network.js';
 import { createGate, createSettingsStore } from './schedule.js';
 import { createAgentServer } from './server.js';
 import { discoverTools, type Tools } from './tools.js';
@@ -49,7 +50,9 @@ const queue = await createJobQueue({
   notify: createNotifier(() => settings.get().jellyfin, { log }),
   log,
 });
-const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, tools: currentTools });
+// Measures only the interfaces picked in Manelly, and only while somebody looks.
+const network = createNetworkMonitor({ source: defaultSource(), selection: () => settings.get().network, log });
+const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, tools: currentTools });
 
 server.on('error', (error: NodeJS.ErrnoException) => {
   log(error.code === 'EADDRINUSE' ? `Port ${config.port} ist schon belegt – läuft der Agent bereits?` : error.message);
@@ -76,6 +79,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     log(`${signal} empfangen, beende den Agent …`);
     server.close();
+    network.stop();
     void queue.stop().then(() => process.exit(0));
   });
 }

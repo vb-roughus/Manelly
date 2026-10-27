@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type {
+  AgentNetworkList,
+  AgentNetworkStatus,
   AgentOverview,
   AgentScheduleStatus,
   AgentSettingsView,
@@ -136,6 +138,30 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     request.log.info(`Umwandlung ohne Zeitplan gestartet: ${job.source}`);
     return job;
   });
+
+  app.get('/network/interfaces', async (): Promise<AgentNetworkList> => requireAgent(agent).networkInterfaces());
+
+  app.put<{ Body: { interfaces: string[] } }>(
+    '/network/interfaces',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['interfaces'],
+          properties: { interfaces: { type: 'array', maxItems: 16, items: { type: 'string', minLength: 1, maxLength: 256 } } },
+        },
+      },
+    },
+    async (request): Promise<AgentNetworkList> => {
+      const list = await requireAgent(agent).setNetworkInterfaces(request.body.interfaces);
+      const names = list.interfaces.filter((nic) => list.selected.includes(nic.id)).map((nic) => nic.name);
+      request.log.info(`Überwachte Netzwerkschnittstellen: ${names.join(', ') || 'keine'}`);
+      return list;
+    },
+  );
+
+  app.get('/network', async (): Promise<AgentNetworkStatus> => requireAgent(agent).network());
 
   const time = { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' };
   app.put<{ Body: ConversionSchedule }>(

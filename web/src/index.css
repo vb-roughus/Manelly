@@ -15,6 +15,9 @@
   --ink-3: #6b6a65;
   --line: rgb(11 11 11 / 0.1);
   --accent: #8b45b0;
+  /* Network chart: send (the streams) and receive; validated as a pair for both themes. */
+  --series-send: #8b45b0;
+  --series-receive: #199e70;
   --glow: rgb(170 92 195 / 0.14);
   --backdrop-opacity: 0.16;
 
@@ -37,6 +40,8 @@
     --ink-3: #959389;
     --line: rgb(255 255 255 / 0.1);
     --accent: #c08ad6;
+  --series-send: #b07acb;
+  --series-receive: #199e70;
     --glow: rgb(170 92 195 / 0.18);
     --backdrop-opacity: 0.3;
     --info: #3987e5;
@@ -53,6 +58,8 @@
   --ink-3: #959389;
   --line: rgb(255 255 255 / 0.1);
   --accent: #c08ad6;
+  --series-send: #b07acb;
+  --series-receive: #199e70;
   --glow: rgb(170 92 195 / 0.18);
   --backdrop-opacity: 0.3;
   --info: #3987e5;
@@ -68,6 +75,8 @@
   --color-ink-3: var(--ink-3);
   --color-line: var(--line);
   --color-accent: var(--accent);
+  --color-series-send: var(--series-send);
+  --color-series-receive: var(--series-receive);
   --color-good: var(--good);
   --color-info: var(--info);
   --color-warning: var(--warning);

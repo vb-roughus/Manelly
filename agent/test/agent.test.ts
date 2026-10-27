@@ -3,9 +3,10 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentScheduleStatus, AgentStatus, ConversionJob } from '@manelly/shared';
+import type { AgentNetworkList, AgentNetworkStatus, AgentScheduleStatus, AgentStatus, ConversionJob } from '@manelly/shared';
 import { createNotifier } from '../src/jellyfin.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
+import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
 import { createGate, createSettingsStore } from '../src/schedule.js';
 import { createAgentServer } from '../src/server.js';
 import { discoverTools, type Tools } from '../src/tools.js';
@@ -61,6 +62,16 @@ let close: () => Promise<void>;
 let free = Number.MAX_SAFE_INTEGER;
 let tools: Tools;
 let queue: JobQueue;
+let network: NetworkMonitor;
+
+// The network interfaces of the server: one Ethernet adapter whose counters grow by 1 MB per second.
+const fakeNetwork: CounterSource = {
+  list: async () => [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: ['192.168.1.2'] }],
+  start(ids, _interval, onSample) {
+    for (const t of [1000, 2000]) onSample({ t, nics: ids.map((id) => ({ id, rx: t * 100, tx: t * 1000, up: true, speed: 1e9 })) });
+    return () => {};
+  },
+};
 
 // Jellyfin as the agent sees it: a number of streams, and the calls it received.
 let streams = 0;
@@ -89,10 +100,12 @@ async function start() {
     tickMs: 0,
     notify: createNotifier(() => settings.get().jellyfin, { fetch: fakeJellyfin }),
   });
-  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, tools: async () => tools, freeBytes: async () => free });
+  network = createNetworkMonitor({ source: fakeNetwork, selection: () => settings.get().network, now: () => 2000 });
+  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, tools: async () => tools, freeBytes: async () => free });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
+    network.stop();
     await queue.stop();
     await new Promise((resolve) => server.close(resolve));
   };
@@ -331,5 +344,22 @@ describe('restart', () => {
     const restarted = await createJobQueue({ dataDir, roots: [], tools: async () => tools, tickMs: 0 });
     expect(restarted.list()[0]).toMatchObject({ state: 'failed', error: 'Der Agent wurde 5-mal mitten in dieser Umwandlung beendet – sie wird nicht mehr fortgesetzt.' });
     await restarted.stop();
+  });
+});
+
+describe('network', () => {
+  it('monitors the interfaces picked in Manelly', async () => {
+    const list = (await (await call('/api/network/interfaces')).json()) as AgentNetworkList;
+    expect(list).toMatchObject({ interfaces: [{ id: '{A1}', name: 'Ethernet', speedBps: 1e9 }], selected: [] });
+    expect(((await (await call('/api/network')).json()) as AgentNetworkStatus).interfaces).toEqual([]);
+
+    expect((await put('/api/network/interfaces', { interfaces: ['{nope}'] })).status).toBe(400);
+    expect((await put('/api/network/interfaces', { interfaces: ['{A1}'] })).status).toBe(200);
+    expect(((await (await call('/api/status')).json()) as AgentStatus).network).toEqual({ selected: ['{A1}'] });
+
+    const status = (await (await call('/api/network')).json()) as AgentNetworkStatus;
+    expect(status.interfaces).toEqual([
+      { id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', up: true, speedBps: 1e9, rxBps: 800_000, txBps: 8_000_000, history: [{ t: 2000, rxBps: 800_000, txBps: 8_000_000 }] },
+    ]);
   });
 });

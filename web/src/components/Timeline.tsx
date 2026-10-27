@@ -20,13 +20,17 @@ interface TimelineState {
   highlight: { start: number; end: number } | null;
 }
 
+/** Keeps the lines off the rounded edge of the grey plots; lanes and axis share it. */
+const PAD_X = 8;
+
 const TimelineContext = createContext<TimelineState | null>(null);
 
 function useTimeline(): TimelineState & { x: (t: number) => number } {
   const state = useContext(TimelineContext);
   if (!state) throw new Error('Outside a Timeline.');
-  return { ...state, x: (t: number) => ((t - state.start) / (state.end - state.start)) * state.width };
+  return { ...state, x: (t: number) => PAD_X + ((t - state.start) / (state.end - state.start)) * (state.width - 2 * PAD_X) };
 }
+
 
 /** Charts and lanes on one time scale, with one crosshair across all of them. */
 export function Timeline({ children, ...state }: Omit<TimelineState, 'width'> & { children: ReactNode }) {
@@ -73,7 +77,7 @@ interface TimelineChartProps<T extends { t: number }> {
   height?: number;
 }
 
-const PAD = 4;
+const PAD = 6;
 
 /** One measure over the range; gaps where nothing was recorded. The crosshair's values stand in the header. */
 export function TimelineChart<T extends { t: number }>({ title, icon: Icon, points, series, band, top, format, summary, extra, height = 88 }: TimelineChartProps<T>) {
@@ -107,7 +111,7 @@ export function TimelineChart<T extends { t: number }>({ title, icon: Icon, poin
 
   function pick(event: PointerEvent<HTMLDivElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
-    const t = start + ((event.clientX - rect.left) / rect.width) * (end - start);
+    const t = start + ((event.clientX - rect.left - PAD_X) / (rect.width - 2 * PAD_X)) * (end - start);
     setActive(nearestPoint(points, t, Number.POSITIVE_INFINITY)?.t ?? null);
   }
 
@@ -167,14 +171,20 @@ export function TimelineChart<T extends { t: number }>({ title, icon: Icon, poin
         onPointerLeave={() => setActive(null)}
         onKeyDown={stepThrough}
         onBlur={() => setActive(null)}
-        className="cursor-crosshair rounded outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        className="cursor-crosshair rounded-lg bg-plot outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         style={{ height }}
       >
         <svg width={width} height={height} className="block overflow-visible" aria-hidden>
           {highlight && (
-            <rect x={Math.max(0, x(highlight.start))} width={Math.max(2, Math.min(width, x(highlight.end)) - Math.max(0, x(highlight.start)))} y={0} height={height - PAD} className="fill-accent/10" />
+            <rect
+              x={Math.max(PAD_X, x(highlight.start))}
+              width={Math.max(2, Math.min(width - PAD_X, x(highlight.end)) - Math.max(PAD_X, x(highlight.start)))}
+              y={0}
+              height={height}
+              className="fill-accent/12"
+            />
           )}
-          <line x1={0} x2={width} y1={height - PAD} y2={height - PAD} className="stroke-line" strokeWidth={1} />
+          <line x1={PAD_X} x2={width - PAD_X} y1={height - PAD} y2={height - PAD} className="stroke-line" strokeWidth={1} />
           {markers.filter((marker) => marker.t >= start && marker.t <= end).map((marker) => (
             <line
               key={`${marker.t}-${marker.transcode}`}
@@ -211,7 +221,7 @@ export function TimelineChart<T extends { t: number }>({ title, icon: Icon, poin
               {current &&
                 [...series].reverse().map((entry) => {
                   const v = value(current, entry.key);
-                  return v === null ? null : <circle key={String(entry.key)} cx={x(current.t)} cy={y(v)} r={4} className={clsx(entry.fill, 'stroke-card')} strokeWidth={2} />;
+                  return v === null ? null : <circle key={String(entry.key)} cx={x(current.t)} cy={y(v)} r={4} className={clsx(entry.fill, 'stroke-plot')} strokeWidth={2} />;
                 })}
             </g>
           )}
@@ -264,10 +274,10 @@ export function StreamLanes({ spans, selected, onSelect }: { spans: StreamSpan[]
           {active !== null && <div aria-hidden className="absolute inset-y-0 w-px bg-ink-3" style={{ left: x(active) }} />}
           {spans.map((span) => {
             const key = span.id + span.start;
-            const left = Math.max(0, x(span.start));
-            const right = Math.min(width, Math.max(x(spanEnd(span, end)), x(span.start) + MIN_BAR));
+            const left = Math.max(PAD_X, x(span.start));
+            const right = Math.min(width - PAD_X, Math.max(x(spanEnd(span, end)), x(span.start) + MIN_BAR));
             const first = span.phases[0]!;
-            const total = Math.max(1, spanEnd(span, end) - Math.max(span.start, start));
+            const total = spanEnd(span, end) - Math.max(span.start, start);
             return (
               <button
                 key={key}
@@ -284,7 +294,9 @@ export function StreamLanes({ spans, selected, onSelect }: { spans: StreamSpan[]
                 {span.phases.map((phase, index) => {
                   const from = Math.max(phase.t, span.start, start);
                   const until = span.phases[index + 1]?.t ?? spanEnd(span, end);
-                  return <span key={phase.t} aria-hidden className={clsx('h-full shrink-0', TONES[phase.method])} style={{ width: `${(Math.max(0, until - from) / total) * 100}%` }} />;
+                  // Without a known length (end unknown), the bar shows how it played last.
+                  const share = total > 0 ? Math.max(0, until - from) / total : index === span.phases.length - 1 ? 1 : 0;
+                  return <span key={phase.t} aria-hidden className={clsx('h-full shrink-0', TONES[phase.method])} style={{ width: `${share * 100}%` }} />;
                 })}
                 <span className="absolute inset-0 flex items-center gap-1 truncate px-1.5 text-[11px] font-medium text-ink">
                   {span.phases.some((phase) => phase.method === 'Transcode') && <Cpu className="size-3 shrink-0 text-ink-2" aria-hidden />}

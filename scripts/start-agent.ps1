@@ -4,7 +4,8 @@
 #
 #   .\scripts\start-agent.ps1              install what is missing, start the agent in this window
 #   .\scripts\start-agent.ps1 -Install     start it automatically and open the firewall port; as administrator
-#                                          it starts with Windows, without anybody logging on
+#                                          it starts with Windows, without anybody logging on. A running
+#                                          agent (also an older version) is ended and replaced.
 #   .\scripts\start-agent.ps1 -Install -StorePassword
 #                                          the same with your Windows password stored in the task, for media
 #                                          on network shares (without it, the agent reaches local drives only)
@@ -87,27 +88,72 @@ function Save-ToolPaths([hashtable]$KnownLocations) {
   }
 }
 
-# An agent started earlier (in a window, or by the former autostart at logon) keeps the port busy.
-function Stop-RunningAgent([int]$Value) {
-  $listeners = Get-NetTCPConnection -LocalPort $Value -State Listen -ErrorAction SilentlyContinue
-  foreach ($processId in @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)) {
-    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
-    if ($process -and $process.ProcessName -eq 'node') {
-      Write-Info "Beende den laufenden Agent (Prozess $processId) – eine laufende Umwandlung macht danach weiter."
-      Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-    }
-  }
-  for ($attempt = 0; $attempt -lt 20 -and (Test-PortInUse $Value); $attempt++) { Start-Sleep -Milliseconds 250 }
+# The version in this folder, to tell it from an agent that still runs from before.
+function Get-CheckoutVersion {
+  return [string](Get-Content (Join-Path $agentDir 'package.json') -Raw | ConvertFrom-Json).version
 }
 
-function Wait-AgentHealthy([int]$Value) {
-  for ($attempt = 0; $attempt -lt 40; $attempt++) {
+# What answers on the port: the version of a Manelly agent, '' for an agent before 0.7.0, $null for anything else.
+function Get-RunningAgentVersion([int]$Value) {
+  try {
+    $health = Invoke-RestMethod "http://localhost:$Value/api/health" -TimeoutSec 2
+    if ($health.status -eq 'ok') { return [string]$health.version }
+  } catch { }
+  return $null
+}
+
+# An agent started earlier (in a window, by the autostart, or by an older install) keeps the port busy.
+# First it is asked to end itself (a running conversion then continues later), then every agent
+# process still holding the port, or running from this folder, is ended. Fails when the port stays busy.
+function Stop-RunningAgent([int]$Value) {
+  $config = Read-AgentConfig
+  if ((Test-PortInUse $Value) -and $config -and $config.token) {
     try {
-      $null = Invoke-WebRequest "http://localhost:$Value/api/health" -UseBasicParsing -TimeoutSec 2
-      return $true
+      $null = Invoke-RestMethod -Method Post "http://localhost:$Value/api/shutdown" -Headers @{ Authorization = "Bearer $($config.token)" } -TimeoutSec 5
+      Write-Info 'Der laufende Agent beendet sich …'
+      for ($attempt = 0; $attempt -lt 60 -and (Test-PortInUse $Value); $attempt++) { Start-Sleep -Milliseconds 250 }
     } catch {
-      Start-Sleep -Milliseconds 500
+      # Agents before 0.7.0 cannot end themselves; they are ended below.
     }
+  }
+
+  $entry = Join-Path $agentDir 'dist\index.js'
+  $ids = @(Get-NetTCPConnection -LocalPort $Value -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess)
+  $ids += @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($entry, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+    Select-Object -ExpandProperty ProcessId)
+  foreach ($processId in @($ids | Sort-Object -Unique)) {
+    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+    if (-not $process -or $process.ProcessName -ne 'node') { continue }
+    Write-Info "Beende den laufenden Agent (node.exe, Prozess $processId) – eine laufende Umwandlung macht danach weiter."
+    try {
+      Stop-Process -Id $processId -Force -ErrorAction Stop
+    } catch {
+      Write-Warn "Prozess $processId liess sich nicht beenden: $($_.Exception.Message)"
+    }
+  }
+
+  for ($attempt = 0; $attempt -lt 40 -and (Test-PortInUse $Value); $attempt++) { Start-Sleep -Milliseconds 250 }
+  if (Test-PortInUse $Value) {
+    $holders = @(Get-NetTCPConnection -LocalPort $Value -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object {
+      $holder = Get-Process -Id $_ -ErrorAction SilentlyContinue
+      if ($holder) { "$($holder.ProcessName).exe (Prozess $_)" } else { "Prozess $_" }
+    })
+    $by = if ($holders.Count) { " durch $($holders -join ', ')" } else { '' }
+    $hint = if (Test-Admin) {
+      'Den Prozess im Task-Manager unter «Details» beenden und das Skript erneut ausführen.'
+    } else {
+      'Das Skript als Administrator ausführen (Rechtsklick auf start-agent.cmd), oder den Prozess im Task-Manager unter «Details» beenden.'
+    }
+    Stop-WithError "Port $Value ist noch belegt$by. $hint"
+  }
+}
+
+# True once the agent of this folder answers – not an old one that still holds the port.
+function Wait-AgentHealthy([int]$Value, [string]$Expected) {
+  for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    if ((Get-RunningAgentVersion $Value) -eq $Expected) { return $true }
+    Start-Sleep -Milliseconds 500
   }
   return $false
 }
@@ -115,7 +161,7 @@ function Wait-AgentHealthy([int]$Value) {
 function Show-Connection([int]$Value) {
   $config = Read-AgentConfig
   Write-Host ''
-  Write-Host 'In Manelly unter Einstellungen → Agent eintragen:'
+  Write-Host 'In Manelly unter Server → Agent eintragen:'
   Write-Host "  Adresse:   http://$($env:COMPUTERNAME.ToLower()):$Value"
   if ($config -and $config.token) { Write-Host "  Schlüssel: $($config.token)" }
   Write-Host ''
@@ -128,6 +174,8 @@ if ($Uninstall) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     Write-Info 'Autostart entfernt.'
   }
+  $config = Read-AgentConfig
+  Stop-RunningAgent $(if ($config -and $config.port) { [int]$config.port } else { $DefaultPort })
   if (Get-NetFirewallRule -DisplayName $FirewallRule -ErrorAction SilentlyContinue) {
     if (Test-Admin) {
       Remove-NetFirewallRule -DisplayName $FirewallRule
@@ -145,10 +193,21 @@ if ($Port) { Save-AgentPort $Port }
 $config = Read-AgentConfig
 $agentPort = if ($config -and $config.port) { [int]$config.port } else { $DefaultPort }
 
+$checkoutVersion = Get-CheckoutVersion
 if ((Test-PortInUse $agentPort) -and -not $Install) {
-  Write-Info "Auf Port $agentPort läuft schon etwas – vermutlich der Agent (Autostart)."
-  Show-Connection $agentPort
-  exit 0
+  $running = Get-RunningAgentVersion $agentPort
+  if ($running -eq $checkoutVersion) {
+    Write-Info "Der Agent $running läuft schon auf Port $agentPort (Autostart)."
+    Show-Connection $agentPort
+    exit 0
+  }
+  if ($null -ne $running) {
+    $which = if ($running) { "Version $running" } else { 'eine ältere Version' }
+    Write-Warn "Auf Port $agentPort läuft noch ein anderer Agent ($which), in diesem Ordner liegt Version $checkoutVersion. Zum Ersetzen: scripts\start-agent.cmd -Install (als Administrator) – das beendet den laufenden Agent und startet den neuen."
+  } else {
+    Write-Warn "Port $agentPort ist durch ein anderes Programm belegt. Einen anderen Port wählen: scripts\start-agent.cmd -Port 8791"
+  }
+  exit 1
 }
 
 # --- Tools -------------------------------------------------------------------
@@ -223,7 +282,8 @@ if ($Install) {
 
   if (Test-Admin) {
     # With Windows, before anybody logs on – e.g. after a nightly restart. Nobody sees this process, so no window is needed.
-    $task.Action = New-ScheduledTaskAction -Execute $node -Argument "`"$entry`"" -WorkingDirectory $root
+    # --autostart: the agent tells Manelly it was started this way.
+    $task.Action = New-ScheduledTaskAction -Execute $node -Argument "`"$entry`" --autostart" -WorkingDirectory $root
     $task.Trigger = New-ScheduledTaskTrigger -AtStartup
     if ($StorePassword) {
       $credential = Get-Credential -UserName $user -Message 'Windows-Passwort für den Autostart des Agents (für Medien auf Netzwerkfreigaben)'
@@ -239,7 +299,7 @@ if ($Install) {
   } else {
     Write-Warn 'Ohne Administratorrechte startet der Agent erst, wenn du dich anmeldest. Damit er mit Windows startet (z. B. nach einem nächtlichen Neustart), das Skript als Administrator ausführen.'
     # A hidden PowerShell keeps the console window of node out of sight; the agent writes agent\data\agent.log itself.
-    $task.Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -Command `"& '$($node -replace "'", "''")' '$($entry -replace "'", "''")'`"" -WorkingDirectory $root
+    $task.Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -Command `"& '$($node -replace "'", "''")' '$($entry -replace "'", "''")' --autostart`"" -WorkingDirectory $root
     $task.Trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
     $startsWhen = "bei jeder Anmeldung von $env:USERNAME"
   }
@@ -253,10 +313,10 @@ if ($Install) {
   }
   Start-ScheduledTask -TaskName $TaskName
   Write-Info "Autostart eingerichtet: Der Agent startet $startsWhen."
-  if (Wait-AgentHealthy $agentPort) {
-    Write-Info "Der Agent läuft auf Port $agentPort."
+  if (Wait-AgentHealthy $agentPort $checkoutVersion) {
+    Write-Info "Der Agent $checkoutVersion läuft auf Port $agentPort."
   } else {
-    Write-Warn "Der Agent antwortet noch nicht – siehe $(Join-Path $dataDir 'agent.log')."
+    Write-Warn "Der Agent $checkoutVersion antwortet noch nicht – siehe $(Join-Path $dataDir 'agent.log')."
   }
   Show-Connection $agentPort
   exit 0

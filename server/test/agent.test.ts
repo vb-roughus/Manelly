@@ -33,7 +33,9 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
     started: string[];
     jdownloader: Array<{ method: string; path: string; body: unknown }>;
     history: Array<{ method: string; path: string; body: unknown }>;
+    shutdowns: number;
   } = {
+    shutdowns: 0,
     jdownloader: [],
     history: [],
     jobs: [],
@@ -53,7 +55,17 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (new Headers(init?.headers).get('authorization') !== `Bearer ${AGENT_TOKEN}`) return Response.json({ error: { message: 'nope' } }, { status: 401 });
       if (url.pathname === '/api/status') {
         const version = options.agentVersion ?? '0.2.0';
-        return Response.json({ version, hostname: 'jellyfin-pc', platform: 'win32', tools: {}, roots: [], ready: true, ...(version === '0.1.0' ? {} : { schedule: agent.schedule }) });
+        return Response.json({
+          version,
+          hostname: 'jellyfin-pc',
+          platform: 'win32',
+          tools: {},
+          roots: [],
+          ready: true,
+          ...(version === '0.1.0' ? {} : { schedule: agent.schedule }),
+          // Agents from 0.7.0 on tell their process and can end themselves.
+          ...(Number(version.split('.')[1]) >= 7 ? { process: { pid: 4711, startedAt: '2026-10-27T02:00:00.000Z', node: 'v22.12.0', execPath: 'node.exe', autostart: true, port: 8790 } } : {}),
+        });
       }
       if (url.pathname === '/api/jellyfin' && init?.method === 'PUT') {
         sent.jellyfin.push(body);
@@ -72,6 +84,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname.startsWith('/api/jdownloader')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         return Response.json({ settings: body ?? { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } }, reachable: true, error: null, state: 'RUNNING', speedBps: 0, limit: null, packages: [], throttling: { active: false, reason: null } });
+      }
+      if (url.pathname === '/api/shutdown' && init?.method === 'POST') {
+        sent.shutdowns++;
+        return Response.json({ stopping: true }, { status: 202 });
       }
       if (url.pathname.startsWith('/api/history')) {
         sent.history.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
@@ -292,6 +308,18 @@ describe('agent connection', () => {
       { method: 'PUT', path: '/api/jdownloader/limit', body: { enabled: true, kbps: 512 } },
     ]);
     expect((await app.inject('/api/agent/jdownloader')).json<JDownloaderStatus>().state).toBe('RUNNING');
+  });
+
+  it('ends the agent on request, but not an agent too old to end itself', async () => {
+    const old = await setup(fakeWorld({ agentVersion: '0.6.0' }));
+    const refused = await old.app.inject({ method: 'POST', url: '/api/agent/shutdown' });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe('Der Agent auf jellyfin-pc ist zu alt, um sich selbst zu beenden (Version 0.6.0).');
+    expect(old.world.sent.shutdowns).toBe(0);
+
+    const { app, world } = await setup(fakeWorld({ agentVersion: '0.7.0' }));
+    expect((await app.inject({ method: 'POST', url: '/api/agent/shutdown' })).statusCode).toBe(204);
+    expect(world.sent.shutdowns).toBe(1);
   });
 
   it('passes the recording settings and queries to the agent, and hands over Jellyfin to record streams', async () => {

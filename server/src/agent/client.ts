@@ -54,6 +54,8 @@ export interface AgentClient {
   history(from: number, to: number): Promise<HistoryResponse>;
   setHistorySettings(settings: HistorySettings): Promise<HistorySettings>;
   clearHistory(): Promise<void>;
+  /** Ends the agent's process; it answers first. */
+  shutdown(): Promise<void>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -116,5 +118,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),
     setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),
     clearHistory: () => call('DELETE', '/api/history', undefined, 20_000),
+    shutdown: async () => {
+      await call('POST', '/api/shutdown');
+    },
   };
 }

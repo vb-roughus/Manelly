@@ -212,6 +212,17 @@ export function useSaveAgentSettings() {
 const isActive = (job: ConversionJob) => job.state === 'queued' || job.state === 'running';
 
 /** Polls quickly while something converts, slowly otherwise. */
+/** Ends the agent's process. Asked again a moment later, the agent is gone. */
+export function useStopAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => sendJson<null>('POST', '/api/agent/shutdown'),
+    onSuccess: () => {
+      setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['agent'] }), 1500);
+    },
+  });
+}
+
 export function useConversions(enabled = true) {
   return useQuery({
     queryKey: ['conversions'],

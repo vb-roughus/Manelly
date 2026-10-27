@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import type { JDownloaderSettings, JDownloaderStatus, JDownloaderThrottleMode } from '@manelly/shared';
 import { LoaderCircle } from 'lucide-react';
 import clsx from 'clsx';
@@ -12,7 +13,17 @@ export function JDownloaderForm() {
   const supported = Boolean(status?.jdownloader);
   const jdownloader = useJDownloader(supported, false);
 
-  if (!status) return <p className="text-sm text-ink-2">Zuerst den Agent oben verbinden.</p>;
+  if (!status) {
+    return (
+      <p className="text-sm text-ink-2">
+        Zuerst den Agent unter{' '}
+        <Link to="/server/agent" className="font-medium text-accent hover:underline">
+          Server → Agent
+        </Link>{' '}
+        verbinden.
+      </p>
+    );
+  }
   if (!supported) {
     return (
       <Message tone="critical">

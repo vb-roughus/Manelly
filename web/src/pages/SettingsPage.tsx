@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
-import { Download, Network, Plug, WandSparkles } from 'lucide-react';
-import { AgentForm } from '../components/AgentForm';
+import { Link } from 'react-router';
+import { Download, Network, Plug } from 'lucide-react';
 import { ConnectionForm } from '../components/ConnectionForm';
 import { JDownloaderForm } from '../components/JDownloaderForm';
 import { NetworkInterfacesForm } from '../components/NetworkInterfacesForm';
+import { SettingsSection } from '../components/SettingsSection';
 import { useAgentSettings } from '../hooks/queries';
 
 export function SettingsPage() {
@@ -16,75 +17,34 @@ export function SettingsPage() {
     <div className="mx-auto max-w-3xl">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Einstellungen</h1>
-        <p className="mt-1 text-sm text-ink-2">Verbindung zu deinem Jellyfin-Server und zum Agent darauf.</p>
+        <p className="mt-1 text-sm text-ink-2">
+          Verbindung zu deinem Jellyfin-Server, und was der Agent darauf messen und steuern soll. Den Agent selbst verbindest du unter{' '}
+          <Link to="/server/agent" className="font-medium text-accent hover:underline">
+            Server → Agent
+          </Link>
+          .
+        </p>
       </header>
 
-      <section aria-labelledby="connection-heading" className="mt-6 rounded-2xl border border-line bg-card p-5 shadow-sm shadow-black/5 sm:p-6">
-        <div className="mb-5 flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-xl bg-accent/12 text-accent">
-            <Plug className="size-4" aria-hidden />
-          </span>
-          <div>
-            <h2 id="connection-heading" className="font-semibold">
-              Jellyfin-Verbindung
-            </h2>
-            <p className="text-sm text-ink-2">Der API-Schlüssel bleibt auf dem Manelly-Server und wird nie angezeigt.</p>
-          </div>
-        </div>
+      <SettingsSection icon={Plug} title="Jellyfin-Verbindung" description="Der API-Schlüssel bleibt auf dem Manelly-Server und wird nie angezeigt.">
         <ConnectionForm />
-      </section>
-
-      <section aria-labelledby="agent-heading" className="mt-6 rounded-2xl border border-line bg-card p-5 shadow-sm shadow-black/5 sm:p-6">
-        <div className="mb-5 flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-xl bg-accent/12 text-accent">
-            <WandSparkles className="size-4" aria-hidden />
-          </span>
-          <div>
-            <h2 id="agent-heading" className="font-semibold">
-              Agent auf dem Jellyfin-Server
-            </h2>
-            <p className="text-sm text-ink-2">
-              Optional: Er wandelt Dateien direkt auf dem Server um, z. B. Dolby Vision Profil 7 in Profil 8.1.
-            </p>
-          </div>
-        </div>
-        <AgentForm />
-      </section>
+      </SettingsSection>
 
       {agentSettings.data?.url && (
-        <section id="network" aria-labelledby="network-heading" className="mt-6 scroll-mt-6 rounded-2xl border border-line bg-card p-5 shadow-sm shadow-black/5 sm:p-6">
-          <div className="mb-5 flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-xl bg-accent/12 text-accent">
-              <Network className="size-4" aria-hidden />
-            </span>
-            <div>
-              <h2 id="network-heading" className="font-semibold">
-                Netzwerk des Jellyfin-Servers
-              </h2>
-              <p className="text-sm text-ink-2">
-                Welche Schnittstellen das Dashboard zeigt. Der Agent misst nur diese, und nur solange Manelly sie anzeigt.
-              </p>
-            </div>
-          </div>
+        <SettingsSection
+          id="network"
+          icon={Network}
+          title="Netzwerk des Jellyfin-Servers"
+          description="Welche Schnittstellen das Dashboard zeigt. Der Agent misst nur diese, und nur solange Manelly sie anzeigt oder aufzeichnet."
+        >
           <NetworkInterfacesForm />
-        </section>
+        </SettingsSection>
       )}
 
       {agentSettings.data?.url && (
-        <section aria-labelledby="jdownloader-heading" className="mt-6 rounded-2xl border border-line bg-card p-5 shadow-sm shadow-black/5 sm:p-6">
-          <div className="mb-5 flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-xl bg-accent/12 text-accent">
-              <Download className="size-4" aria-hidden />
-            </span>
-            <div>
-              <h2 id="jdownloader-heading" className="font-semibold">
-                JDownloader
-              </h2>
-              <p className="text-sm text-ink-2">Downloads im Dashboard sehen und steuern, und bremsen, solange jemand streamt.</p>
-            </div>
-          </div>
+        <SettingsSection icon={Download} title="JDownloader" description="Downloads im Dashboard sehen und steuern, und bremsen, solange jemand streamt.">
           <JDownloaderForm />
-        </section>
+        </SettingsSection>
       )}
     </div>
   );

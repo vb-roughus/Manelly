@@ -6,6 +6,7 @@ import type {
   AgentCheckRequest,
   AgentCheckResponse,
   AgentNetworkList,
+  AgentProcess,
   AgentScheduleStatus,
   AgentStatus,
   ConversionRequest,
@@ -36,6 +37,9 @@ export interface AgentServerOptions {
   resources: ResourceMonitor;
   jdownloader: JDownloader;
   recorder: Recorder;
+  process: AgentProcess;
+  /** Ends the agent after the answer went out. */
+  onShutdown: () => void;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -75,7 +79,8 @@ function send(response: ServerResponse, status: number, body: unknown) {
 /** The agent's HTTP API. Everything but the health check needs the token from agent.json. */
 const JDOWNLOADER_ACTIONS: JDownloaderAction[] = ['start', 'stop', 'pause', 'resume'];
 
-export function createAgentServer({ token, roots, queue, settings, network, resources, jdownloader, recorder, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+export function createAgentServer(options: AgentServerOptions) {
+  const { token, roots, queue, settings, network, resources, jdownloader, recorder, tools, freeBytes = defaultFreeBytes } = options;
   async function networkList(): Promise<AgentNetworkList> {
     const interfaces = await network.list().catch((error: Error) => {
       throw new AgentError(503, error.message);
@@ -108,7 +113,8 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
     const url = new URL(request.url ?? '/', 'http://agent');
     const route = `${request.method} ${url.pathname}`;
 
-    if (route === 'GET /api/health') return send(response, 200, { status: 'ok' });
+    // The version lets the install script tell an old agent from the one it just started.
+    if (route === 'GET /api/health') return send(response, 200, { status: 'ok', version: AGENT_VERSION });
     if (!authorized(request, token)) throw new AgentError(401, 'Falscher oder fehlender Agent-Schlüssel.');
 
     if (route === 'GET /api/status') {
@@ -125,6 +131,7 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
         resources: { supported: resources.supported },
         jdownloader: { enabled: settings.get().jdownloader.enabled },
         history: { enabled: settings.get().history.enabled },
+        process: options.process,
       };
       return send(response, 200, status);
     }
@@ -179,6 +186,11 @@ export function createAgentServer({ token, roots, queue, settings, network, reso
       if (typeof enabled !== 'boolean' || !Number.isInteger(kbps) || kbps! < 1 || kbps! > 10_000_000) throw new AgentError(400, 'Ungültiges Tempo-Limit.');
       await jdownloaderCall(() => jdownloader.setLimit(enabled, kbps! * 1024));
       return send(response, 200, await jdownloader.status());
+    }
+    if (route === 'POST /api/shutdown') {
+      send(response, 202, { stopping: true });
+      response.once('finish', options.onShutdown);
+      return;
     }
     if (route === 'GET /api/history') {
       const to = Number(url.searchParams.get('to') ?? Date.now());

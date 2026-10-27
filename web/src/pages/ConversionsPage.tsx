@@ -33,8 +33,8 @@ export function ConversionsPage() {
             <p className="font-medium">Noch kein Agent eingerichtet</p>
             <p className="mt-1 text-sm text-ink-2">
               Installiere den Agent auf dem Jellyfin-Server mit <code>scripts\start-agent.cmd</code> und trage Adresse und Schlüssel unter{' '}
-              <Link to="/settings" className="font-medium text-accent hover:underline">
-                Einstellungen
+              <Link to="/server/agent" className="font-medium text-accent hover:underline">
+                Server → Agent
               </Link>{' '}
               ein.
             </p>
@@ -44,8 +44,8 @@ export function ConversionsPage() {
         {agent.data?.status && !agent.data.status.ready && (
           <Panel tone="critical">
             Dem Agent auf {agent.data.status.hostname} fehlen Werkzeuge – Details unter{' '}
-            <Link to="/settings" className="font-medium underline">
-              Einstellungen
+            <Link to="/server/agent" className="font-medium underline">
+              Server → Agent
             </Link>
             .
           </Panel>

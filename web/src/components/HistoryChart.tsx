@@ -24,7 +24,9 @@ interface HistoryChartProps<T extends { t: number }> {
 }
 
 const HEIGHT = 72;
-const PAD = 4;
+const PAD = 6;
+/** Keeps the lines off the rounded edge of the grey plot. */
+const PAD_X = 8;
 
 const clock = (t: number) => new Date(t).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -38,7 +40,7 @@ export function HistoryChart<T extends { t: number }>({ points, series, top, for
 
   const end = points.at(-1)?.t ?? Date.now();
   const start = end - windowMs;
-  const x = (t: number) => ((t - start) / windowMs) * width;
+  const x = (t: number) => PAD_X + ((t - start) / windowMs) * (width - 2 * PAD_X);
   const y = (v: number) => HEIGHT - PAD - ((HEIGHT - 2 * PAD) * Math.min(v, top)) / top;
 
   // Gaps (nothing measured, or no value) break the line instead of bridging them.
@@ -56,7 +58,7 @@ export function HistoryChart<T extends { t: number }>({ points, series, top, for
   function pick(event: PointerEvent<HTMLDivElement>) {
     if (!points.length || !box.current) return;
     const rect = box.current.getBoundingClientRect();
-    const t = start + ((event.clientX - rect.left) / rect.width) * windowMs;
+    const t = start + ((event.clientX - rect.left - PAD_X) / (rect.width - 2 * PAD_X)) * windowMs;
     let nearest = 0;
     points.forEach((entry, index) => {
       if (Math.abs(entry.t - t) < Math.abs(points[nearest]!.t - t)) nearest = index;
@@ -96,12 +98,12 @@ export function HistoryChart<T extends { t: number }>({ points, series, top, for
         onPointerLeave={() => setActive(null)}
         onKeyDown={step}
         onBlur={() => setActive(null)}
-        className="relative cursor-crosshair rounded outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        className="relative cursor-crosshair rounded-lg bg-plot outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         style={{ height: HEIGHT }}
       >
         {width > 0 && (
           <svg width={width} height={HEIGHT} className="block overflow-visible" aria-hidden>
-            <line x1={0} x2={width} y1={HEIGHT - PAD} y2={HEIGHT - PAD} className="stroke-line" strokeWidth={1} />
+            <line x1={PAD_X} x2={width - PAD_X} y1={HEIGHT - PAD} y2={HEIGHT - PAD} className="stroke-line" strokeWidth={1} />
             {[...series].reverse().map((entry) => (
               <path key={String(entry.key)} d={path(entry.key)} fill="none" className={entry.stroke} strokeWidth={entry.thin ? 1.5 : 2} strokeLinejoin="round" strokeLinecap="round" />
             ))}
@@ -110,7 +112,7 @@ export function HistoryChart<T extends { t: number }>({ points, series, top, for
                 <line x1={x(point.t)} x2={x(point.t)} y1={0} y2={HEIGHT - PAD} className="stroke-ink-3" strokeWidth={1} />
                 {[...series].reverse().map((entry) => {
                   const v = value(point, entry.key);
-                  return v === null ? null : <circle key={String(entry.key)} cx={x(point.t)} cy={y(v)} r={4} className={clsx(entry.fill, 'stroke-card')} strokeWidth={2} />;
+                  return v === null ? null : <circle key={String(entry.key)} cx={x(point.t)} cy={y(v)} r={4} className={clsx(entry.fill, 'stroke-plot')} strokeWidth={2} />;
                 })}
               </g>
             )}

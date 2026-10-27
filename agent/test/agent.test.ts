@@ -92,6 +92,8 @@ const fakeJellyfin: typeof fetch = async (input, init) => {
   return new Response(null, { status: 204 });
 };
 let clock = new Date(2026, 9, 26, 2, 0);
+const PROCESS = { pid: 4711, startedAt: '2026-10-27T02:00:00.000Z', node: 'v22.12.0', execPath: 'C:\\Program Files\\nodejs\\node.exe', autostart: true, port: 8790 };
+let shutdowns = 0;
 
 async function start() {
   tools = await createFakeTools(path.join(root, 'bin'));
@@ -110,7 +112,20 @@ async function start() {
   resources = createResourceMonitor({ source: { start: () => () => {} }, ownProcesses: () => new Set() });
   jdownloader = createJDownloader({ settings, fetch: fakeJellyfin, tickMs: 0 });
   recorder = createRecorder({ dir: path.join(dataDir, 'history'), settings, resources, network, fetch: fakeJellyfin, now: () => 2500, tickMs: 0 });
-  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, resources, jdownloader, recorder, tools: async () => tools, freeBytes: async () => free });
+  const server = createAgentServer({
+    token: TOKEN,
+    roots: [],
+    queue,
+    settings,
+    network,
+    resources,
+    jdownloader,
+    recorder,
+    tools: async () => tools,
+    freeBytes: async () => free,
+    process: PROCESS,
+    onShutdown: () => void shutdowns++,
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
@@ -418,5 +433,23 @@ describe('history routes', () => {
     expect((await call('/api/history?from=10&to=5')).status).toBe(400);
     expect((await call('/api/history', { method: 'DELETE' })).status).toBe(204);
     expect(((await (await call('/api/history?from=0&to=60000')).json()) as HistoryResponse).points).toEqual([]);
+  });
+});
+
+describe('process', () => {
+  it('tells its version without the key, and its process with it', async () => {
+    expect(await (await fetch(`${baseUrl}/api/health`)).json()).toEqual({ status: 'ok', version: expect.stringMatching(/^\d+\.\d+\.\d+$/) });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).process).toEqual(PROCESS);
+  });
+
+  it('ends itself on request, only with the key, after answering', async () => {
+    shutdowns = 0;
+    expect((await fetch(`${baseUrl}/api/shutdown`, { method: 'POST' })).status).toBe(401);
+    expect(shutdowns).toBe(0);
+    const response = await call('/api/shutdown', { method: 'POST' });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ stopping: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(shutdowns).toBe(1);
   });
 });

@@ -976,6 +976,20 @@ export interface HistoryResponse {
   error: string | null;
 }
 
+/** The agent's own process, so it can be found in the Task Manager and stopped from Manelly. */
+export interface AgentProcess {
+  pid: number;
+  /** ISO time. */
+  startedAt: string;
+  /** Node.js version, e.g. v22.12.0. */
+  node: string;
+  /** The node executable – the Task Manager lists the agent under this name. */
+  execPath: string;
+  /** Started by the autostart (the scheduled task "Manelly Agent"), not by hand. */
+  autostart: boolean;
+  port: number;
+}
+
 export interface AgentTool {
   path: string | null;
   version: string | null;
@@ -1001,6 +1015,8 @@ export interface AgentStatus {
   jdownloader?: { enabled: boolean };
   /** Whether the agent records the history; missing on agents before 0.6.0. */
   history?: { enabled: boolean };
+  /** Missing on agents before 0.7.0, which cannot be stopped from Manelly either. */
+  process?: AgentProcess;
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */

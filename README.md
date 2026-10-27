@@ -91,6 +91,9 @@ Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metad
 - **Hardware testen** (mit [Agent](#agent-auf-dem-jellyfin-server-windows)): Das FFmpeg von Jellyfin kodiert und
   dekodiert auf dem Server ein paar Sekunden Testbild mit der eingestellten Beschleunigung – so zeigt sich, ob Treiber und
   Grafikeinheit wirklich funktionieren
+- **Agent** (Unterseite im Menü unter Server): Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten,
+  seine Werkzeuge, Version, Prozess-ID und Startzeit sehen und ihn beenden – z. B. wenn vor einem Update noch ein alter
+  Agent läuft
 
 ### Umwandlungen (mit Agent)
 
@@ -234,8 +237,8 @@ dem Jellyfin läuft:
    Das Passwort speichert Windows in der Aufgabenplanung; nach einer Passwortänderung den Befehl erneut ausführen.
    Verbundene Laufwerksbuchstaben (`Z:`) gibt es ohne Anmeldung nicht – Jellyfin sollte die Freigaben als `\\nas\…`
    kennen.
-2. Das Skript zeigt **Adresse** und **Schlüssel** an. Beides in Manelly unter **Einstellungen → Agent auf dem
-   Jellyfin-Server** eintragen; Manelly zeigt dann, welche Werkzeuge gefunden wurden.
+2. Das Skript zeigt **Adresse** und **Schlüssel** an. Beides in Manelly unter **Server → Agent** eintragen; Manelly
+   zeigt dann, welche Werkzeuge gefunden wurden.
 
 - Konfiguration in `agent\data\agent.json`: `port`, `token` (der Schlüssel), `tools` (Pfade, falls ein Werkzeug nicht
   gefunden wird; `-Install` trägt Werkzeuge ein, die nur über den PATH gefunden werden) und `roots` – eine Liste von Ordnern, auf die der Agent sich beschränken soll (leer: jeder Ordner, den
@@ -247,8 +250,14 @@ dem Jellyfin läuft:
   Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
-- Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen (als Administrator). Eine laufende
-  Umwandlung wird dabei unterbrochen und macht danach weiter.
+- Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen (als Administrator). Das Skript beendet
+  den laufenden Agent – auch eine ältere Version – und startet den neuen; es meldet erst Erfolg, wenn die neue Version
+  antwortet. Bleibt der Port belegt, nennt es das Programm, das ihn hält. Eine laufende Umwandlung wird dabei
+  unterbrochen und macht danach weiter.
+- Der Agent ist **kein Dienst**: Im Task-Manager steht er unter «Details» als `node.exe`; der Autostart ist die Aufgabe
+  «Manelly Agent» in der Aufgabenplanung. Unter **Server → Agent** zeigt Manelly Version, Prozess-ID und Startzeit und
+  kann ihn **beenden** (ab Agent 0.7.0). Wieder starten: Windows neu starten, `Start-ScheduledTask -TaskName 'Manelly
+  Agent'` (als Administrator) oder das Skript mit `-Install`.
 
 ## Schnellstart mit Docker
 

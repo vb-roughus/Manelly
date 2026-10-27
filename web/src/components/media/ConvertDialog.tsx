@@ -70,8 +70,8 @@ function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps
       {options.error && (
         <Note tone="critical">
           {options.error.message}{' '}
-          <Link to="/settings" onClick={onClose} className="font-medium underline">
-            Zu den Einstellungen
+          <Link to="/server/agent" onClick={onClose} className="font-medium underline">
+            Zum Agent
           </Link>
         </Note>
       )}

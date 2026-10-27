@@ -85,6 +85,11 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (init?.method === 'PUT') agent.network = body.interfaces;
         return Response.json({ interfaces: [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: [] }], selected: agent.network });
       }
+      if (url.pathname.startsWith('/api/jdownloader/accounts')) {
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        if (init?.method === 'POST') return Response.json({ refreshing: 2 }, { status: 202 });
+        return Response.json({ accounts: [{ id: 7, hoster: 'rapidgator.net', username: 'rolf', state: 'ok', error: null, validUntil: null, trafficLeft: 87e9, trafficMax: 100e9, unlimited: false }] });
+      }
       if (url.pathname.startsWith('/api/jdownloader/linkgrabber')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         return Response.json({ collecting: false, packages: [] });
@@ -335,6 +340,18 @@ describe('agent connection', () => {
     expect((await app.inject('/api/agent/jdownloader')).json<JDownloaderStatus>().state).toBe('RUNNING');
     await app.inject('/api/agent/jdownloader?links=1');
     expect(world.sent.jdownloader.slice(-2).map((call) => call.path)).toEqual(['/api/jdownloader', '/api/jdownloader?links=1']);
+  });
+
+  it('passes the premium accounts on and has them checked again', async () => {
+    const { app, world } = await setup();
+    expect((await app.inject('/api/agent/jdownloader/accounts')).json()).toMatchObject({ accounts: [{ hoster: 'rapidgator.net', trafficLeft: 87e9 }] });
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/accounts/refresh', payload: { ids: ['x'] } })).statusCode).toBe(400);
+    const refreshed = await app.inject({ method: 'POST', url: '/api/agent/jdownloader/accounts/refresh', payload: { ids: [] } });
+    expect(refreshed.statusCode).toBe(202);
+    expect(world.sent.jdownloader).toEqual([
+      { method: 'GET', path: '/api/jdownloader/accounts', body: undefined },
+      { method: 'POST', path: '/api/jdownloader/accounts/refresh', body: { ids: [] } },
+    ]);
   });
 
   it('passes the link grabber and moves from it to the agent', async () => {

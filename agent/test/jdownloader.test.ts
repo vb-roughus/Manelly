@@ -58,6 +58,16 @@ function fakeWorld() {
       case '/linkgrabberv2/moveToDownloadlist':
         jd.grabber = jd.grabber.filter((uuid) => !(params[1] as number[]).includes(uuid));
         return wrapped(null);
+      case '/accountsV2/listAccounts':
+        return wrapped([
+          { UUID: 7, hostname: 'rapidgator.net', username: 'rolf', enabled: true, valid: true, validUntil: Date.UTC(2027, 2, 12), trafficLeft: 87e9, trafficMax: 100e9 },
+          { uuid: 8, hostname: 'ddownload.com', username: 'rolf', enabled: true, valid: true, validUntil: -1, trafficLeft: -1, trafficMax: -1 },
+          { uuid: 9, hostname: '1fichier.com', username: 'alt', enabled: true, valid: false, errorType: 'EXPIRED', errorString: 'Premium abgelaufen', validUntil: Date.UTC(2026, 0, 1) },
+          { uuid: 10, hostname: 'alldebrid.com', username: 'x', enabled: true, valid: true, errorType: 'TEMP_DISABLED', errorString: 'Tageslimit erreicht', trafficLeft: 0, trafficMax: 50e9 },
+          { uuid: 11, hostname: 'filer.net', username: 'old', enabled: false, valid: true },
+        ]);
+      case '/accountsV2/refreshAccounts':
+        return wrapped(null);
       case '/downloadsV2/queryPackages':
         return Response.json([
           { uuid: 1, name: 'Fertig', bytesLoaded: 100, bytesTotal: 100, finished: true, status: 'Entpacken OK', hosts: ['rapidgator.net'], childCount: 2, eta: -1 },
@@ -238,6 +248,40 @@ describe('JDownloader', () => {
     await reloaded.setJDownloader({ enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 512 } });
     await restarted.check();
     expect(jd.limitEnabled).toBe(false);
+  });
+
+  it('lists the premium accounts with their time and traffic left, and has them checked again', async () => {
+    const { jd, fetch } = fakeWorld();
+    await enable('off');
+    const jdownloader = createJDownloader({ settings, fetch, tickMs: 0 });
+    const { accounts } = await jdownloader.accounts();
+    expect(accounts.map((account) => [account.hoster, account.state])).toEqual([
+      ['1fichier.com', 'expired'],
+      ['alldebrid.com', 'blocked'],
+      ['ddownload.com', 'ok'],
+      ['filer.net', 'disabled'],
+      ['rapidgator.net', 'ok'],
+    ]);
+    expect(accounts.find((account) => account.hoster === 'rapidgator.net')).toEqual({
+      id: 7,
+      hoster: 'rapidgator.net',
+      username: 'rolf',
+      state: 'ok',
+      error: null,
+      validUntil: '2027-03-12T00:00:00.000Z',
+      trafficLeft: 87e9,
+      trafficMax: 100e9,
+      unlimited: false,
+    });
+    // -1 means unlimited traffic and no known end.
+    expect(accounts.find((account) => account.hoster === 'ddownload.com')).toMatchObject({ validUntil: null, trafficLeft: null, unlimited: true });
+    expect(accounts.find((account) => account.hoster === '1fichier.com')).toMatchObject({ error: 'Premium abgelaufen', trafficLeft: null, unlimited: false });
+    // The query asks for everything the list shows.
+    expect(decodeURIComponent(jd.calls.find((call) => call.startsWith('/accountsV2/listAccounts'))!)).toContain('"trafficLeft":true');
+
+    jd.calls = [];
+    await jdownloader.refreshAccounts([7, 9]);
+    expect(jd.calls).toEqual(['/accountsV2/refreshAccounts?%5B7%2C9%5D']);
   });
 
   it('lists the link grabber by package, and moves packages to the download list', async () => {

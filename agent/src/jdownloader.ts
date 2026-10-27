@@ -1,4 +1,7 @@
 import type {
+  JDownloaderAccount,
+  JDownloaderAccounts,
+  JDownloaderAccountState,
   JDownloaderAction,
   JDownloaderExtraction,
   JDownloaderLink,
@@ -49,6 +52,19 @@ const LINK_QUERY = {
   startAt: 0,
   maxResults: MAX_LINKS,
 };
+/** Every account with what JDownloader knows about its premium time and traffic. */
+const ACCOUNT_QUERY = {
+  startAt: 0,
+  maxResults: -1,
+  userName: true,
+  validUntil: true,
+  trafficLeft: true,
+  trafficMax: true,
+  enabled: true,
+  valid: true,
+  error: true,
+};
+const ACCOUNT_ERRORS: Record<string, JDownloaderAccountState> = { EXPIRED: 'expired', INVALID: 'invalid', TEMP_DISABLED: 'blocked', PLUGIN_ERROR: 'error' };
 const EXTRACTION_FAILED = new Set(['ERROR', 'ERROR_PW', 'ERROR_CRC', 'ERROR_NOT_ENOUGH_SPACE', 'ERRROR_FILE_NOT_FOUND']);
 /** The link grabber, with the availability of every link as JDownloader checked it. */
 const GRABBER_PACKAGE_QUERY = {
@@ -99,6 +115,23 @@ interface RawLink {
   status?: string;
   extractionStatus?: string;
   advancedStatus?: { PluginProgress?: { id?: string; current?: number; total?: number } };
+}
+
+interface RawAccount {
+  /** JDownloader spells it after the Java property; accept the ways it comes. */
+  uuid?: number;
+  UUID?: number;
+  hostname?: string;
+  username?: string;
+  enabled?: boolean;
+  valid?: boolean;
+  errorType?: string | null;
+  errorString?: string | null;
+  /** Milliseconds; -1 or missing when unknown. */
+  validUntil?: number;
+  /** Bytes; -1 means unlimited. */
+  trafficLeft?: number;
+  trafficMax?: number;
 }
 
 interface RawCrawledPackage {
@@ -166,6 +199,8 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
     packages: () => call<RawPackage[]>('downloadsV2/queryPackages', PACKAGE_QUERY),
     links: () => call<RawLink[]>('downloadsV2/queryLinks', LINK_QUERY),
     grabberPackages: () => call<RawCrawledPackage[]>('linkgrabberv2/queryPackages', GRABBER_PACKAGE_QUERY),
+    accounts: () => call<RawAccount[]>('accountsV2/listAccounts', ACCOUNT_QUERY),
+    refreshAccounts: (ids: number[]) => call<void>('accountsV2/refreshAccounts', ids),
     grabberLinks: () => call<RawCrawledLink[]>('linkgrabberv2/queryLinks', GRABBER_LINK_QUERY),
     collecting: () => call<boolean>('linkgrabberv2/isCollecting'),
     moveToDownloads: (linkIds: number[], packageIds: number[]) => call<void>('linkgrabberv2/moveToDownloadlist', linkIds, packageIds),
@@ -181,6 +216,24 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
 }
 
 export type JDownloaderApi = ReturnType<typeof createJDownloaderApi>;
+
+/** An account as Manelly shows it: works, or why not; how long and how much is left. */
+export function toAccount(raw: RawAccount): JDownloaderAccount {
+  const error = raw.errorType ? (ACCOUNT_ERRORS[raw.errorType] ?? 'error') : null;
+  const state: JDownloaderAccountState = raw.enabled === false ? 'disabled' : error ?? (raw.valid === false ? 'invalid' : raw.valid === true ? 'ok' : 'unchecked');
+  const bytes = (value: number | undefined) => (value !== undefined && value >= 0 ? value : null);
+  return {
+    id: raw.uuid ?? raw.UUID ?? 0,
+    hoster: raw.hostname ?? 'unbekannt',
+    username: raw.username || null,
+    state,
+    error: raw.errorString || null,
+    validUntil: raw.validUntil !== undefined && raw.validUntil > 0 ? new Date(raw.validUntil).toISOString() : null,
+    trafficLeft: bytes(raw.trafficLeft),
+    trafficMax: bytes(raw.trafficMax),
+    unlimited: raw.trafficLeft === -1 || raw.trafficMax === -1,
+  };
+}
 
 /** Unpacking as JDownloader reports it on a part: under way (with a percentage), done or failed. */
 function extractionOf(raw: RawLink): JDownloaderExtraction | null {
@@ -393,6 +446,17 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
         byPackage.set(raw.packageUUID ?? 0, list);
       }
       return { collecting: collecting === true, packages: (packages ?? []).map((raw) => toGrabberPackage(raw, byPackage.get(raw.uuid ?? 0) ?? [])) };
+    },
+
+    /** The premium accounts, by hoster. */
+    async accounts(): Promise<JDownloaderAccounts> {
+      const accounts = ((await api().accounts()) ?? []).map(toAccount);
+      return { accounts: accounts.sort((a, b) => a.hoster.localeCompare(b.hoster) || (a.username ?? '').localeCompare(b.username ?? '')) };
+    },
+
+    /** Lets JDownloader ask the hosters again; the new numbers come in after a moment. */
+    async refreshAccounts(ids: number[]): Promise<void> {
+      await api().refreshAccounts(ids);
     },
 
     /** Whole packages and single links from the link grabber to the download list. */

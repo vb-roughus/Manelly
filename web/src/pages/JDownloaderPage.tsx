@@ -1,19 +1,39 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import type { LinkAvailability, LinkGrabberPackage, LinkGrabberStatus } from '@manelly/shared';
-import { ArrowRightToLine, ChevronDown, CircleCheck, CircleHelp, CircleX, Download, Link2, LoaderCircle, Settings, X, type LucideIcon } from 'lucide-react';
+import type { JDownloaderAccount, JDownloaderAccounts, JDownloaderAccountState, LinkAvailability, LinkGrabberPackage, LinkGrabberStatus } from '@manelly/shared';
+import {
+  ArrowRightToLine,
+  ChevronDown,
+  CircleCheck,
+  CircleHelp,
+  CircleMinus,
+  CircleX,
+  Clock,
+  Download,
+  KeyRound,
+  Link2,
+  LoaderCircle,
+  RefreshCw,
+  Settings,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import clsx from 'clsx';
 import { Downloads, downloadsSummary, isActivePackage } from '../components/DashboardDownloads';
 import { Code, Message } from '../components/ConnectionForm';
 import { JDownloaderForm } from '../components/JDownloaderForm';
-import { useAgent, useAgentSettings, useJDownloader, useLinkGrabber, useMoveFromLinkGrabber } from '../hooks/queries';
+import { useAgent, useAgentSettings, useJDownloader, useJDownloaderAccounts, useLinkGrabber, useMoveFromLinkGrabber, useRefreshJDownloaderAccounts } from '../hooks/queries';
 import { formatBytes } from '../lib/format';
 
-type Tab = 'downloads' | 'linkgrabber';
-const TABS: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
+type Tab = 'downloads' | 'linkgrabber' | 'accounts';
+/** `short` and no icons fit three tabs side by side on a phone. */
+const TABS: Array<{ id: Tab; label: string; short?: string; icon: LucideIcon }> = [
   { id: 'downloads', label: 'Downloads', icon: Download },
-  { id: 'linkgrabber', label: 'Link Grabber', icon: Link2 },
+  { id: 'linkgrabber', label: 'Link Grabber', short: 'Grabber', icon: Link2 },
+  { id: 'accounts', label: 'Premium-Accounts', short: 'Accounts', icon: KeyRound },
 ];
+const isTab = (value: string | null): value is Tab => TABS.some((entry) => entry.id === value);
 
 const button =
   'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait disabled:opacity-60';
@@ -25,7 +45,8 @@ export function JDownloaderPage() {
   }, []);
   // Tab and settings live in the address, so the dashboard can link straight to them.
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get('tab') === 'linkgrabber' ? 'linkgrabber' : 'downloads';
+  const requested = params.get('tab');
+  const tab: Tab = isTab(requested) ? requested : 'downloads';
   const settingsOpen = params.has('settings');
   const change = (update: (next: URLSearchParams) => void) =>
     setParams(
@@ -46,6 +67,9 @@ export function JDownloaderPage() {
   const downloads = useJDownloader(enabled, 4_000, true);
   // Slower while the other tab is open: enough for the count on the tab.
   const grabber = useLinkGrabber(enabled && grabberSupported, tab === 'linkgrabber' ? 4_000 : 15_000);
+  const accountsSupported = Boolean(status?.jdownloader?.accounts);
+  // Traffic and premium time change slowly; JDownloader itself checks the hosters only now and then.
+  const accounts = useJDownloaderAccounts(enabled && accountsSupported, tab === 'accounts' ? 30_000 : false);
 
   const openSettings = () => change((next) => next.set('settings', ''));
 
@@ -78,6 +102,7 @@ export function JDownloaderPage() {
     const counts: Record<Tab, number | null> = {
       downloads: downloads.data?.reachable ? downloads.data.packages.filter(isActivePackage).length : null,
       linkgrabber: grabber.data ? grabber.data.packages.length : null,
+      accounts: accounts.data ? accounts.data.accounts.length : null,
     };
     content = (
       <>
@@ -88,6 +113,20 @@ export function JDownloaderPage() {
               downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
             ) : (
               <Card>{downloads.data.reachable ? <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable /> : <p className="text-sm text-critical">{downloads.data.error}</p>}</Card>
+            )
+          ) : tab === 'accounts' ? (
+            !accountsSupported ? (
+              <Message tone="critical">
+                Der Agent auf {status.hostname} ist zu alt für die Premium-Accounts (Version {status.version}). Unter{' '}
+                <Link to="/server/agent" className="font-medium underline">
+                  Server → Agent
+                </Link>{' '}
+                «Aktualisieren & neu starten».
+              </Message>
+            ) : !accounts.data ? (
+              accounts.error ? <Message tone="critical">{accounts.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+            ) : (
+              <Accounts data={accounts.data} />
             )
           ) : !grabberSupported ? (
             <Message tone="critical">
@@ -136,7 +175,7 @@ function Card({ children }: { children: ReactNode }) {
 }
 
 function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, number | null>; onSelect: (tab: Tab) => void }) {
-  const refs = useRef<Record<Tab, HTMLButtonElement | null>>({ downloads: null, linkgrabber: null });
+  const refs = useRef<Record<Tab, HTMLButtonElement | null>>({ downloads: null, linkgrabber: null, accounts: null });
 
   // Arrow keys move between the tabs, as in any tab list.
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -149,8 +188,8 @@ function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, numb
   }
 
   return (
-    <div role="tablist" aria-label="JDownloader" onKeyDown={onKeyDown} className="flex gap-1 border-b border-line">
-      {TABS.map(({ id, label, icon: Icon }) => (
+    <div role="tablist" aria-label="JDownloader" onKeyDown={onKeyDown} className="flex gap-1 overflow-x-auto border-b border-line">
+      {TABS.map(({ id, label, short, icon: Icon }) => (
         <button
           key={id}
           ref={(element) => {
@@ -164,16 +203,110 @@ function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, numb
           tabIndex={tab === id ? 0 : -1}
           onClick={() => onSelect(id)}
           className={clsx(
-            '-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            '-mb-px flex shrink-0 items-center gap-2 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap transition outline-none focus-visible:ring-2 focus-visible:ring-accent sm:px-3',
             tab === id ? 'border-accent text-ink' : 'border-transparent text-ink-2 hover:text-ink',
           )}
         >
-          <Icon className="size-4" aria-hidden />
-          {label}
+          <Icon className="hidden size-4 sm:block" aria-hidden />
+          {short ? (
+            <>
+              <span className="sm:hidden">{short}</span>
+              <span className="hidden sm:inline">{label}</span>
+            </>
+          ) : (
+            label
+          )}
           {counts[id] !== null && <span className="rounded-full bg-card-2 px-1.5 text-xs tabular-nums text-ink-2">{counts[id]}</span>}
         </button>
       ))}
     </div>
+  );
+}
+
+const ACCOUNT_STATES: Record<JDownloaderAccountState, { label: string; icon: LucideIcon; tone: string }> = {
+  ok: { label: 'Aktiv', icon: CircleCheck, tone: 'text-good' },
+  blocked: { label: 'Vorübergehend gesperrt', icon: Clock, tone: 'text-warning' },
+  expired: { label: 'Abgelaufen', icon: CircleX, tone: 'text-critical' },
+  invalid: { label: 'Ungültig', icon: CircleX, tone: 'text-critical' },
+  error: { label: 'Fehler', icon: TriangleAlert, tone: 'text-critical' },
+  disabled: { label: 'Ausgeschaltet', icon: CircleMinus, tone: 'text-ink-3' },
+  unchecked: { label: 'Nicht geprüft', icon: CircleHelp, tone: 'text-ink-3' },
+};
+
+const DAY = 86_400_000;
+
+/** The premium accounts configured in JDownloader, with how long and how much each has left. */
+function Accounts({ data }: { data: JDownloaderAccounts }) {
+  const refresh = useRefreshJDownloaderAccounts();
+  const usable = data.accounts.filter((account) => account.state === 'ok').length;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink-2">
+          {data.accounts.length
+            ? `${data.accounts.length} ${data.accounts.length === 1 ? 'Account' : 'Accounts'} · ${usable} aktiv`
+            : 'In JDownloader ist kein Account eingerichtet.'}
+        </p>
+        {data.accounts.length > 0 && (
+          <button type="button" className={button} disabled={refresh.isPending} onClick={() => refresh.mutate([])} title="JDownloader fragt die Hoster nach Laufzeit und Traffic">
+            <RefreshCw className={clsx('size-4', refresh.isPending && 'animate-spin')} aria-hidden /> Neu prüfen
+          </button>
+        )}
+      </div>
+      {refresh.isSuccess && <p className="text-xs text-ink-3">JDownloader fragt die Hoster – die neuen Werte erscheinen in ein paar Sekunden.</p>}
+      {refresh.isError && <Message tone="critical">{refresh.error.message}</Message>}
+      {data.accounts.length > 0 && (
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {data.accounts.map((account) => (
+            <AccountCard key={account.id} account={account} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AccountCard({ account }: { account: JDownloaderAccount }) {
+  const { label, icon: Icon, tone } = ACCOUNT_STATES[account.state];
+  const share = account.trafficLeft !== null && account.trafficMax ? Math.min(1, account.trafficLeft / account.trafficMax) : null;
+  const until = account.validUntil ? Date.parse(account.validUntil) : null;
+  const days = until === null ? null : Math.ceil((until - Date.now()) / DAY);
+  const date = until === null ? null : new Date(until).toLocaleDateString('de-CH', { dateStyle: 'medium' });
+  return (
+    <li className={clsx('rounded-xl border border-line bg-card p-3 shadow-sm shadow-black/5', account.state === 'disabled' && 'opacity-70')}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-medium">{account.hoster}</p>
+          <p className="truncate text-xs text-ink-3">{account.username ?? 'ohne Benutzername'}</p>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium whitespace-nowrap">
+          <Icon className={clsx('size-3.5', tone)} aria-hidden /> {label}
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+        <dt className="text-ink-2">Traffic</dt>
+        <dd className="min-w-0">
+          {account.unlimited
+            ? 'unbegrenzt'
+            : account.trafficLeft !== null
+              ? `${formatBytes(account.trafficLeft)} übrig${account.trafficMax ? ` von ${formatBytes(account.trafficMax)}` : ''}`
+              : 'unbekannt'}
+          {share !== null && (
+            <div className="mt-1 h-1.5 rounded-full bg-card-2" role="meter" aria-label={`Traffic übrig bei ${account.hoster}`} aria-valuenow={Math.round(share * 100)} aria-valuemin={0} aria-valuemax={100}>
+              <div
+                className={clsx('h-full rounded-full', share < 0.1 ? 'bg-critical' : share < 0.25 ? 'bg-warning' : 'bg-good')}
+                style={{ width: `${Math.max(share * 100, 1)}%` }}
+              />
+            </div>
+          )}
+        </dd>
+        <dt className="text-ink-2">Premium</dt>
+        <dd className={clsx(days !== null && days <= 7 && 'text-critical')}>
+          {days === null ? 'ohne Ablaufdatum' : days < 0 ? `abgelaufen am ${date}` : `bis ${date} · noch ${days === 1 ? '1 Tag' : `${days} Tage`}`}
+        </dd>
+      </dl>
+      {account.error && account.state !== 'ok' && <p className="mt-2 text-xs text-ink-2">{account.error}</p>}
+    </li>
   );
 }
 

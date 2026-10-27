@@ -135,7 +135,7 @@ export function createAgentServer(options: AgentServerOptions) {
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
-        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true },
+        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
       };
@@ -226,6 +226,14 @@ export function createAgentServer(options: AgentServerOptions) {
       return send(response, 204, undefined);
     }
     if (route === 'GET /api/jdownloader/linkgrabber') return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
+    if (route === 'GET /api/jdownloader/accounts') return send(response, 200, await jdownloaderCall(() => jdownloader.accounts()));
+    if (route === 'POST /api/jdownloader/accounts/refresh') {
+      const { ids } = await readJson<{ ids?: unknown }>(request);
+      if (!Array.isArray(ids) || ids.length > MAX_MOVED || !ids.every((id) => Number.isSafeInteger(id))) throw new AgentError(400, 'Ungültige Accounts.');
+      const all = ids.length ? (ids as number[]) : (await jdownloaderCall(() => jdownloader.accounts())).accounts.map((account) => account.id);
+      await jdownloaderCall(() => jdownloader.refreshAccounts(all));
+      return send(response, 202, { refreshing: all.length });
+    }
     if (route === 'POST /api/jdownloader/linkgrabber/move') {
       const body = await readJson<Partial<LinkGrabberMoveRequest>>(request);
       const ids = (value: unknown) => (Array.isArray(value) && value.length <= MAX_MOVED && value.every((id) => Number.isSafeInteger(id)) ? (value as number[]) : null);

@@ -952,6 +952,31 @@ export interface LinkGrabberMoveRequest {
   linkIds: number[];
 }
 
+/** What JDownloader says about an account: works, or why not. */
+export type JDownloaderAccountState = 'ok' | 'disabled' | 'expired' | 'invalid' | 'blocked' | 'error' | 'unchecked';
+
+/** A premium account configured in JDownloader. */
+export interface JDownloaderAccount {
+  id: number;
+  /** The hoster, e.g. rapidgator.net. */
+  hoster: string;
+  username: string | null;
+  state: JDownloaderAccountState;
+  /** JDownloader's own words when the account does not work. */
+  error: string | null;
+  /** ISO time the premium time ends; null when unknown or without end. */
+  validUntil: string | null;
+  /** Bytes; null when unknown or unlimited (see unlimited). */
+  trafficLeft: number | null;
+  trafficMax: number | null;
+  unlimited: boolean;
+}
+
+/** GET /api/jdownloader/accounts on the agent (from 0.13.0). */
+export interface JDownloaderAccounts {
+  accounts: JDownloaderAccount[];
+}
+
 // --- Agent: recorded history ------------------------------------------------------------
 // While recording is on, the agent keeps the server's load and every stream on disk, one file
 // per day, so the Troubleshooting page can look back. Times the agent was off are gaps.
@@ -1165,8 +1190,8 @@ export interface AgentStatus {
   network?: { selected: string[] };
   /** Whether the agent can measure CPU and GPU here; missing on agents before 0.4.0. */
   resources?: { supported: boolean };
-  /** Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0. */
-  jdownloader?: { enabled: boolean; linkgrabber?: boolean };
+  /** Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0. */
+  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean };
   /** Whether the agent records the history; missing on agents before 0.6.0. */
   history?: { enabled: boolean };
   /** Missing on agents before 0.7.0, which cannot be stopped from Manelly either. */

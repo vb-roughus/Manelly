@@ -13,6 +13,7 @@ import type {
   ConversionSchedule,
   HistoryResponse,
   HistorySettings,
+  JDownloaderAccounts,
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
@@ -320,6 +321,15 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   });
 
   app.get('/jdownloader/linkgrabber', async (): Promise<LinkGrabberStatus> => requireAgent(agent).linkGrabber());
+
+  app.get('/jdownloader/accounts', async (): Promise<JDownloaderAccounts> => requireAgent(agent).jdownloaderAccounts());
+
+  // JDownloader asks the hosters again; the list shows the new numbers a moment later.
+  app.post<{ Body: { ids: number[] } }>(
+    '/jdownloader/accounts/refresh',
+    { schema: { body: { type: 'object', additionalProperties: false, required: ['ids'], properties: { ids: { type: 'array', maxItems: 500, items: { type: 'integer', minimum: 0 } } } } } },
+    async (request, reply) => reply.status(202).send(await requireAgent(agent).refreshJDownloaderAccounts(request.body.ids)),
+  );
 
   const ids = { type: 'array', maxItems: 5000, items: { type: 'integer', minimum: 0 } };
   app.post<{ Body: LinkGrabberMoveRequest }>(

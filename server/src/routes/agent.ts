@@ -142,6 +142,18 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
 
   app.post<{ Params: { id: string } }>('/jobs/:id/cancel', async (request): Promise<ConversionJob> => requireAgent(agent).cancelJob(request.params.id));
 
+  app.post<{ Params: { id: string } }>('/jobs/:id/pause', async (request): Promise<ConversionJob> => {
+    const job = await requireAgent(agent).pauseJob(request.params.id);
+    request.log.info(`Umwandlung pausiert: ${job.source}`);
+    return job;
+  });
+
+  app.post<{ Params: { id: string } }>('/jobs/:id/resume', async (request): Promise<ConversionJob> => {
+    const job = await requireAgent(agent).resumeJob(request.params.id);
+    request.log.info(`Umwandlung fortgesetzt: ${job.source}`);
+    return job;
+  });
+
   app.post<{ Params: { id: string } }>('/jobs/:id/start', async (request): Promise<ConversionJob> => {
     const job = await requireAgent(agent).startJob(request.params.id);
     request.log.info(`Umwandlung ohne Zeitplan gestartet: ${job.source}`);

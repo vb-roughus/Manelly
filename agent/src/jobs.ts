@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ConversionJob, ConversionRequest } from '@manelly/shared';
 import { discardTemp, overallProgress, PAUSE, runConversion, type ConversionContext, type ConversionResult } from './convert.js';
+import { suspendProcess, type Suspender } from './suspend.js';
 import { AgentError } from './errors.js';
 import { pathApiFor, planOutput, type OutputPlan } from './paths.js';
 import type { GateCheck } from './schedule.js';
@@ -29,6 +30,8 @@ export interface JobQueueOptions {
   tickMs?: number;
   /** Tells Jellyfin about a finished conversion; resolves to whether that worked. */
   notify?: (job: ConversionJob) => Promise<boolean>;
+  /** Holds and continues the running tool for a pause; injectable for tests. */
+  suspend?: Suspender;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -41,6 +44,7 @@ const OPEN_GATE: GateCheck = { open: true, pause: false, reason: null, streams: 
 /** Runs one conversion at a time and keeps the history in jobs.json. */
 export async function createJobQueue(options: JobQueueOptions) {
   const { dataDir, roots, tools, run = runConversion, freeBytes, gate = async () => OPEN_GATE, tickMs = 60_000, notify, now = () => new Date(), log = () => {} } = options;
+  const suspend = options.suspend ?? suspendProcess;
   const file = join(dataDir, JOBS_FILE);
   let entries: StoredJob[] = [];
   try {
@@ -53,6 +57,8 @@ export async function createJobQueue(options: JobQueueOptions) {
     const { job } = entry;
     job.scheduled ??= false;
     job.interruptions ??= 0;
+    // A paused job stays paused across a restart; it continues after its last finished step once continued.
+    job.paused ??= false;
     if (job.state !== 'running') continue;
     entry.restarts = (entry.restarts ?? 0) + 1;
     if (entry.restarts > MAX_RESTARTS) {
@@ -63,7 +69,17 @@ export async function createJobQueue(options: JobQueueOptions) {
     }
   }
 
-  let current: { entry: StoredJob; controller: AbortController } | null = null;
+  /** The running job, its tools right now, those of them that are held, and the next tool waiting for a continue. */
+  interface Current {
+    entry: StoredJob;
+    controller: AbortController;
+    pids: Set<number>;
+    held: Set<number>;
+    waiting: Array<() => void>;
+    /** Holding and releasing one after the other: Windows counts suspensions, and one must not overtake the other. */
+    turns: Promise<void>;
+  }
+  let current: Current | null = null;
   let lastGate: GateCheck | null = null;
   let checking: Promise<void> | null = null;
   let again = false;
@@ -90,7 +106,9 @@ export async function createJobQueue(options: JobQueueOptions) {
 
   function waitReason(job: ConversionJob): string | null {
     if (job.state !== 'queued') return null;
+    if (job.paused) return 'Pausiert – geht nach «Fortsetzen» beim zuletzt fertigen Schritt weiter.';
     if (job.scheduled && lastGate && !lastGate.open) return lastGate.reason;
+    if (current?.entry.job.paused) return 'Wartet, bis die pausierte Umwandlung weitergeht oder abgebrochen wird.';
     if (current) return 'Wartet, bis die laufende Umwandlung fertig ist.';
     return job.scheduled && !lastGate ? 'Prüft den Zeitplan …' : null;
   }
@@ -102,7 +120,8 @@ export async function createJobQueue(options: JobQueueOptions) {
     try {
       if (waitsForGate()) {
         lastGate = await gate(Boolean(current?.entry.job.scheduled));
-        if (lastGate.pause && current?.entry.job.scheduled) {
+        // A job paused by hand holds nothing that a stream would need.
+        if (lastGate.pause && current?.entry.job.scheduled && !current.entry.job.paused) {
           log(`Umwandlung pausiert: ${lastGate.reason ?? ''}`);
           current.controller.abort(PAUSE);
         }
@@ -135,13 +154,51 @@ export async function createJobQueue(options: JobQueueOptions) {
   const timer = tickMs > 0 ? setInterval(() => void check(), tickMs) : null;
   timer?.unref();
 
+  function inTurn(running: Current, action: () => Promise<void>): Promise<void> {
+    running.turns = running.turns.then(action);
+    return running.turns;
+  }
+
+  /** Suspends the running tools of a paused job; when that is not possible, stops the job after its last finished step. */
+  const hold = (running: Current) =>
+    inTurn(running, async () => {
+      if (!running.entry.job.paused) return;
+      try {
+        for (const pid of running.pids) {
+          if (running.held.has(pid)) continue;
+          await suspend(pid, 'suspend');
+          running.held.add(pid);
+        }
+      } catch (error) {
+        log(`Anhalten ging nicht (${(error as Error).message}) – die Umwandlung wird unterbrochen und macht beim Fortsetzen beim zuletzt fertigen Schritt weiter.`);
+        await letGo(running);
+        running.controller.abort(PAUSE);
+      }
+    });
+
+  async function letGo(running: Current) {
+    for (const pid of [...running.held]) {
+      await suspend(pid, 'resume').catch((error: unknown) => log(`Fortsetzen ging nicht: ${(error as Error).message}`));
+      running.held.delete(pid);
+    }
+  }
+
+  /** Lets held tools go on; also before stopping them, which a held process would not notice. */
+  const release = (running: Current) => inTurn(running, () => letGo(running));
+
+  async function abort(running: Current, reason?: string) {
+    await release(running);
+    running.controller.abort(reason);
+  }
+
   async function next() {
     if (current || stopping) return;
-    const entry = [...entries].reverse().find(({ job }) => job.state === 'queued' && (!job.scheduled || lastGate?.open));
+    const entry = [...entries].reverse().find(({ job }) => job.state === 'queued' && !job.paused && (!job.scheduled || lastGate?.open));
     if (!entry) return;
     const { job } = entry;
     const controller = new AbortController();
-    current = { entry, controller };
+    const running: Current = { entry, controller, pids: new Set(), held: new Set(), waiting: [], turns: Promise.resolve() };
+    current = running;
     Object.assign(job, { state: 'running', startedAt: now().toISOString(), step: 'probe', progress: null });
     void save();
     log(`Umwandlung ${job.interruptions ? 'fortgesetzt' : 'gestartet'}: ${job.source}`);
@@ -156,6 +213,24 @@ export async function createJobQueue(options: JobQueueOptions) {
         onProgress: (step, fraction) => {
           job.step = step;
           job.progress = overallProgress(step, fraction);
+        },
+        control: {
+          proceed: () =>
+            job.paused && !controller.signal.aborted
+              ? new Promise<void>((resolve) => {
+                  running.waiting.push(resolve);
+                  controller.signal.addEventListener('abort', () => resolve(), { once: true });
+                })
+              : Promise.resolve(),
+          started: (pid) => {
+            running.pids.add(pid);
+            // Paused just while the tool started.
+            if (job.paused) void hold(running);
+          },
+          ended: (pid) => {
+            running.pids.delete(pid);
+            running.held.delete(pid);
+          },
         },
       });
       Object.assign(job, { state: 'done', step: null, progress: 1, output: result.output, backup: result.backup, warning: result.warning, finishedAt: now().toISOString() });
@@ -232,6 +307,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         warning: null,
         scheduled: request.scheduled === true,
         interruptions: 0,
+        paused: false,
       };
       entries.unshift({ job, request, plan });
       await save();
@@ -258,7 +334,43 @@ export async function createJobQueue(options: JobQueueOptions) {
         if (job.interruptions) void discardTemp(job.source, entry.plan, job.id);
         void save();
       } else if (job.state === 'running' && current?.entry === entry) {
-        current.controller.abort();
+        void abort(current);
+      }
+      return view(job);
+    },
+
+    /**
+     * Pauses a conversion: holds the running tool where it is, so it goes on right there; where the system does not
+     * allow that, stops it after its last finished step. A queued one waits until it is continued.
+     */
+    async pause(id: string): Promise<ConversionJob> {
+      const entry = find(id);
+      const { job } = entry;
+      if (job.state !== 'queued' && job.state !== 'running') throw new AgentError(409, 'Diese Umwandlung läuft nicht mehr.');
+      if (!job.paused) {
+        job.paused = true;
+        void save();
+        if (current?.entry === entry) {
+          log(`Umwandlung pausiert: ${job.source}`);
+          await hold(current);
+        }
+      }
+      return view(job);
+    },
+
+    /** Continues a paused conversion where its tool was held, or after its last finished step. */
+    async resume(id: string): Promise<ConversionJob> {
+      const entry = find(id);
+      const { job } = entry;
+      if (job.paused) {
+        job.paused = false;
+        if (current?.entry === entry) {
+          await release(current);
+          for (const go of current.waiting.splice(0)) go();
+          log(`Umwandlung fortgesetzt: ${job.source}`);
+        }
+        void save();
+        void next();
       }
       return view(job);
     },
@@ -274,7 +386,7 @@ export async function createJobQueue(options: JobQueueOptions) {
     async stop(): Promise<void> {
       stopping = true;
       if (timer) clearInterval(timer);
-      current?.controller.abort(PAUSE);
+      if (current) await abort(current, PAUSE);
       while (current) await new Promise((resolve) => setTimeout(resolve, 50));
       await saving;
     },

@@ -120,9 +120,14 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   wenn Manelly nicht läuft. Beginnt ein Stream, pausiert die Umwandlung und macht später beim zuletzt fertigen Schritt
   weiter; nach einem Stream wartet der Agent noch 5 Minuten. Eine laufende Umwandlung darf über das Ende des Zeitfensters
   hinaus fertig werden. **«Jetzt starten»** übergeht den Zeitplan.
+- **Pausieren und Fortsetzen** (ab Agent 0.12.0): «Pausieren» hält das gerade laufende Werkzeug (ffmpeg, dovi_tool oder
+  mkvmerge) an Ort und Stelle an – es braucht dann keine Rechenzeit und keine Plattenzugriffe mehr –, «Fortsetzen» lässt es
+  genau dort weiterlaufen. Andere Umwandlungen warten so lange. Lässt Windows das Anhalten nicht zu, wird die Umwandlung
+  stattdessen unterbrochen und macht beim Fortsetzen beim zuletzt fertigen Schritt weiter. Eine pausierte Umwandlung
+  bleibt auch über einen Neustart des Agents pausiert
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
-- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Abbrechen, aufklappbarer **Auslastung des Servers** (dieselbe Anzeige
+- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung des Servers** (dieselbe Anzeige
   wie im Dashboard, mit dem Anteil der Umwandlung zuerst) und der Ausgabe des Werkzeugs bei Fehlern; danach meldet
   der Agent die neue Datei an Jellyfin, damit sie gleich erscheint
 - Für Zeitplan und Meldung gibt Manelly dem Agent die Jellyfin-Adresse und den API-Schlüssel (gespeichert in

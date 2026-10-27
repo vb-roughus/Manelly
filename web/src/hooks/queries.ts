@@ -427,6 +427,16 @@ export function useCancelConversion() {
   });
 }
 
+/** Pauses a conversion – the agent holds its tool where it is – or continues it; from agent 0.12.0. */
+export function usePauseConversion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pause }: { id: string; pause: boolean }) =>
+      sendJson<ConversionJob>('POST', `/api/agent/jobs/${encodeURIComponent(id)}/${pause ? 'pause' : 'resume'}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
+  });
+}
+
 /** Starts a scheduled conversion without waiting for the schedule. */
 export function useStartConversionNow() {
   const queryClient = useQueryClient();

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type {
+  LibraryScanStatus,
   MediaDetail,
   MediaDiagnosisResponse,
   MediaFacetsResponse,
@@ -9,6 +10,7 @@ import type {
 } from '@manelly/shared';
 import type { JellyfinConnection } from '../connection.js';
 import { AppError, requireClient } from '../errors.js';
+import type { LibraryScanner } from '../media/scan.js';
 import type { MediaIndexStore } from '../media/store.js';
 import { diagnoseTitle } from '../media/diagnose.js';
 import { mediaDetail, searchMedia } from '../media/search.js';
@@ -45,8 +47,8 @@ export const searchQuerySchema = {
   },
 } as const;
 
-export async function mediaRoutes(app: FastifyInstance, opts: { connection: JellyfinConnection; store: MediaIndexStore }) {
-  const { connection, store } = opts;
+export async function mediaRoutes(app: FastifyInstance, opts: { connection: JellyfinConnection; store: MediaIndexStore; scanner: LibraryScanner }) {
+  const { connection, store, scanner } = opts;
 
   const status = (): MediaIndexStatus => {
     requireClient(connection.client);
@@ -60,6 +62,11 @@ export async function mediaRoutes(app: FastifyInstance, opts: { connection: Jell
     store.refresh();
     return store.status();
   });
+
+  // Jellyfin's scan of its libraries; once it ended, the index is read again.
+  app.get('/scan', async (): Promise<LibraryScanStatus> => scanner.status());
+  app.post('/scan', async (): Promise<LibraryScanStatus> => scanner.start());
+  app.delete('/scan', async (): Promise<LibraryScanStatus> => scanner.cancel());
 
   app.get('/facets', async (): Promise<MediaFacetsResponse> => {
     status();

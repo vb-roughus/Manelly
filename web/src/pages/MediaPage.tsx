@@ -4,6 +4,7 @@ import type { MediaIndexStatus, MediaSummary, MediaType } from '@manelly/shared'
 import { FolderPlus, LoaderCircle, RefreshCw, Search, SearchCheck, SearchX, SlidersHorizontal, TriangleAlert, X } from 'lucide-react';
 import clsx from 'clsx';
 import { ErrorPanel } from '../components/ErrorPanel';
+import { LibraryScanButton } from '../components/LibraryScan';
 import { CollectionDialog } from '../components/media/CollectionDialog';
 import { FilterPanel, ResetFiltersButton } from '../components/media/FilterPanel';
 import { MediaCard } from '../components/media/MediaCard';
@@ -264,6 +265,7 @@ function IndexStatus({ index, onMissing }: { index: MediaIndexStatus; onMissing?
           Titel fehlt?
         </button>
       )}
+      <LibraryScanButton />
       <button
         type="button"
         onClick={() => refresh.mutate()}

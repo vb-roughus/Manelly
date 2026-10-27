@@ -7,6 +7,7 @@ import type {
   JfServerConfiguration,
   JfSessionInfo,
   JfSystemInfo,
+  JfTaskInfo,
   JfUser,
   JfVirtualFolder,
 } from './types.js';
@@ -39,6 +40,11 @@ export interface JellyfinClient {
   getEncodingOptions(): Promise<JfEncodingOptions>;
   getServerConfiguration(): Promise<JfServerConfiguration>;
   getLogFiles(): Promise<JfLogFile[]>;
+  getScheduledTasks(): Promise<JfTaskInfo[]>;
+  getScheduledTask(id: string): Promise<JfTaskInfo>;
+  /** Runs a scheduled task now; Jellyfin answers before it is done. */
+  startScheduledTask(id: string): Promise<void>;
+  stopScheduledTask(id: string): Promise<void>;
   /** The raw response, so the caller can read just the start of a large log. */
   getLogFile(name: string): Promise<Response>;
   /** Creates a collection (BoxSet) with the given items and returns its id. */
@@ -90,6 +96,12 @@ export function createJellyfinClient(
     return response;
   }
 
+  /** For requests Jellyfin answers without a body. */
+  async function send(path: string, method: string): Promise<void> {
+    const response = await request(path, 'application/json', timeoutMs, method);
+    if (!response.ok) throw new JellyfinError('UPSTREAM_ERROR', `Jellyfin antwortete auf ${method} ${path} mit HTTP ${response.status}.`, response.status);
+  }
+
   async function getJson<T>(path: string, requestTimeoutMs?: number, method?: string): Promise<T> {
     const response = await request(path, 'application/json', requestTimeoutMs, method);
     if (!response.ok) {
@@ -114,6 +126,10 @@ export function createJellyfinClient(
     getEncodingOptions: () => getJson<JfEncodingOptions>('/System/Configuration/encoding'),
     getServerConfiguration: () => getJson<JfServerConfiguration>('/System/Configuration'),
     getLogFiles: () => getJson<JfLogFile[]>('/System/Logs'),
+    getScheduledTasks: () => getJson<JfTaskInfo[]>('/ScheduledTasks'),
+    getScheduledTask: (id) => getJson<JfTaskInfo>(`/ScheduledTasks/${encodeURIComponent(id)}`),
+    startScheduledTask: (id) => send(`/ScheduledTasks/Running/${encodeURIComponent(id)}`, 'POST'),
+    stopScheduledTask: (id) => send(`/ScheduledTasks/Running/${encodeURIComponent(id)}`, 'DELETE'),
     getLogFile: async (name) => {
       const response = await request(`/System/Logs/Log?${new URLSearchParams({ name })}`, 'text/plain');
       if (!response.ok) {

@@ -466,6 +466,17 @@ export interface MediaIndexStatus {
   skipped: SkippedTitle[];
 }
 
+/** Jellyfin's scan of all libraries for new and changed files (its task «Medienbibliothek scannen»); /api/media/scan. */
+export interface LibraryScanStatus {
+  /** Running also right after Manelly asked for it, until Jellyfin reports the task. */
+  state: 'idle' | 'running' | 'cancelling';
+  /** Percent while it runs, when Jellyfin says. */
+  progress: number | null;
+  /** The last scan that ended, as Jellyfin reports it. */
+  lastRun: { startedAt: string | null; endedAt: string | null; result: 'completed' | 'failed' | 'cancelled' | 'aborted'; error: string | null } | null;
+  libraries: Array<{ name: string; type: string | null; locations: string[] }>;
+}
+
 export interface SkippedTitle {
   id: string | null;
   name: string | null;

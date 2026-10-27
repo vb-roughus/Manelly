@@ -4,7 +4,8 @@
 #   .\scripts\start-windows.ps1 -Port 3001   start on another port
 #
 # Or double-click scripts\start-windows.cmd, which also works when PowerShell
-# scripts are blocked. Stop Manelly with Ctrl+C.
+# scripts are blocked. Stop Manelly with Ctrl+C. Restarting and updating from
+# Server → Allgemein in Manelly keep this script running: it starts Manelly again.
 #
 # Written for the Windows PowerShell 5.1 that ships with Windows. Keep this file
 # saved as UTF-8 with BOM, otherwise Windows PowerShell garbles the umlauts.
@@ -44,31 +45,41 @@ Invoke-Native { & $npm run build --silent }
 if ($LASTEXITCODE -ne 0) { Stop-WithError 'Der Build ist fehlgeschlagen (siehe oben).' }
 
 # --- Start -------------------------------------------------------------------
+# Manelly asks for a restart with exit code 75 (RESTART_EXIT in server/src/manelly.ts), also after
+# it updated itself; any other end, e.g. Ctrl+C, ends this script too.
+$env:MANELLY_SUPERVISED = '1'
 Write-Info "Starte Manelly auf $url – beenden mit Ctrl+C."
 $nodeArgs = @('server/dist/index.js')
 if (Test-Path .env) { $nodeArgs = @('--env-file=.env') + $nodeArgs }
-$server = Start-Process -FilePath node -ArgumentList $nodeArgs -WorkingDirectory $root -NoNewWindow -PassThru
-# Reading the handle now keeps ExitCode available after the process ended.
-$null = $server.Handle
+$opened = $false
+while ($true) {
+  $server = Start-Process -FilePath node -ArgumentList $nodeArgs -WorkingDirectory $root -NoNewWindow -PassThru
+  # Reading the handle now keeps ExitCode available after the process ended.
+  $null = $server.Handle
 
-# Open the browser as soon as the server answers.
-$ready = $false
-for ($attempt = 0; $attempt -lt 60 -and -not $server.HasExited; $attempt++) {
-  try {
-    $null = Invoke-WebRequest "$url/api/health" -UseBasicParsing -TimeoutSec 2
-    $ready = $true
-    break
-  } catch {
-    Start-Sleep -Milliseconds 500
+  # Open the browser as soon as the server answers, the first time only.
+  if (-not $opened) {
+    $opened = $true
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 60 -and -not $server.HasExited; $attempt++) {
+      try {
+        $null = Invoke-WebRequest "$url/api/health" -UseBasicParsing -TimeoutSec 2
+        $ready = $true
+        break
+      } catch {
+        Start-Sleep -Milliseconds 500
+      }
+    }
+    if ($ready) {
+      try {
+        Start-Process $url
+      } catch {
+        Write-Info "Öffne $url im Browser."
+      }
+    }
   }
-}
-if ($ready) {
-  try {
-    Start-Process $url
-  } catch {
-    Write-Info "Öffne $url im Browser."
-  }
-}
 
-$server.WaitForExit()
-exit $server.ExitCode
+  $server.WaitForExit()
+  if ($server.ExitCode -ne 75) { exit $server.ExitCode }
+  Write-Info 'Starte Manelly neu …'
+}

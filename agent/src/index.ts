@@ -15,6 +15,7 @@ import { createResourceMonitor, defaultResourceSource } from './resources.js';
 import { createGate, createSettingsStore } from './schedule.js';
 import { createAgentServer } from './server.js';
 import { discoverTools, type Tools } from './tools.js';
+import { createUpdater } from './updater.js';
 
 const AGENT_DIR = fileURLToPath(new URL('..', import.meta.url));
 
@@ -84,11 +85,19 @@ async function lastUpdate(): Promise<AgentUpdateResult | null> {
   try {
     const stored = JSON.parse((await readFile(join(dataDir, 'update.json'), 'utf8')).replace(/^\uFEFF/, '')) as Partial<AgentUpdateResult>;
     if (typeof stored.at !== 'string' || typeof stored.ok !== 'boolean') return null;
-    return { at: stored.at, ok: stored.ok, from: stored.from ?? null, to: stored.to ?? null, message: String(stored.message ?? '') };
+    return { at: stored.at, ok: stored.ok, upToDate: stored.upToDate === true, from: stored.from ?? null, to: stored.to ?? null, message: String(stored.message ?? '') };
   } catch {
     return null;
   }
 }
+// Looks for a newer version, pulls and builds while the agent keeps working; run-agent.ps1 then starts the new build.
+const updater = createUpdater({
+  script: join(AGENT_DIR, '..', 'scripts', 'update.mjs'),
+  reportFile: join(dataDir, 'update.json'),
+  target: 'agent',
+  onRestart: () => shutdown('Update fertig, Neustart', RESTART_EXIT),
+  log,
+});
 const server = createAgentServer({
   token: config.token,
   roots: config.roots,
@@ -99,7 +108,8 @@ const server = createAgentServer({
   jdownloader,
   recorder,
   tools: currentTools,
-  process: async () => ({ ...processInfo, lastUpdate: await lastUpdate() }),
+  process: async () => ({ ...processInfo, update: updater.progress(), lastUpdate: await lastUpdate() }),
+  updater,
   onExit: (how) =>
     how === 'stop'
       ? shutdown('Beenden angefordert (Manelly oder Installationsskript)')

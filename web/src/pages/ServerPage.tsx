@@ -1,9 +1,10 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { FindingSeverity, HardwareTestResult, TranscodeLogInfo, TranscodingReport } from '@manelly/shared';
-import { CircleCheck, CircleMinus, CircleX, Cpu, Info, LoaderCircle, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { AppWindow, CircleCheck, CircleMinus, CircleX, Cpu, Info, LoaderCircle, TriangleAlert, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { ErrorPanel } from '../components/ErrorPanel';
+import { ManellyProcess } from '../components/ManellyProcess';
 import { SetupPanel } from '../components/SetupPanel';
 import { isConfigured, useAgent, useHardwareTest, useSettings, useTranscodingReport } from '../hooks/queries';
 import { codecLabel, joinParts } from '../lib/format';
@@ -25,9 +26,12 @@ export function ServerPage() {
       <header>
         <p className="text-sm font-medium text-accent">Server</p>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Allgemein</h1>
-        <p className="mt-1 text-sm text-ink-2">Transcoding und Hardware-Beschleunigung deines Jellyfin-Servers.</p>
+        <p className="mt-1 text-sm text-ink-2">Manelly selbst, dazu Transcoding und Hardware-Beschleunigung deines Jellyfin-Servers.</p>
       </header>
       <div className="mt-6 space-y-6">
+        <Card title="Manelly" icon={AppWindow}>
+          <ManellyProcess />
+        </Card>
         {configured === false && <SetupPanel />}
         {report.isPending && configured && <div aria-busy className="h-64 animate-pulse rounded-2xl bg-card-2" />}
         {report.error && <ErrorPanel error={report.error} />}

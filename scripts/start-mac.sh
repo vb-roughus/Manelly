@@ -4,7 +4,8 @@
 #   ./scripts/start-mac.sh            start on port 3000
 #   PORT=3001 ./scripts/start-mac.sh  start on another port
 #
-# Stop Manelly with Ctrl+C. Written for the bash 3.2 that ships with macOS.
+# Stop Manelly with Ctrl+C. Restarting and updating from Server → Allgemein in Manelly
+# keep this script running: it starts Manelly again. Written for the bash 3.2 that ships with macOS.
 set -euo pipefail
 
 NODE_FORMULA="node@22"
@@ -108,9 +109,16 @@ fi
   done
 ) &
 
+# Manelly asks for a restart with exit code 75 (RESTART_EXIT in server/src/manelly.ts), also after
+# it updated itself; any other end, e.g. Ctrl+C, ends this script too.
+export MANELLY_SUPERVISED=1
+node_args=(server/dist/index.js)
+if [ -f .env ]; then node_args=(--env-file=.env server/dist/index.js); fi
+
 info "Starte Manelly auf $url – beenden mit Ctrl+C."
-if [ -f .env ]; then
-  exec node --env-file=.env server/dist/index.js
-else
-  exec node server/dist/index.js
-fi
+while true; do
+  code=0
+  node "${node_args[@]}" || code=$?
+  [ "$code" = 75 ] || exit "$code"
+  info "Starte Manelly neu …"
+done

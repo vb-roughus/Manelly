@@ -1054,6 +1054,8 @@ export interface AgentUpdateResult {
   /** ISO time. */
   at: string;
   ok: boolean;
+  /** There was nothing newer, so nothing changed and nothing restarted; missing before agent 0.11.0. */
+  upToDate?: boolean;
   /** Commits before and after the git pull, short form. */
   from: string | null;
   to: string | null;
@@ -1072,6 +1074,8 @@ export interface AgentProcess {
   /** Started by the autostart (the scheduled task "Manelly Agent"), not by hand. */
   autostart: boolean;
   port: number;
+  /** An update under way while the agent keeps running; missing before 0.11.0, which updated while stopped. */
+  update?: UpdateProgress | null;
   /** Runs under scripts/run-agent.ps1, which starts it again on request; missing before 0.9.0. */
   restartable?: boolean;
   lastUpdate?: AgentUpdateResult | null;
@@ -1079,6 +1083,51 @@ export interface AgentProcess {
 
 /** POST /api/restart on the agent: start again, after a git pull and a build when update is set. */
 export interface AgentRestartRequest {
+  update: boolean;
+}
+
+/** The steps of an update by scripts/update.mjs, in this order; install only when the dependencies changed. */
+export type UpdateStep = 'check' | 'pull' | 'install' | 'build' | 'restart';
+
+/** An update under way in the agent or in Manelly, as far as that process knows. */
+export interface UpdateProgress {
+  step: UpdateStep;
+  /** The steps entered so far, the current one last. */
+  steps: UpdateStep[];
+  /** ISO time the update started. */
+  since: string;
+  /** New commits waiting on GitHub, once the check is done. */
+  behind: number | null;
+  /** The subject of the newest one. */
+  subject: string | null;
+}
+
+// --- Manelly itself --------------------------------------------------------------------
+
+/** GET /api/manelly: Manelly's own server process. */
+export interface ManellyStatus {
+  /** Short git commit the running server was started from; null outside a git checkout, e.g. in Docker. */
+  commit: string | null;
+  pid: number;
+  /** ISO time. */
+  startedAt: string;
+  /** Node.js version, e.g. v22.12.0. */
+  node: string;
+  platform: string;
+  hostname: string;
+  port: number;
+  /** Runs under scripts/start-mac.sh or scripts/start-windows.ps1, which start it again on request. */
+  restartable: boolean;
+  /** Runs in a Docker container, which is updated with docker compose instead. */
+  docker: boolean;
+  /** An update under way, while Manelly keeps running until its restart. */
+  update: UpdateProgress | null;
+  /** How the last update went; the same report as the agent's. */
+  lastUpdate: AgentUpdateResult | null;
+}
+
+/** POST /api/manelly/restart: start again, after a git pull and a build when update is set. */
+export interface ManellyRestartRequest {
   update: boolean;
 }
 

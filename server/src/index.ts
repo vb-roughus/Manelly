@@ -3,6 +3,7 @@ import { buildApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { createConnection } from './connection.js';
 import { createJellyfinClient } from './jellyfin/client.js';
+import { createManellyProcess } from './manelly.js';
 import { createFileSettingsStore } from './settings.js';
 
 async function main() {
@@ -13,7 +14,18 @@ async function main() {
     createClient: (settings) => createJellyfinClient(settings),
   });
   const agent = await createAgentConnection({ store: createFileAgentSettingsStore(config.dataDir) });
-  const app = await buildApp({ config, connection, agent, logger: { level: config.logLevel } });
+  const manelly = await createManellyProcess({
+    root: config.rootDir,
+    dataDir: config.dataDir,
+    port: config.port,
+    // The start script starts Manelly again for the restart code.
+    onExit: (code) => {
+      app.log.info('Neustart angefordert, fahre herunter …');
+      app.close().then(() => process.exit(code), () => process.exit(code));
+    },
+    log: (message) => app.log.info(message),
+  });
+  const app = await buildApp({ config, connection, agent, manelly, logger: { level: config.logLevel } });
 
   if (!connection.settings) {
     app.log.warn('Noch keine Jellyfin-Verbindung eingerichtet – das Dashboard zeigt das Einrichtungsformular.');

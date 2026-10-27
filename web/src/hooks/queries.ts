@@ -11,6 +11,7 @@ import type {
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
+  ManellyStatus,
   HardwareTestResult,
   HistoryResponse,
   HistorySettings,
@@ -35,10 +36,15 @@ import type {
   ServerStatus,
   SessionsResponse,
   TranscodingReport,
+  UpdateProgress,
 } from '@manelly/shared';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { agentRestart, useAgentRestart } from './useAgentRestart';
-import { isAgentQuery, restartDeadline, restartProgress } from '../lib/agentRestart';
+import { manellyRestart, useManellyRestart } from './useManellyRestart';
+import { agentRestartProgress, isAgentQuery, updatesWhileRunning } from '../lib/agentRestart';
+import { manellyRestartProgress } from '../lib/manellyRestart';
+import { firstUpdateStep, restartDeadline, restartsNow, type PendingRestart } from '../lib/restart';
+import type { RestartStore } from './restartStore';
 import { fetchJson, sendJson } from '../lib/api';
 import { toSearchParams, type MediaFilters } from '../lib/media';
 
@@ -187,7 +193,7 @@ export function useAddToCollection() {
 /** False while the agent restarts: its queries keep what they last had instead of failing meanwhile. */
 function useAgentLive(enabled: boolean): boolean {
   const { pending } = useAgentRestart();
-  return enabled && pending === null;
+  return enabled && !(pending && restartsNow(pending));
 }
 
 /** `refreshTools` (settings page) lets the agent look for newly installed tools. */
@@ -235,24 +241,72 @@ export function useStopAgent() {
   });
 }
 
-/** Ends the agent so its runner starts it again – after a git pull and a build when `update` is set. */
+/**
+ * Restarts the agent, or updates it: agents from 0.11.0 look for a newer version, pull and build while they keep
+ * running, and restart only when there was one; older ones end and let their runner update them.
+ */
 export function useRestartAgent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ update }: { update: boolean; before: AgentStatus }) => sendJson<{ restarting: boolean }>('POST', '/api/agent/restart', { update }),
-    // Hold the agent's queries before it goes away, and drop answers still on their way.
+    mutationFn: ({ update }: { update: boolean; before: AgentStatus }) =>
+      sendJson<{ restarting: boolean; update?: UpdateProgress }>('POST', '/api/agent/restart', { update }),
     onMutate: ({ update, before }) => {
-      agentRestart.begin(update, before);
-      void queryClient.cancelQueries({ predicate: (query) => isAgentQuery(query.queryKey) });
+      const whileRunning = update && updatesWhileRunning(before);
+      agentRestart.begin(update, before, whileRunning ? firstUpdateStep() : null);
+      // Hold the agent's queries before it goes away, and drop answers still on their way.
+      if (!whileRunning) void queryClient.cancelQueries({ predicate: (query) => isAgentQuery(query.queryKey) });
+    },
+    onSuccess: (answer) => {
+      if (answer.update) agentRestart.note(answer.update, false);
     },
     onError: () => agentRestart.abandon(),
   });
 }
 
 /**
- * While the agent restarts, asks every two seconds whether a new process answers, and gives up after a while.
- * Either way the agent's queries run again afterwards, and show errors again if there are any.
+ * Follows a restart or update to its end, every two seconds: the steps the process reports, whether it still answers,
+ * and the end – a new process, the same one done without restart, or nobody back in time.
  */
+function useWatchRestart<S>({
+  store,
+  pending,
+  status,
+  away,
+  progressOf,
+  view,
+  onFrozen,
+  onEnd,
+}: {
+  store: RestartStore<S>;
+  pending: PendingRestart<S> | null;
+  status: S | null | undefined;
+  away: boolean;
+  progressOf: (status: S) => UpdateProgress | null | undefined;
+  view: (pending: PendingRestart<S>, status: S | null | undefined, now: number) => 'waiting' | 'back' | 'settled' | 'timeout';
+  onFrozen: () => void;
+  onEnd: (how: 'back' | 'settled' | 'timeout', pending: PendingRestart<S>) => void;
+}) {
+  useEffect(() => {
+    if (!pending) return;
+    const progress = view(pending, status, Date.now());
+    if (progress !== 'waiting') {
+      store.end(progress === 'timeout' ? null : (status ?? null));
+      onEnd(progress, pending);
+      return;
+    }
+    // The last step stays known while the process is away, also after reloading the page.
+    store.note(status ? (progressOf(status) ?? pending.progress) : pending.progress, away);
+    const timer = window.setTimeout(() => store.end(null), restartDeadline(pending) - Date.now());
+    return () => window.clearTimeout(timer);
+  }, [pending, status, away]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const frozen = pending !== null && restartsNow(pending);
+  useEffect(() => {
+    if (frozen) onFrozen();
+  }, [frozen]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** The agent's restart or update; afterwards its queries run again, and show errors again if there are any. */
 export function useWatchAgentRestart() {
   const queryClient = useQueryClient();
   const { pending } = useAgentRestart();
@@ -263,24 +317,73 @@ export function useWatchAgentRestart() {
     enabled: pending !== null,
     retry: false,
   });
-  const status = poll.data?.status;
+  const isAgent = (query: { queryKey: readonly unknown[] }) => isAgentQuery(query.queryKey);
+  useWatchRestart({
+    store: agentRestart,
+    pending,
+    status: poll.data?.status,
+    // Manelly answers, but the agent does not.
+    away: poll.data !== undefined && !poll.data.status,
+    progressOf: (status) => status.process?.update,
+    view: agentRestartProgress,
+    onFrozen: () => void queryClient.cancelQueries({ predicate: isAgent }),
+    onEnd: () => void queryClient.invalidateQueries({ predicate: isAgent }),
+  });
+}
 
-  useEffect(() => {
-    if (!pending) return;
-    const progress = restartProgress(pending, status, Date.now());
-    if (progress !== 'waiting') {
-      agentRestart.end(progress === 'back' ? (status ?? null) : null);
-      return;
-    }
-    const timer = window.setTimeout(() => agentRestart.end(null), restartDeadline(pending) - Date.now());
-    return () => window.clearTimeout(timer);
-  }, [pending, status]);
+// --- Manelly itself ------------------------------------------------------------------
 
-  const waiting = useRef(pending !== null);
-  useEffect(() => {
-    if (waiting.current && !pending) void queryClient.invalidateQueries({ predicate: (query) => isAgentQuery(query.queryKey) });
-    waiting.current = pending !== null;
-  }, [pending, queryClient]);
+export function useManelly() {
+  return useQuery({
+    queryKey: ['manelly'],
+    queryFn: ({ signal }) => fetchJson<ManellyStatus>('/api/manelly', signal),
+  });
+}
+
+/**
+ * Restarts Manelly through its start script, or updates it: Manelly looks for a newer version, pulls and builds
+ * while it keeps running, and restarts only when there was one.
+ */
+export function useRestartManelly() {
+  return useMutation({
+    mutationFn: ({ update }: { update: boolean; before: ManellyStatus }) =>
+      sendJson<{ restarting: boolean; update?: UpdateProgress }>('POST', '/api/manelly/restart', { update }),
+    // Sent although every query counts as offline once a plain restart begins, see useManellyRestart.
+    networkMode: 'always',
+    onMutate: ({ update, before }) => manellyRestart.begin(update, before, update ? firstUpdateStep() : null),
+    onSuccess: (answer) => {
+      if (answer.update) manellyRestart.note(answer.update, false);
+    },
+    onError: () => manellyRestart.abandon(),
+  });
+}
+
+/** Manelly's restart or update; after an update the page loads again, for the new frontend, and tells the result. */
+export function useWatchManellyRestart() {
+  const queryClient = useQueryClient();
+  const { pending } = useManellyRestart();
+  const poll = useQuery({
+    queryKey: ['manelly-restart'],
+    queryFn: ({ signal }) => fetchJson<ManellyStatus>('/api/manelly', signal),
+    refetchInterval: 2_000,
+    enabled: pending !== null,
+    // Everything else counts as offline while Manelly is away.
+    networkMode: 'always',
+    retry: false,
+  });
+  useWatchRestart({
+    store: manellyRestart,
+    pending,
+    // An answer from before the error would still look like Manelly.
+    status: poll.isError ? undefined : poll.data,
+    away: poll.isError,
+    progressOf: (status) => status.update,
+    view: manellyRestartProgress,
+    onFrozen: () => void queryClient.cancelQueries({ predicate: (query) => query.queryKey[0] !== 'manelly-restart' }),
+    onEnd: (how, ended) => {
+      if (how === 'back' && ended.update) window.location.reload();
+    },
+  });
 }
 
 export function useConversions(enabled = true) {

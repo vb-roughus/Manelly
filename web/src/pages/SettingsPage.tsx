@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router';
-import { Download, Network, Plug } from 'lucide-react';
+import { Network, Plug } from 'lucide-react';
 import { ConnectionForm } from '../components/ConnectionForm';
-import { JDownloaderForm } from '../components/JDownloaderForm';
 import { NetworkInterfacesForm } from '../components/NetworkInterfacesForm';
 import { SettingsSection } from '../components/SettingsSection';
 import { useAgentSettings } from '../hooks/queries';
@@ -18,9 +17,14 @@ export function SettingsPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Einstellungen</h1>
         <p className="mt-1 text-sm text-ink-2">
-          Verbindung zu deinem Jellyfin-Server, und was der Agent darauf messen und steuern soll. Den Agent selbst verbindest du unter{' '}
+          Verbindung zu deinem Jellyfin-Server, und welche Netzwerkschnittstellen der Agent darauf misst. Den Agent selbst und JDownloader
+          findest du unter{' '}
           <Link to="/server/agent" className="font-medium text-accent hover:underline">
             Server → Agent
+          </Link>{' '}
+          und{' '}
+          <Link to="/server/jdownloader" className="font-medium text-accent hover:underline">
+            Server → JDownloader
           </Link>
           .
         </p>
@@ -38,12 +42,6 @@ export function SettingsPage() {
           description="Welche Schnittstellen das Dashboard zeigt. Der Agent misst nur diese, und nur solange Manelly sie anzeigt oder aufzeichnet."
         >
           <NetworkInterfacesForm />
-        </SettingsSection>
-      )}
-
-      {agentSettings.data?.url && (
-        <SettingsSection icon={Download} title="JDownloader" description="Downloads im Dashboard sehen und steuern, und bremsen, solange jemand streamt.">
-          <JDownloaderForm />
         </SettingsSection>
       )}
     </div>

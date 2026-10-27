@@ -11,7 +11,7 @@ const PLATFORMS: Record<string, string> = { win32: 'Windows', linux: 'Linux', da
 
 export function AgentPage() {
   useEffect(() => {
-    document.title = 'Agent · Manelly';
+    document.title = 'Agent · Server · Manelly';
   }, []);
   const settings = useAgentSettings();
   // The same query as the connection form above.
@@ -20,6 +20,7 @@ export function AgentPage() {
   return (
     <div className="mx-auto max-w-3xl">
       <header>
+        <p className="text-sm font-medium text-accent">Server</p>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Agent</h1>
         <p className="mt-1 text-sm text-ink-2">
           Der Manelly-Agent läuft auf dem Jellyfin-Server: Er wandelt Dateien um, misst die Auslastung, zeichnet auf und steuert JDownloader.

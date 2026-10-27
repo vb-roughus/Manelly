@@ -13,6 +13,8 @@ export function JDownloaderForm() {
   const supported = Boolean(status?.jdownloader);
   const jdownloader = useJDownloader(supported, false);
 
+  if (agent.isPending) return <div aria-busy className="h-40 animate-pulse rounded-xl bg-card-2" />;
+  if (agent.data?.error) return <Message tone="critical">{agent.data.error}</Message>;
   if (!status) {
     return (
       <p className="text-sm text-ink-2">

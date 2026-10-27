@@ -275,15 +275,18 @@ if ($Install) {
   Save-ToolPaths @{ ffmpeg = $jellyfinFfmpeg; ffprobe = (Join-Path $env:ProgramFiles 'Jellyfin\Server\ffprobe.exe'); mkvmerge = $mkvmerge }
 
   $node = (Get-Command node).Source
-  $entry = Join-Path $agentDir 'dist\index.js'
+  # run-agent.ps1 starts the agent and starts it again when Manelly asks for a restart or an update. A hidden
+  # PowerShell keeps its window out of sight; the agent writes agent\data\agent.log itself. --autostart (via
+  # -Autostart): the agent tells Manelly it was started this way.
+  $runner = Join-Path $PSScriptRoot 'run-agent.ps1'
+  $runnerArguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$runner`" -Node `"$node`" -Autostart"
   $user = "$env:USERDOMAIN\$env:USERNAME"
   $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
   $task = @{ TaskName = $TaskName; Settings = $taskSettings; Description = 'Manelly-Agent: wandelt auf Anfrage von Manelly Dateien um.'; Force = $true }
 
   if (Test-Admin) {
-    # With Windows, before anybody logs on – e.g. after a nightly restart. Nobody sees this process, so no window is needed.
-    # --autostart: the agent tells Manelly it was started this way.
-    $task.Action = New-ScheduledTaskAction -Execute $node -Argument "`"$entry`" --autostart" -WorkingDirectory $root
+    # With Windows, before anybody logs on – e.g. after a nightly restart.
+    $task.Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $runnerArguments -WorkingDirectory $root
     $task.Trigger = New-ScheduledTaskTrigger -AtStartup
     if ($StorePassword) {
       $credential = Get-Credential -UserName $user -Message 'Windows-Passwort für den Autostart des Agents (für Medien auf Netzwerkfreigaben)'
@@ -298,8 +301,7 @@ if ($Install) {
     }
   } else {
     Write-Warn 'Ohne Administratorrechte startet der Agent erst, wenn du dich anmeldest. Damit er mit Windows startet (z. B. nach einem nächtlichen Neustart), das Skript als Administrator ausführen.'
-    # A hidden PowerShell keeps the console window of node out of sight; the agent writes agent\data\agent.log itself.
-    $task.Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -Command `"& '$($node -replace "'", "''")' '$($entry -replace "'", "''")' --autostart`"" -WorkingDirectory $root
+    $task.Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $runnerArguments -WorkingDirectory $root
     $task.Trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
     $startsWhen = "bei jeder Anmeldung von $env:USERNAME"
   }
@@ -324,8 +326,6 @@ if ($Install) {
 
 # --- Start in this window --------------------------------------------------------
 Write-Info 'Starte den Agent – beenden mit Ctrl+C.'
-$agent = Start-Process -FilePath node -ArgumentList 'agent/dist/index.js' -WorkingDirectory $root -NoNewWindow -PassThru
-# Reading the handle now keeps ExitCode available after the process ended.
-$null = $agent.Handle
-$agent.WaitForExit()
-exit $agent.ExitCode
+# Through run-agent.ps1, so Manelly can restart and update it here too.
+& (Join-Path $PSScriptRoot 'run-agent.ps1') -Node (Get-Command node).Source
+exit $LASTEXITCODE

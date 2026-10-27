@@ -93,7 +93,8 @@ const fakeJellyfin: typeof fetch = async (input, init) => {
 };
 let clock = new Date(2026, 9, 26, 2, 0);
 const PROCESS = { pid: 4711, startedAt: '2026-10-27T02:00:00.000Z', node: 'v22.12.0', execPath: 'C:\\Program Files\\nodejs\\node.exe', autostart: true, port: 8790 };
-let shutdowns = 0;
+let exits: string[] = [];
+let restartable = false;
 
 async function start() {
   tools = await createFakeTools(path.join(root, 'bin'));
@@ -123,8 +124,8 @@ async function start() {
     recorder,
     tools: async () => tools,
     freeBytes: async () => free,
-    process: PROCESS,
-    onShutdown: () => void shutdowns++,
+    process: async () => ({ ...PROCESS, restartable, lastUpdate: null }),
+    onExit: (how) => void exits.push(how),
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -443,17 +444,32 @@ describe('history routes', () => {
 describe('process', () => {
   it('tells its version without the key, and its process with it', async () => {
     expect(await (await fetch(`${baseUrl}/api/health`)).json()).toEqual({ status: 'ok', version: expect.stringMatching(/^\d+\.\d+\.\d+$/) });
-    expect(((await (await call('/api/status')).json()) as AgentStatus).process).toEqual(PROCESS);
+    expect(((await (await call('/api/status')).json()) as AgentStatus).process).toEqual({ ...PROCESS, restartable: false, lastUpdate: null });
   });
 
   it('ends itself on request, only with the key, after answering', async () => {
-    shutdowns = 0;
+    exits = [];
     expect((await fetch(`${baseUrl}/api/shutdown`, { method: 'POST' })).status).toBe(401);
-    expect(shutdowns).toBe(0);
+    expect(exits).toEqual([]);
     const response = await call('/api/shutdown', { method: 'POST' });
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ stopping: true });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(shutdowns).toBe(1);
+    expect(exits).toEqual(['stop']);
+  });
+
+  it('restarts, with an update first if asked, only under its runner', async () => {
+    exits = [];
+    restartable = false;
+    const refused = await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: false }) });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(/start-agent\.cmd -Install/);
+
+    restartable = true;
+    expect((await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: false }) })).status).toBe(202);
+    expect((await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: true }) })).status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(exits).toEqual(['restart', 'update']);
+    restartable = false;
   });
 });

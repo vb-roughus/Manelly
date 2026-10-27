@@ -61,6 +61,8 @@ export interface AgentClient {
   clearHistory(): Promise<void>;
   /** Ends the agent's process; it answers first. */
   shutdown(): Promise<void>;
+  /** Ends the agent so its runner starts it again, after a git pull and a build when `update` is set. */
+  restart(update: boolean): Promise<void>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -127,6 +129,9 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     clearHistory: () => call('DELETE', '/api/history', undefined, 20_000),
     shutdown: async () => {
       await call('POST', '/api/shutdown');
+    },
+    restart: async (update) => {
+      await call('POST', '/api/restart', { update });
     },
   };
 }

@@ -1,7 +1,9 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { AgentUpdateResult } from '@manelly/shared';
 import { dataDirFrom, loadConfig } from './config.js';
 import { createRecorder } from './history.js';
 import { createJDownloader } from './jdownloader.js';
@@ -64,6 +66,29 @@ const jdownloader = createJDownloader({ settings, log });
 const recorder = createRecorder({ dir: join(dataDir, 'history'), settings, resources, network, log });
 // The scheduled task passes --autostart; started by hand, the agent runs in a console window.
 const autostart = process.argv.includes('--autostart');
+// scripts/run-agent.ps1 starts the agent again when it ends with one of these codes; it sets the variable.
+const RESTART_EXIT = 75;
+const UPDATE_EXIT = 76;
+const processInfo = {
+  pid: process.pid,
+  startedAt: new Date().toISOString(),
+  node: process.version,
+  execPath: process.execPath,
+  autostart,
+  port: config.port,
+  restartable: process.env.MANELLY_AGENT_SUPERVISED === '1',
+};
+
+/** What run-agent.ps1 wrote about its last update. */
+async function lastUpdate(): Promise<AgentUpdateResult | null> {
+  try {
+    const stored = JSON.parse((await readFile(join(dataDir, 'update.json'), 'utf8')).replace(/^\uFEFF/, '')) as Partial<AgentUpdateResult>;
+    if (typeof stored.at !== 'string' || typeof stored.ok !== 'boolean') return null;
+    return { at: stored.at, ok: stored.ok, from: stored.from ?? null, to: stored.to ?? null, message: String(stored.message ?? '') };
+  } catch {
+    return null;
+  }
+}
 const server = createAgentServer({
   token: config.token,
   roots: config.roots,
@@ -74,8 +99,11 @@ const server = createAgentServer({
   jdownloader,
   recorder,
   tools: currentTools,
-  process: { pid: process.pid, startedAt: new Date().toISOString(), node: process.version, execPath: process.execPath, autostart, port: config.port },
-  onShutdown: () => shutdown('Beenden angefordert (Manelly oder Installationsskript)'),
+  process: async () => ({ ...processInfo, lastUpdate: await lastUpdate() }),
+  onExit: (how) =>
+    how === 'stop'
+      ? shutdown('Beenden angefordert (Manelly oder Installationsskript)')
+      : shutdown(how === 'update' ? 'Update angefordert' : 'Neustart angefordert', how === 'update' ? UPDATE_EXIT : RESTART_EXIT),
 });
 
 /** Who holds the port: an agent (and which version), or another program. */
@@ -122,7 +150,7 @@ server.listen(config.port, config.host, () => {
 let stopping = false;
 
 /** A running conversion pauses and continues with the next start. */
-function shutdown(reason: string) {
+function shutdown(reason: string, code = 0) {
   if (stopping) return;
   stopping = true;
   log(`${reason} – der Agent beendet sich …`);
@@ -131,8 +159,9 @@ function shutdown(reason: string) {
   resources.stop();
   jdownloader.stop();
   recorder.stop();
-  // Exit code 0: the autostart counts this as a normal end and does not start the agent again.
-  void queue.stop().then(() => process.exit(0));
+  // Exit code 0: the autostart counts this as a normal end and does not start the agent again;
+  // run-agent.ps1 starts it again for the restart codes.
+  void queue.stop().then(() => process.exit(code));
 }
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => shutdown(`${signal} empfangen`));

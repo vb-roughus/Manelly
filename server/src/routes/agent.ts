@@ -4,6 +4,7 @@ import type {
   AgentNetworkStatus,
   AgentOverview,
   AgentResourceStatus,
+  AgentRestartRequest,
   AgentScheduleStatus,
   AgentSettingsView,
   AgentStatus,
@@ -248,6 +249,24 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     request.log.info(`Agent auf ${status.hostname} beendet (Prozess ${status.process.pid}).`);
     return reply.status(204).send();
   });
+
+  app.post<{ Body: AgentRestartRequest }>(
+    '/restart',
+    { schema: { body: { type: 'object', additionalProperties: false, required: ['update'], properties: { update: { type: 'boolean' } } } } },
+    async (request, reply) => {
+      const client = requireAgent(agent);
+      const status = await client.status();
+      if (!status.process?.restartable) {
+        const reason = status.process
+          ? 'läuft ohne scripts\\run-agent.ps1'
+          : `ist zu alt dafür (Version ${status.version})`;
+        throw new AppError('BAD_REQUEST', `Der Agent auf ${status.hostname} ${reason} und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.`, 400);
+      }
+      await client.restart(request.body.update);
+      request.log.info(`Agent auf ${status.hostname} ${request.body.update ? 'wird aktualisiert und' : 'wird'} neu gestartet.`);
+      return reply.status(202).send({ restarting: true });
+    },
+  );
 
   app.get<{ Querystring: { from: number; to: number } }>(
     '/history',

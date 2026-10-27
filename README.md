@@ -134,8 +134,13 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
 
 - Abschnitt **Downloads** im Dashboard (einklappbar): Zustand und Gesamttempo, die Pakete mit Fortschritt, Tempo und
   Restzeit, darunter die fertigen
+- **Entpacken** nach dem Download (ab Agent 0.10.0): Ein Paket, dessen Archive JDownloader gerade entpackt, bleibt
+  oben in der Liste, mit «Entpacken 40 %» und blauem Balken; schlägt das Entpacken fehl (z. B. falsches Passwort),
+  steht es rot mit dem Grund von JDownloader da. Erfolgreich entpackte Pakete zählen zu den fertigen («entpackt»)
 - Seite **Server → JDownloader** mit zwei Reitern:
-  - **Downloads:** alle Pakete; **Starten, Stoppen, Pausieren, Fortsetzen** und das **Tempo-Limit** von JDownloader
+  - **Downloads:** alle Pakete; ein Klick auf ein Paket klappt seine **einzelnen Dateien (Parts)** auf, jede mit
+    Fortschritt, Tempo, Restzeit, Status und ob sie entpackt ist. Die fertigen Pakete klappen ebenfalls auf.
+    **Starten, Stoppen, Pausieren, Fortsetzen** und das **Tempo-Limit** von JDownloader
     überschreiben (gilt sofort, auch während des Bremsens beim Streamen)
   - **Link Grabber:** was JDownloader gesammelt hat, nach Paketen, mit dem Status jedes Links (online, offline,
     unbekannt) und ob er noch sammelt; ein Link, ein Paket oder alle in die **Downloads übernehmen**

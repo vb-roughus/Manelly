@@ -48,7 +48,8 @@ export interface AgentClient {
   network(): Promise<AgentNetworkStatus>;
   /** CPU and GPU of the Jellyfin server; asking keeps the agent measuring. */
   resources(): Promise<AgentResourceStatus>;
-  jdownloader(): Promise<JDownloaderStatus>;
+  /** With `links`, every package lists its parts too. */
+  jdownloader(links?: boolean): Promise<JDownloaderStatus>;
   setJDownloaderSettings(settings: JDownloaderSettings): Promise<JDownloaderStatus>;
   controlJDownloader(action: JDownloaderAction): Promise<JDownloaderStatus>;
   setJDownloaderLimit(enabled: boolean, kbps: number): Promise<JDownloaderStatus>;
@@ -117,7 +118,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     network: () => call('GET', '/api/network'),
     resources: () => call('GET', '/api/resources'),
     // The agent asks JDownloader several things in a row; each may take up to 5 s.
-    jdownloader: () => call('GET', '/api/jdownloader', undefined, 20_000),
+    jdownloader: (links = false) => call('GET', links ? '/api/jdownloader?links=1' : '/api/jdownloader', undefined, 20_000),
     setJDownloaderSettings: (settings) => call('PUT', '/api/jdownloader/settings', settings, 20_000),
     controlJDownloader: (action) => call('POST', '/api/jdownloader/control', { action }, 20_000),
     setJDownloaderLimit: (enabled, kbps) => call('PUT', '/api/jdownloader/limit', { enabled, kbps }, 20_000),

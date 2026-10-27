@@ -855,6 +855,38 @@ export interface JDownloaderPackage {
   saveTo: string | null;
   hosts: string[];
   childCount: number;
+  /** Unpacking the archives after the download, as its parts tell; null when nothing is unpacked. Missing before agent 0.10.0. */
+  extraction?: JDownloaderExtraction | null;
+  /** The single files (parts); only when asked for with ?links=1. */
+  links?: JDownloaderLink[];
+}
+
+export type ExtractionState = 'running' | 'done' | 'failed';
+
+export interface JDownloaderExtraction {
+  state: ExtractionState;
+  /** 0–100 while unpacking, when JDownloader says. */
+  percent: number | null;
+  /** JDownloader's words, e.g. why it failed. */
+  message: string | null;
+}
+
+/** One file of a package, e.g. one part of a split archive. */
+export interface JDownloaderLink {
+  uuid: number;
+  name: string;
+  host: string | null;
+  bytesLoaded: number;
+  bytesTotal: number;
+  speedBps: number;
+  /** Seconds; null when unknown. */
+  eta: number | null;
+  finished: boolean;
+  running: boolean;
+  enabled: boolean;
+  /** JDownloader's own status text; null when none. */
+  status: string | null;
+  extraction: JDownloaderExtraction | null;
 }
 
 /** GET /api/jdownloader on the agent. */

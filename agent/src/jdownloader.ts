@@ -1,5 +1,7 @@
 import type {
   JDownloaderAction,
+  JDownloaderExtraction,
+  JDownloaderLink,
   JDownloaderPackage,
   JDownloaderSettings,
   JDownloaderStatus,
@@ -30,6 +32,24 @@ const PACKAGE_QUERY = {
   maxResults: -1,
 };
 const MAX_PACKAGES = 100;
+/** Every part with its progress, and whether its archive is being unpacked (advancedStatus carries the percentage). */
+const MAX_LINKS = 5000;
+const LINK_QUERY = {
+  bytesLoaded: true,
+  bytesTotal: true,
+  enabled: true,
+  eta: true,
+  extractionStatus: true,
+  finished: true,
+  host: true,
+  running: true,
+  speed: true,
+  status: true,
+  advancedStatus: true,
+  startAt: 0,
+  maxResults: MAX_LINKS,
+};
+const EXTRACTION_FAILED = new Set(['ERROR', 'ERROR_PW', 'ERROR_CRC', 'ERROR_NOT_ENOUGH_SPACE', 'ERRROR_FILE_NOT_FOUND']);
 /** The link grabber, with the availability of every link as JDownloader checked it. */
 const GRABBER_PACKAGE_QUERY = {
   bytesTotal: true,
@@ -62,6 +82,23 @@ interface RawPackage {
   saveTo?: string;
   hosts?: string[];
   childCount?: number;
+}
+
+interface RawLink {
+  uuid?: number;
+  name?: string;
+  packageUUID?: number;
+  host?: string;
+  bytesLoaded?: number;
+  bytesTotal?: number;
+  speed?: number;
+  eta?: number;
+  finished?: boolean;
+  running?: boolean;
+  enabled?: boolean;
+  status?: string;
+  extractionStatus?: string;
+  advancedStatus?: { PluginProgress?: { id?: string; current?: number; total?: number } };
 }
 
 interface RawCrawledPackage {
@@ -127,6 +164,7 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
     stop: () => call<boolean>('downloadcontroller/stop'),
     pause: (paused: boolean) => call<boolean>('downloadcontroller/pause', paused),
     packages: () => call<RawPackage[]>('downloadsV2/queryPackages', PACKAGE_QUERY),
+    links: () => call<RawLink[]>('downloadsV2/queryLinks', LINK_QUERY),
     grabberPackages: () => call<RawCrawledPackage[]>('linkgrabberv2/queryPackages', GRABBER_PACKAGE_QUERY),
     grabberLinks: () => call<RawCrawledLink[]>('linkgrabberv2/queryLinks', GRABBER_LINK_QUERY),
     collecting: () => call<boolean>('linkgrabberv2/isCollecting'),
@@ -144,7 +182,48 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
 
 export type JDownloaderApi = ReturnType<typeof createJDownloaderApi>;
 
-function toPackage(raw: RawPackage): JDownloaderPackage {
+/** Unpacking as JDownloader reports it on a part: under way (with a percentage), done or failed. */
+function extractionOf(raw: RawLink): JDownloaderExtraction | null {
+  const progress = raw.advancedStatus?.PluginProgress;
+  const message = raw.status || null;
+  if (raw.extractionStatus === 'RUNNING' || progress?.id === 'EXTRACTION') {
+    const percent = progress?.id === 'EXTRACTION' && progress.total ? Math.min(100, Math.max(0, Math.round(((progress.current ?? 0) / progress.total) * 100))) : null;
+    return { state: 'running', percent, message };
+  }
+  if (raw.extractionStatus && EXTRACTION_FAILED.has(raw.extractionStatus)) return { state: 'failed', percent: null, message };
+  if (raw.extractionStatus === 'SUCCESSFUL') return { state: 'done', percent: null, message };
+  return null;
+}
+
+function toLink(raw: RawLink): JDownloaderLink {
+  return {
+    uuid: raw.uuid ?? 0,
+    name: raw.name ?? 'Unbenannte Datei',
+    host: raw.host ?? null,
+    bytesLoaded: raw.bytesLoaded ?? 0,
+    bytesTotal: raw.bytesTotal !== undefined && raw.bytesTotal > 0 ? raw.bytesTotal : 0,
+    speedBps: raw.speed ?? 0,
+    eta: raw.eta !== undefined && raw.eta >= 0 ? raw.eta : null,
+    finished: raw.finished ?? false,
+    running: raw.running ?? false,
+    enabled: raw.enabled ?? true,
+    status: raw.status || null,
+    extraction: extractionOf(raw),
+  };
+}
+
+/** A package unpacks while any of its archives does; it failed when one failed; it is done when all that were unpacked are. */
+export function packageExtraction(links: JDownloaderLink[]): JDownloaderExtraction | null {
+  const states = links.flatMap((link) => (link.extraction ? [link.extraction] : []));
+  const running = states.filter((state) => state.state === 'running');
+  if (running.length) {
+    const percents = running.flatMap((state) => (state.percent === null ? [] : [state.percent]));
+    return { state: 'running', percent: percents.length ? Math.round(percents.reduce((sum, value) => sum + value, 0) / percents.length) : null, message: running[0]!.message };
+  }
+  return states.find((state) => state.state === 'failed') ?? (states.length ? { state: 'done', percent: null, message: states[0]!.message } : null);
+}
+
+function toPackage(raw: RawPackage, links: JDownloaderLink[] | null, withLinks: boolean): JDownloaderPackage {
   return {
     uuid: raw.uuid ?? 0,
     name: raw.name ?? 'Unbenanntes Paket',
@@ -159,6 +238,8 @@ function toPackage(raw: RawPackage): JDownloaderPackage {
     saveTo: raw.saveTo ?? null,
     hosts: raw.hosts ?? [],
     childCount: raw.childCount ?? 0,
+    extraction: links ? packageExtraction(links) : null,
+    ...(withLinks && links ? { links } : {}),
   };
 }
 
@@ -268,7 +349,8 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
   return {
     check,
 
-    async status(): Promise<JDownloaderStatus> {
+    /** With `withLinks`, every package lists its parts too. */
+    async status(withLinks = false): Promise<JDownloaderStatus> {
       const { jdownloader: config, jdownloaderHold: current } = settings.get();
       const throttling = {
         active: Boolean(current),
@@ -282,9 +364,18 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
       if (!config.enabled) return empty;
       try {
         const jd = api();
-        const [state, speed, limit, packages] = await Promise.all([jd.state(), jd.speed(), jd.limit(), jd.packages()]);
+        // Without the parts the packages still show; they only lack the unpacking.
+        const [state, speed, limit, packages, links] = await Promise.all([jd.state(), jd.speed(), jd.limit(), jd.packages(), jd.links().catch(() => null)]);
+        const byPackage = new Map<number, JDownloaderLink[]>();
+        for (const raw of links ?? []) {
+          const list = byPackage.get(raw.packageUUID ?? 0) ?? [];
+          list.push(toLink(raw));
+          byPackage.set(raw.packageUUID ?? 0, list);
+        }
         // Unfinished first, in JDownloader's order; finished ones after them.
-        const sorted = (packages ?? []).map(toPackage).sort((a, b) => Number(a.finished) - Number(b.finished));
+        const sorted = (packages ?? [])
+          .map((raw) => toPackage(raw, links ? (byPackage.get(raw.uuid ?? 0) ?? []) : null, withLinks))
+          .sort((a, b) => Number(a.finished) - Number(b.finished));
         return { ...empty, reachable: true, state: state ?? null, speedBps: typeof speed === 'number' ? speed : null, limit, packages: sorted.slice(0, MAX_PACKAGES) };
       } catch (error) {
         return { ...empty, error: (error as Error).message };

@@ -363,10 +363,11 @@ export function useAgentResources(enabled: boolean) {
 
 // --- Agent: JDownloader ---------------------------------------------------------------
 
-export function useJDownloader(enabled: boolean, pollMs: number | false = 4_000) {
+/** With `links`, every package lists its parts too (the JDownloader page); the dashboard does without. */
+export function useJDownloader(enabled: boolean, pollMs: number | false = 4_000, links = false) {
   return useQuery({
-    queryKey: ['jdownloader'],
-    queryFn: ({ signal }) => fetchJson<JDownloaderStatus>('/api/agent/jdownloader', signal),
+    queryKey: links ? ['jdownloader', 'links'] : ['jdownloader'],
+    queryFn: ({ signal }) => fetchJson<JDownloaderStatus>(links ? '/api/agent/jdownloader?links=1' : '/api/agent/jdownloader', signal),
     refetchInterval: pollMs,
     enabled,
     retry: false,
@@ -377,9 +378,11 @@ function useJDownloaderMutation<T>(send: (request: T) => Promise<JDownloaderStat
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: send,
-    onSuccess: (status) => {
+    onSuccess: async (status) => {
       queryClient.setQueryData(['jdownloader'], status);
       void queryClient.invalidateQueries({ queryKey: ['agent'] });
+      // The answer lacks the parts; stay pending until the JDownloader page has them fresh.
+      await queryClient.invalidateQueries({ queryKey: ['jdownloader', 'links'] });
     },
   });
 }

@@ -174,7 +174,7 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
 
   app.get('/resources', async (): Promise<AgentResourceStatus> => requireAgent(agent).resources());
 
-  app.get('/jdownloader', async (): Promise<JDownloaderStatus> => requireAgent(agent).jdownloader());
+  app.get<{ Querystring: { links?: string } }>('/jdownloader', async (request): Promise<JDownloaderStatus> => requireAgent(agent).jdownloader(request.query.links === '1'));
 
   app.put<{ Body: JDownloaderSettings }>(
     '/jdownloader/settings',

@@ -1086,6 +1086,14 @@ export interface AgentRestartRequest {
   update: boolean;
 }
 
+/** The answer to a restart or update request, from the agent and from Manelly. */
+export interface AgentRestartAnswer {
+  /** The process ends now; false while an update runs first. */
+  restarting: boolean;
+  /** The update under way, which restarts only when it found something new. */
+  update?: UpdateProgress;
+}
+
 /** The steps of an update by scripts/update.mjs, in this order; install only when the dependencies changed. */
 export type UpdateStep = 'check' | 'pull' | 'install' | 'build' | 'restart';
 

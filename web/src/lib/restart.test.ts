@@ -9,7 +9,7 @@ const agent = (pid: number, startedAt: string, version = '0.10.0', lastUpdate: A
   ({ version, process: { pid, startedAt, lastUpdate } }) as unknown as AgentStatus;
 
 const before = agent(100, '2026-10-27T10:00:00Z', '0.9.0', report('2026-10-20T08:00:00Z', true, 'Aktualisiert von a1 auf b2.'));
-const pending = (update: boolean): PendingRestart<AgentStatus> => ({ update, before, since: 1_000_000, progress: null, away: false });
+const pending = (update: boolean): PendingRestart<AgentStatus> => ({ update, before, since: 1_000_000, progress: null, away: false, startedAt: null });
 
 describe('agentRestartProgress', () => {
   it('waits while the old process still answers or none does', () => {
@@ -57,7 +57,7 @@ describe('Manelly restart', () => {
   const manelly = (pid: number, startedAt: string, commit: string | null, lastUpdate: AgentUpdateResult | null = null) =>
     ({ pid, startedAt, commit, lastUpdate }) as ManellyStatus;
   const old = manelly(10, '2026-10-27T10:00:00Z', 'c76436b');
-  const waiting = (update: boolean): PendingRestart<ManellyStatus> => ({ update, before: old, since: 1_000_000, progress: null, away: false });
+  const waiting = (update: boolean): PendingRestart<ManellyStatus> => ({ update, before: old, since: 1_000_000, progress: null, away: false, startedAt: null });
 
   it('is back once another server process answers', () => {
     expect(manellyRestartProgress(waiting(false), old, 1_001_000)).toBe('waiting');
@@ -70,7 +70,12 @@ describe('Manelly restart', () => {
     // Still the report from before the update: the answer came before the update began.
     expect(manellyRestartProgress(waiting(true), { ...old, update: null }, 1_001_000)).toBe('waiting');
     const nothingNew = { ...old, update: null, lastUpdate: report('2026-10-27T10:01:00Z', true, 'Schon auf dem neuesten Stand (c76436b).') };
-    expect(manellyRestartProgress(waiting(true), nothingNew, 1_001_000)).toBe('settled');
+    // Not before Manelly itself said when the update began: the answer could be from before.
+    expect(manellyRestartProgress(waiting(true), nothingNew, 1_001_000)).toBe('waiting');
+    const started = { ...waiting(true), startedAt: '2026-10-27T10:00:30Z' };
+    expect(manellyRestartProgress(started, nothingNew, 1_001_000)).toBe('settled');
+    // A report from an earlier update does not end this one.
+    expect(manellyRestartProgress({ ...waiting(true), startedAt: '2026-10-27T10:05:00Z' }, nothingNew, 1_001_000)).toBe('waiting');
     expect(manellyRestartSummary({ ...waiting(true), after: { ...nothingNew, lastUpdate: { ...nothingNew.lastUpdate, upToDate: true } }, ended: 1_002_000 })).toEqual({
       ok: true,
       text: 'Schon auf dem neuesten Stand (c76436b). Manelly läuft weiter, ohne Neustart.',

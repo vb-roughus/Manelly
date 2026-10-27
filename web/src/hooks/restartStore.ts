@@ -46,17 +46,19 @@ export function createRestartStore<S>(storageKey: string) {
     },
     /** `progress` is the first step of an update that runs while the process keeps answering. */
     begin: (update: boolean, before: S, progress: UpdateProgress | null = null) =>
-      set({ pending: { update, before, since: Date.now(), progress, away: false }, finished: null }),
+      set({ pending: { update, before, since: Date.now(), progress, away: false, startedAt: null }, finished: null }),
     /** An update this tab did not ask for, e.g. from another browser, or before the page was opened. */
     adopt: (before: S, progress: UpdateProgress) => {
       if (state.pending) return;
-      set({ pending: { update: true, before, since: Date.parse(progress.since) || Date.now(), progress, away: false }, finished: null });
+      set({ pending: { update: true, before, since: Date.parse(progress.since) || Date.now(), progress, away: false, startedAt: progress.since }, finished: null });
     },
-    /** What the process said last about its update, and whether it still answers. */
-    note: (progress: UpdateProgress | null, away: boolean) => {
+    /** What is known about the update, and whether the process still answers; `reported` comes from the process itself. */
+    note: (progress: UpdateProgress | null, away: boolean, reported = false) => {
       const { pending } = state;
-      if (!pending || (pending.away === away && JSON.stringify(pending.progress) === JSON.stringify(progress))) return;
-      set({ ...state, pending: { ...pending, progress, away } });
+      if (!pending) return;
+      const startedAt = pending.startedAt ?? (reported && progress ? progress.since : null);
+      if (pending.away === away && pending.startedAt === startedAt && JSON.stringify(pending.progress) === JSON.stringify(progress)) return;
+      set({ ...state, pending: { ...pending, progress, away, startedAt } });
     },
     /** `after` null: no new process answered. */
     end: (after: S | null) => {

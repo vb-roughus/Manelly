@@ -4,6 +4,7 @@ import type {
   AgentNetworkList,
   AgentNetworkStatus,
   AgentOverview,
+  AgentRestartAnswer,
   AgentResourceStatus,
   AgentScheduleStatus,
   AgentSettingsView,
@@ -249,7 +250,7 @@ export function useRestartAgent() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ update }: { update: boolean; before: AgentStatus }) =>
-      sendJson<{ restarting: boolean; update?: UpdateProgress }>('POST', '/api/agent/restart', { update }),
+      sendJson<AgentRestartAnswer>('POST', '/api/agent/restart', { update }),
     onMutate: ({ update, before }) => {
       const whileRunning = update && updatesWhileRunning(before);
       agentRestart.begin(update, before, whileRunning ? firstUpdateStep() : null);
@@ -257,7 +258,7 @@ export function useRestartAgent() {
       if (!whileRunning) void queryClient.cancelQueries({ predicate: (query) => isAgentQuery(query.queryKey) });
     },
     onSuccess: (answer) => {
-      if (answer.update) agentRestart.note(answer.update, false);
+      if (answer.update) agentRestart.note(answer.update, false, true);
     },
     onError: () => agentRestart.abandon(),
   });
@@ -295,7 +296,8 @@ function useWatchRestart<S>({
       return;
     }
     // The last step stays known while the process is away, also after reloading the page.
-    store.note(status ? (progressOf(status) ?? pending.progress) : pending.progress, away);
+    const reported = status ? progressOf(status) : null;
+    store.note(reported ?? pending.progress, away, Boolean(reported));
     const timer = window.setTimeout(() => store.end(null), restartDeadline(pending) - Date.now());
     return () => window.clearTimeout(timer);
   }, [pending, status, away]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -347,12 +349,12 @@ export function useManelly() {
 export function useRestartManelly() {
   return useMutation({
     mutationFn: ({ update }: { update: boolean; before: ManellyStatus }) =>
-      sendJson<{ restarting: boolean; update?: UpdateProgress }>('POST', '/api/manelly/restart', { update }),
+      sendJson<AgentRestartAnswer>('POST', '/api/manelly/restart', { update }),
     // Sent although every query counts as offline once a plain restart begins, see useManellyRestart.
     networkMode: 'always',
     onMutate: ({ update, before }) => manellyRestart.begin(update, before, update ? firstUpdateStep() : null),
     onSuccess: (answer) => {
-      if (answer.update) manellyRestart.note(answer.update, false);
+      if (answer.update) manellyRestart.note(answer.update, false, true);
     },
     onError: () => manellyRestart.abandon(),
   });
@@ -382,6 +384,7 @@ export function useWatchManellyRestart() {
     onFrozen: () => void queryClient.cancelQueries({ predicate: (query) => query.queryKey[0] !== 'manelly-restart' }),
     onEnd: (how, ended) => {
       if (how === 'back' && ended.update) window.location.reload();
+      else void queryClient.invalidateQueries({ queryKey: ['manelly'] });
     },
   });
 }

@@ -10,6 +10,11 @@ export interface PendingRestart<S> {
   progress: UpdateProgress | null;
   /** The process stopped answering: it restarts. */
   away: boolean;
+  /**
+   * When the process itself said the update began, by its own clock. Only a report from after that ends an update
+   * without restart; an answer still on its way from before must not.
+   */
+  startedAt: string | null;
 }
 
 /** How it ended: the process that answered last, or null when none answered in time or nobody waited any longer. */
@@ -52,7 +57,8 @@ export function restartProgress<S>(pending: PendingRestart<S>, current: S | null
   const before = view.identity(pending.before);
   const after = current ? view.identity(current) : null;
   if (after && (after.pid !== before?.pid || after.startedAt !== before?.startedAt)) return 'back';
-  if (current && pending.update && !view.update(current) && freshReport(view.report(pending.before), view.report(current))) return 'settled';
+  const report = current ? view.report(current) : null;
+  if (current && pending.startedAt && !view.update(current) && report && Date.parse(report.at) >= Date.parse(pending.startedAt)) return 'settled';
   return now > restartDeadline(pending) ? 'timeout' : 'waiting';
 }
 

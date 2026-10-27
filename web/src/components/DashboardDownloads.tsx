@@ -11,6 +11,13 @@ const MAX_SHOWN = 6;
 
 const STATES: Record<string, string> = { RUNNING: 'lädt', PAUSE: 'pausiert', IDLE: 'bereit', STOPPING: 'hält an', STOPPED: 'gestoppt' };
 
+/** "lädt · 12 MB/s · gebremst", or why JDownloader does not answer. */
+export function downloadsSummary(status: JDownloaderStatus): string {
+  if (!status.reachable) return 'nicht erreichbar';
+  const state = status.state ? (STATES[status.state] ?? status.state.toLowerCase()) : null;
+  return [state, status.state === 'RUNNING' && status.speedBps ? formatSpeed(status.speedBps) : null, status.throttling.active ? 'gebremst' : null].filter(Boolean).join(' · ');
+}
+
 /** JDownloader on the Jellyfin server: state, speed, packages, controls; only when switched on in the settings. */
 export function DashboardDownloads() {
   const agentSettings = useAgentSettings();
@@ -20,10 +27,7 @@ export function DashboardDownloads() {
   const [open, setOpen] = usePersistentFlag('manelly.dashboard.downloads.open', true);
   if (!enabled || !data) return null;
 
-  const state = data.state ? (STATES[data.state] ?? data.state.toLowerCase()) : null;
-  const summary = data.reachable
-    ? [state, data.state === 'RUNNING' && data.speedBps ? formatSpeed(data.speedBps) : null, data.throttling.active ? 'gebremst' : null].filter(Boolean).join(' · ')
-    : 'nicht erreichbar';
+  const summary = downloadsSummary(data);
 
   return (
     <section aria-labelledby="downloads-heading">
@@ -43,7 +47,7 @@ export function DashboardDownloads() {
           </button>
         </h2>
         <Link to="/server/jdownloader" className="text-sm font-medium text-accent hover:underline">
-          JDownloader einstellen
+          Zu JDownloader
         </Link>
       </div>
       <div id="downloads-content" hidden={!open} className="rounded-2xl border border-line bg-card p-4 shadow-sm shadow-black/5">
@@ -53,7 +57,8 @@ export function DashboardDownloads() {
   );
 }
 
-function Downloads({ status }: { status: JDownloaderStatus }) {
+/** Controls, speed limit and packages; the dashboard shows the first few, the JDownloader page all of them. */
+export function Downloads({ status, maxShown = MAX_SHOWN }: { status: JDownloaderStatus; maxShown?: number }) {
   const unfinished = status.packages.filter((pkg) => !pkg.finished);
   const finished = status.packages.filter((pkg) => pkg.finished);
   return (
@@ -71,12 +76,12 @@ function Downloads({ status }: { status: JDownloaderStatus }) {
         <>
           {unfinished.length > 0 && (
             <ul className="space-y-3">
-              {unfinished.slice(0, MAX_SHOWN).map((pkg) => (
+              {unfinished.slice(0, maxShown).map((pkg) => (
                 <PackageRow key={pkg.uuid} pkg={pkg} />
               ))}
             </ul>
           )}
-          {unfinished.length > MAX_SHOWN && <p className="text-xs text-ink-3">und {unfinished.length - MAX_SHOWN} weitere Pakete in der Warteschlange</p>}
+          {unfinished.length > maxShown && <p className="text-xs text-ink-3">und {unfinished.length - maxShown} weitere Pakete in der Warteschlange</p>}
           {finished.length > 0 && (
             <p className="truncate text-xs text-ink-2" title={finished.map((pkg) => pkg.name).join('\n')}>
               <b className="font-medium text-ink">{finished.length} fertig:</b> {finished.map((pkg) => pkg.name).join(', ')}

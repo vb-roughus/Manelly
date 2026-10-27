@@ -7,7 +7,7 @@ import { createSettingsStore, type SettingsStore } from '../src/schedule.js';
 
 /** JDownloader's local API and Jellyfin's sessions, as the agent sees them. */
 function fakeWorld() {
-  const jd = { state: 'RUNNING', limitEnabled: false, limit: 0, streams: 0, up: true, calls: [] as string[] };
+  const jd = { state: 'RUNNING', limitEnabled: false, limit: 0, streams: 0, up: true, calls: [] as string[], grabber: [11, 12] };
   const fetch: typeof globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     if (url.host === 'jellyfin:8096') {
@@ -38,6 +38,26 @@ function fakeWorld() {
         if (params[2] === 'DownloadSpeedLimitEnabled') jd.limitEnabled = params[3] as boolean;
         else jd.limit = params[3] as number;
         return wrapped(true);
+      case '/linkgrabberv2/isCollecting':
+        return wrapped(true);
+      case '/linkgrabberv2/queryPackages':
+        return Response.json(
+          [
+            { uuid: 11, name: 'Dune Part Two', bytesTotal: 60e9, childCount: 2, hosts: ['rapidgator.net'], saveTo: 'D:\\Downloads\\Dune', onlineCount: 1, offlineCount: 1, enabled: true },
+            { uuid: 12, name: 'Noch unklar', childCount: 1, unknownCount: 1, tempUnknownCount: 1, bytesTotal: -1 },
+          ].filter((pkg) => jd.grabber.includes(pkg.uuid)),
+        );
+      case '/linkgrabberv2/queryLinks':
+        return wrapped(
+          [
+            { uuid: 101, packageUUID: 11, name: 'dune.part1.rar', bytesTotal: 30e9, host: 'rapidgator.net', availability: 'ONLINE', enabled: true },
+            { uuid: 102, packageUUID: 11, name: 'dune.part2.rar', bytesTotal: 30e9, host: 'rapidgator.net', availability: 'OFFLINE', enabled: true },
+            { uuid: 201, packageUUID: 12, name: 'unklar.mkv', host: 'example.com', availability: 'SOMETHING_NEW' },
+          ].filter((link) => jd.grabber.includes(link.packageUUID)),
+        );
+      case '/linkgrabberv2/moveToDownloadlist':
+        jd.grabber = jd.grabber.filter((uuid) => !(params[1] as number[]).includes(uuid));
+        return wrapped(null);
       case '/downloadsV2/queryPackages':
         return Response.json([
           { uuid: 1, name: 'Fertig', bytesLoaded: 100, bytesTotal: 100, finished: true, status: 'Entpacken OK', hosts: ['rapidgator.net'], childCount: 2, eta: -1 },
@@ -168,6 +188,40 @@ describe('JDownloader', () => {
     await reloaded.setJDownloader({ enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 512 } });
     await restarted.check();
     expect(jd.limitEnabled).toBe(false);
+  });
+
+  it('lists the link grabber by package, and moves packages to the download list', async () => {
+    const { jd, fetch } = fakeWorld();
+    await enable('off');
+    const jdownloader = createJDownloader({ settings, fetch, tickMs: 0 });
+    const grabber = await jdownloader.linkgrabber();
+    expect(grabber.collecting).toBe(true);
+    expect(grabber.packages).toEqual([
+      {
+        uuid: 11,
+        name: 'Dune Part Two',
+        bytesTotal: 60e9,
+        childCount: 2,
+        hosts: ['rapidgator.net'],
+        saveTo: 'D:\\Downloads\\Dune',
+        enabled: true,
+        online: 1,
+        offline: 1,
+        unknown: 0,
+        links: [
+          { uuid: 101, name: 'dune.part1.rar', bytesTotal: 30e9, host: 'rapidgator.net', availability: 'ONLINE', enabled: true },
+          { uuid: 102, name: 'dune.part2.rar', bytesTotal: 30e9, host: 'rapidgator.net', availability: 'OFFLINE', enabled: true },
+        ],
+      },
+      // Sizes JDownloader does not know yet, and states this agent does not know, read as unknown.
+      expect.objectContaining({ uuid: 12, bytesTotal: 0, unknown: 2, links: [expect.objectContaining({ availability: 'UNKNOWN', bytesTotal: 0 })] }),
+    ]);
+
+    jd.calls = [];
+    await jdownloader.moveToDownloads([11], []);
+    // Link ids first, then package ids, as JDownloader's method takes them.
+    expect(jd.calls).toEqual(['/linkgrabberv2/moveToDownloadlist?%5B%5D&%5B11%5D']);
+    expect((await jdownloader.linkgrabber()).packages.map((pkg) => pkg.uuid)).toEqual([12]);
   });
 
   it('starts, stops, pauses and resumes', async () => {

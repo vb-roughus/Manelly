@@ -12,6 +12,7 @@ import type {
   ConversionRequest,
   HardwareTestRequest,
   JDownloaderAction,
+  LinkGrabberMoveRequest,
 } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import { AgentError } from './errors.js';
@@ -27,6 +28,7 @@ import { toolsReady, type Tools } from './tools.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MONITORED = 16;
+const MAX_MOVED = 5000;
 
 export interface AgentServerOptions {
   token: string;
@@ -100,10 +102,10 @@ export function createAgentServer(options: AgentServerOptions) {
   }
 
   /** JDownloader must be switched on in Manelly; its errors are reported as such. */
-  async function jdownloaderCall(action: () => Promise<void>) {
+  async function jdownloaderCall<T>(action: () => Promise<T>): Promise<T> {
     if (!settings.get().jdownloader.enabled) throw new AgentError(409, 'JDownloader ist in Manelly nicht eingeschaltet.');
     try {
-      await action();
+      return await action();
     } catch (error) {
       throw new AgentError(502, (error as Error).message);
     }
@@ -129,7 +131,7 @@ export function createAgentServer(options: AgentServerOptions) {
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
-        jdownloader: { enabled: settings.get().jdownloader.enabled },
+        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true },
         history: { enabled: settings.get().history.enabled },
         process: options.process,
       };
@@ -207,6 +209,16 @@ export function createAgentServer(options: AgentServerOptions) {
     if (route === 'DELETE /api/history') {
       await recorder.clear();
       return send(response, 204, undefined);
+    }
+    if (route === 'GET /api/jdownloader/linkgrabber') return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
+    if (route === 'POST /api/jdownloader/linkgrabber/move') {
+      const body = await readJson<Partial<LinkGrabberMoveRequest>>(request);
+      const ids = (value: unknown) => (Array.isArray(value) && value.length <= MAX_MOVED && value.every((id) => Number.isSafeInteger(id)) ? (value as number[]) : null);
+      const packageIds = ids(body.packageIds ?? []);
+      const linkIds = ids(body.linkIds ?? []);
+      if (!packageIds || !linkIds || packageIds.length + linkIds.length === 0) throw new AgentError(400, 'Keine Pakete oder Links zum Übernehmen angegeben.');
+      await jdownloaderCall(() => jdownloader.moveToDownloads(packageIds, linkIds));
+      return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
     }
     if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
     if (route === 'PUT /api/network/interfaces') {

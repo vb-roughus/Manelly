@@ -15,6 +15,8 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LinkGrabberMoveRequest,
+  LinkGrabberStatus,
   SaveAgentSettingsRequest,
   StartConversionRequest,
 } from '@manelly/shared';
@@ -285,6 +287,23 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     await requireAgent(agent).clearHistory();
     return reply.status(204).send();
   });
+
+  app.get('/jdownloader/linkgrabber', async (): Promise<LinkGrabberStatus> => requireAgent(agent).linkGrabber());
+
+  const ids = { type: 'array', maxItems: 5000, items: { type: 'integer', minimum: 0 } };
+  app.post<{ Body: LinkGrabberMoveRequest }>(
+    '/jdownloader/linkgrabber/move',
+    {
+      schema: {
+        body: { type: 'object', additionalProperties: false, required: ['packageIds', 'linkIds'], properties: { packageIds: ids, linkIds: ids } },
+      },
+    },
+    async (request): Promise<LinkGrabberStatus> => {
+      const status = await requireAgent(agent).moveFromLinkGrabber(request.body);
+      request.log.info(`JDownloader: ${request.body.packageIds.length} Pakete und ${request.body.linkIds.length} Links in die Downloads übernommen`);
+      return status;
+    },
+  );
 
   const time = { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' };
   app.put<{ Body: ConversionSchedule }>(

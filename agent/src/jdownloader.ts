@@ -1,4 +1,13 @@
-import type { JDownloaderAction, JDownloaderPackage, JDownloaderSettings, JDownloaderStatus } from '@manelly/shared';
+import type {
+  JDownloaderAction,
+  JDownloaderPackage,
+  JDownloaderSettings,
+  JDownloaderStatus,
+  LinkAvailability,
+  LinkGrabberLink,
+  LinkGrabberPackage,
+  LinkGrabberStatus,
+} from '@manelly/shared';
 import { createJellyfinApi } from './jellyfin.js';
 import type { JDownloaderHold, SettingsStore } from './schedule.js';
 
@@ -21,6 +30,23 @@ const PACKAGE_QUERY = {
   maxResults: -1,
 };
 const MAX_PACKAGES = 100;
+/** The link grabber, with the availability of every link as JDownloader checked it. */
+const GRABBER_PACKAGE_QUERY = {
+  bytesTotal: true,
+  childCount: true,
+  enabled: true,
+  hosts: true,
+  saveTo: true,
+  availableOnlineCount: true,
+  availableOfflineCount: true,
+  availableUnknownCount: true,
+  availableTempUnknownCount: true,
+  startAt: 0,
+  maxResults: MAX_PACKAGES,
+};
+const MAX_GRABBER_LINKS = 2000;
+const GRABBER_LINK_QUERY = { availability: true, bytesTotal: true, enabled: true, host: true, startAt: 0, maxResults: MAX_GRABBER_LINKS };
+const AVAILABILITIES: LinkAvailability[] = ['ONLINE', 'OFFLINE', 'UNKNOWN', 'TEMP_UNKNOWN'];
 
 interface RawPackage {
   uuid?: number;
@@ -36,6 +62,30 @@ interface RawPackage {
   saveTo?: string;
   hosts?: string[];
   childCount?: number;
+}
+
+interface RawCrawledPackage {
+  uuid?: number;
+  name?: string;
+  bytesTotal?: number;
+  childCount?: number;
+  hosts?: string[];
+  saveTo?: string;
+  enabled?: boolean;
+  onlineCount?: number;
+  offlineCount?: number;
+  unknownCount?: number;
+  tempUnknownCount?: number;
+}
+
+interface RawCrawledLink {
+  uuid?: number;
+  name?: string;
+  packageUUID?: number;
+  bytesTotal?: number;
+  host?: string;
+  availability?: string;
+  enabled?: boolean;
 }
 
 /**
@@ -77,6 +127,10 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
     stop: () => call<boolean>('downloadcontroller/stop'),
     pause: (paused: boolean) => call<boolean>('downloadcontroller/pause', paused),
     packages: () => call<RawPackage[]>('downloadsV2/queryPackages', PACKAGE_QUERY),
+    grabberPackages: () => call<RawCrawledPackage[]>('linkgrabberv2/queryPackages', GRABBER_PACKAGE_QUERY),
+    grabberLinks: () => call<RawCrawledLink[]>('linkgrabberv2/queryLinks', GRABBER_LINK_QUERY),
+    collecting: () => call<boolean>('linkgrabberv2/isCollecting'),
+    moveToDownloads: (linkIds: number[], packageIds: number[]) => call<void>('linkgrabberv2/moveToDownloadlist', linkIds, packageIds),
     async limit(): Promise<{ enabled: boolean; bytesPerSecond: number }> {
       const [enabled, bytes] = await Promise.all([getSetting('DownloadSpeedLimitEnabled'), getSetting('DownloadSpeedLimit')]);
       return { enabled: enabled === true || enabled === 'true', bytesPerSecond: Number(bytes) || 0 };
@@ -105,6 +159,33 @@ function toPackage(raw: RawPackage): JDownloaderPackage {
     saveTo: raw.saveTo ?? null,
     hosts: raw.hosts ?? [],
     childCount: raw.childCount ?? 0,
+  };
+}
+
+function toGrabberLink(raw: RawCrawledLink): LinkGrabberLink {
+  return {
+    uuid: raw.uuid ?? 0,
+    name: raw.name ?? 'Unbenannter Link',
+    bytesTotal: raw.bytesTotal !== undefined && raw.bytesTotal > 0 ? raw.bytesTotal : 0,
+    host: raw.host ?? null,
+    availability: AVAILABILITIES.includes(raw.availability as LinkAvailability) ? (raw.availability as LinkAvailability) : 'UNKNOWN',
+    enabled: raw.enabled ?? true,
+  };
+}
+
+function toGrabberPackage(raw: RawCrawledPackage, links: LinkGrabberLink[]): LinkGrabberPackage {
+  return {
+    uuid: raw.uuid ?? 0,
+    name: raw.name ?? 'Unbenanntes Paket',
+    bytesTotal: raw.bytesTotal !== undefined && raw.bytesTotal > 0 ? raw.bytesTotal : 0,
+    childCount: raw.childCount ?? links.length,
+    hosts: raw.hosts ?? [],
+    saveTo: raw.saveTo ?? null,
+    enabled: raw.enabled ?? true,
+    online: raw.onlineCount ?? 0,
+    offline: raw.offlineCount ?? 0,
+    unknown: (raw.unknownCount ?? 0) + (raw.tempUnknownCount ?? 0),
+    links,
   };
 }
 
@@ -208,6 +289,24 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
       } catch (error) {
         return { ...empty, error: (error as Error).message };
       }
+    },
+
+    /** What waits in the link grabber, package by package. */
+    async linkgrabber(): Promise<LinkGrabberStatus> {
+      const jd = api();
+      const [collecting, packages, links] = await Promise.all([jd.collecting(), jd.grabberPackages(), jd.grabberLinks()]);
+      const byPackage = new Map<number, LinkGrabberLink[]>();
+      for (const raw of links ?? []) {
+        const list = byPackage.get(raw.packageUUID ?? 0) ?? [];
+        list.push(toGrabberLink(raw));
+        byPackage.set(raw.packageUUID ?? 0, list);
+      }
+      return { collecting: collecting === true, packages: (packages ?? []).map((raw) => toGrabberPackage(raw, byPackage.get(raw.uuid ?? 0) ?? [])) };
+    },
+
+    /** Whole packages and single links from the link grabber to the download list. */
+    async moveToDownloads(packageIds: number[], linkIds: number[]): Promise<void> {
+      await api().moveToDownloads(linkIds, packageIds);
     },
 
     async control(action: JDownloaderAction): Promise<void> {

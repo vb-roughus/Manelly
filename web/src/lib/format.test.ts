@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NowPlayingItem } from '@manelly/shared';
-import { formatBitrate, formatDuration, itemHeadline, languageLabel, resolutionLabel } from './format';
+import { formatBitrate, formatDuration, formatEta, formatSpeed, itemHeadline, languageLabel, resolutionLabel } from './format';
 import { describeTranscodeReason } from './transcodeReasons';
 
 const item = (overrides: Partial<NowPlayingItem>): NowPlayingItem => ({
@@ -61,5 +61,14 @@ describe('format', () => {
   it('describes unknown transcode reasons readably', () => {
     expect(describeTranscodeReason('VideoCodecNotSupported').label).toBe('Video-Codec nicht unterstützt');
     expect(describeTranscodeReason('SomeFutureReason').label).toBe('Some Future Reason');
+  });
+});
+
+describe('downloads', () => {
+  it('formats download speed and time to go', () => {
+    expect(formatSpeed(2_500_000)).toBe('2.4 MB/s');
+    expect(formatSpeed(870_000)).toBe('850 KB/s');
+    expect(formatSpeed(150 * 1024 ** 2)).toBe('150 MB/s');
+    expect([formatEta(42), formatEta(720), formatEta(3900), formatEta(7200)]).toEqual(['42 s', '12 min', '1 h 5 min', '2 h']);
   });
 });

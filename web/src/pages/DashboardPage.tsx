@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import type { SessionsResponse } from '@manelly/shared';
 import { BandwidthPanel } from '../components/BandwidthPanel';
 import { DashboardConversions } from '../components/DashboardConversions';
+import { DashboardDownloads } from '../components/DashboardDownloads';
 import { ServerLoadPanel } from '../components/ServerLoadPanel';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { SetupPanel } from '../components/SetupPanel';
@@ -39,6 +40,7 @@ export function DashboardPage() {
           {error && <StaleBanner error={error} />}
           <Summary data={data} />
           <DashboardConversions />
+          <DashboardDownloads />
           <StreamList data={data} sampledAt={dataUpdatedAt} />
         </>
       );

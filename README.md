@@ -121,6 +121,22 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 
 Einrichtung: siehe [Agent auf dem Jellyfin-Server](#agent-auf-dem-jellyfin-server-windows).
 
+### Downloads (JDownloader, mit Agent)
+
+Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn über den Agent:
+
+- Abschnitt **Downloads** im Dashboard (einklappbar): Zustand und Gesamttempo, die Pakete mit Fortschritt, Tempo und
+  Restzeit, darunter die fertigen
+- **Pausieren, Fortsetzen, Starten, Stoppen** und das **Tempo-Limit** von JDownloader setzen
+- **Bremsen, solange jemand streamt** (unter Einstellungen → JDownloader): Beginnt ein Stream, begrenzt der Agent
+  JDownloader auf ein Tempo (z. B. 2 MB/s) oder pausiert ihn. Fünf Minuten nach dem letzten Stream stellt er ihn wieder
+  so ein wie vorher – auch nach einem Neustart des Servers. Was du in der Zwischenzeit von Hand änderst, bleibt; ein von
+  Hand gesetztes Tempo-Limit ist auch das, was danach wieder gilt
+- Einrichtung: In JDownloader unter **Einstellungen → Erweiterte Einstellungen** nach «Deprecated» suchen und die
+  **Deprecated API** einschalten (die Einstellung «nur localhost» kann eingeschaltet bleiben – der Agent läuft auf
+  demselben Rechner). Dann in Manelly unter **Einstellungen → JDownloader** «JDownloader einbinden» wählen; die Adresse
+  ist meist `http://127.0.0.1:3128`
+
 ### Allgemein
 
 - Hell- und Dunkelmodus (folgt dem System, umschaltbar)
@@ -313,4 +329,5 @@ Proxy mit Authentifizierung und mache es nicht direkt im Internet erreichbar.
 Der Agent verlangt bei jeder Anfrage seinen Schlüssel, spricht aber unverschlüsseltes HTTP – gib seinen Port nur im
 Heimnetz frei. Er liest und schreibt nur die Dateien und Ordner, die Manelly ihm nennt (auf Wunsch zusätzlich beschränkt
 mit `roots`), legt nur eigene Unterordner an und löscht keine Originale. Den Jellyfin-API-Schlüssel, den Manelly ihm für
-den Zeitplan gibt, nutzt er nur für die Liste der laufenden Streams und um neue Dateien zu melden.
+den Zeitplan gibt, nutzt er nur für die Liste der laufenden Streams und um neue Dateien zu melden. Die «Deprecated API»
+von JDownloader hat keinen Schlüssel – lass sie auf «nur localhost», dann erreicht sie nur der Agent auf demselben Rechner.

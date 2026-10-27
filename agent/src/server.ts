@@ -171,7 +171,7 @@ export function createAgentServer(options: AgentServerOptions) {
     }
     if (route === 'GET /api/network') return send(response, 200, network.status());
     if (route === 'GET /api/resources') return send(response, 200, resources.status());
-    if (route === 'GET /api/jdownloader') return send(response, 200, await jdownloader.status());
+    if (route === 'GET /api/jdownloader') return send(response, 200, await jdownloader.status(url.searchParams.get('links') === '1'));
     if (route === 'PUT /api/jdownloader/settings') {
       await settings.setJDownloader(parseJDownloaderSettings(await readJson(request)));
       // Turned off or switched to another JDownloader: let go of it now.

@@ -90,7 +90,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         return Response.json({ collecting: false, packages: [] });
       }
       if (url.pathname.startsWith('/api/jdownloader')) {
-        sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
         return Response.json({ settings: body ?? { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } }, reachable: true, error: null, state: 'RUNNING', speedBps: 0, limit: null, packages: [], throttling: { active: false, reason: null } });
       }
       if (url.pathname === '/api/restart' && init?.method === 'POST') {
@@ -320,6 +320,8 @@ describe('agent connection', () => {
       { method: 'PUT', path: '/api/jdownloader/limit', body: { enabled: true, kbps: 512 } },
     ]);
     expect((await app.inject('/api/agent/jdownloader')).json<JDownloaderStatus>().state).toBe('RUNNING');
+    await app.inject('/api/agent/jdownloader?links=1');
+    expect(world.sent.jdownloader.slice(-2).map((call) => call.path)).toEqual(['/api/jdownloader', '/api/jdownloader?links=1']);
   });
 
   it('passes the link grabber and moves from it to the agent', async () => {

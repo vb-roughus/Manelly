@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import type { LinkAvailability, LinkGrabberPackage, LinkGrabberStatus } from '@manelly/shared';
 import { ArrowRightToLine, ChevronDown, CircleCheck, CircleHelp, CircleX, Download, Link2, LoaderCircle, Settings, X, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
-import { Downloads, downloadsSummary } from '../components/DashboardDownloads';
+import { Downloads, downloadsSummary, isActivePackage } from '../components/DashboardDownloads';
 import { Code, Message } from '../components/ConnectionForm';
 import { JDownloaderForm } from '../components/JDownloaderForm';
 import { useAgent, useAgentSettings, useJDownloader, useLinkGrabber, useMoveFromLinkGrabber } from '../hooks/queries';
@@ -42,7 +42,8 @@ export function JDownloaderPage() {
   const status = agent.data?.status;
   const enabled = Boolean(status?.jdownloader?.enabled);
   const grabberSupported = Boolean(status?.jdownloader?.linkgrabber);
-  const downloads = useJDownloader(enabled);
+  // With the parts of every package, so they can be opened.
+  const downloads = useJDownloader(enabled, 4_000, true);
   // Slower while the other tab is open: enough for the count on the tab.
   const grabber = useLinkGrabber(enabled && grabberSupported, tab === 'linkgrabber' ? 4_000 : 15_000);
 
@@ -75,7 +76,7 @@ export function JDownloaderPage() {
     );
   } else {
     const counts: Record<Tab, number | null> = {
-      downloads: downloads.data?.reachable ? downloads.data.packages.filter((pkg) => !pkg.finished).length : null,
+      downloads: downloads.data?.reachable ? downloads.data.packages.filter(isActivePackage).length : null,
       linkgrabber: grabber.data ? grabber.data.packages.length : null,
     };
     content = (
@@ -86,7 +87,7 @@ export function JDownloaderPage() {
             !downloads.data ? (
               downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
             ) : (
-              <Card>{downloads.data.reachable ? <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} /> : <p className="text-sm text-critical">{downloads.data.error}</p>}</Card>
+              <Card>{downloads.data.reachable ? <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable /> : <p className="text-sm text-critical">{downloads.data.error}</p>}</Card>
             )
           ) : !grabberSupported ? (
             <Message tone="critical">

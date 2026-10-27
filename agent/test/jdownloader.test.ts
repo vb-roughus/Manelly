@@ -2,12 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createJDownloader, createJDownloaderApi } from '../src/jdownloader.js';
+import { createJDownloader, createJDownloaderApi, packageExtraction } from '../src/jdownloader.js';
 import { createSettingsStore, type SettingsStore } from '../src/schedule.js';
 
 /** JDownloader's local API and Jellyfin's sessions, as the agent sees them. */
 function fakeWorld() {
-  const jd = { state: 'RUNNING', limitEnabled: false, limit: 0, streams: 0, up: true, calls: [] as string[], grabber: [11, 12] };
+  const jd = { state: 'RUNNING', limitEnabled: false, limit: 0, streams: 0, up: true, calls: [] as string[], grabber: [11, 12], linksFail: false };
   const fetch: typeof globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     if (url.host === 'jellyfin:8096') {
@@ -62,6 +62,16 @@ function fakeWorld() {
         return Response.json([
           { uuid: 1, name: 'Fertig', bytesLoaded: 100, bytesTotal: 100, finished: true, status: 'Entpacken OK', hosts: ['rapidgator.net'], childCount: 2, eta: -1 },
           { uuid: 2, name: 'Serie S01', bytesLoaded: 40, bytesTotal: 100, speed: 2_500_000, eta: 120, running: true, hosts: ['ddownload.com'], childCount: 10, saveTo: 'D:\\Downloads\\Serie S01' },
+          { uuid: 3, name: 'Film', bytesLoaded: 200, bytesTotal: 200, finished: true, childCount: 2 },
+        ]);
+      case '/downloadsV2/queryLinks':
+        if (jd.linksFail) return new Response('nope', { status: 500 });
+        return Response.json([
+          { uuid: 101, packageUUID: 1, name: 'fertig.part1.rar', bytesLoaded: 50, bytesTotal: 50, finished: true, extractionStatus: 'SUCCESSFUL', status: 'Entpacken OK' },
+          { uuid: 201, packageUUID: 2, name: 'serie.e01.mkv', bytesLoaded: 40, bytesTotal: 50, running: true, speed: 2_500_000, eta: 4, host: 'ddownload.com' },
+          { uuid: 202, packageUUID: 2, name: 'serie.e02.mkv', bytesTotal: -1, eta: -1 },
+          { uuid: 301, packageUUID: 3, name: 'film.part1.rar', bytesLoaded: 100, bytesTotal: 100, finished: true, extractionStatus: 'RUNNING', status: 'Entpacken', advancedStatus: { PluginProgress: { id: 'EXTRACTION', current: 30, total: 120 } } },
+          { uuid: 302, packageUUID: 3, name: 'film.part2.rar', bytesLoaded: 100, bytesTotal: 100, finished: true, extractionStatus: 'RUNNING', advancedStatus: { PluginProgress: { id: 'EXTRACTION', current: 60, total: 120 } } },
         ]);
       default:
         return new Response('not found', { status: 404 });
@@ -118,8 +128,48 @@ describe('JDownloader', () => {
     expect(status.packages.map((pkg) => [pkg.name, pkg.finished, pkg.eta])).toEqual([
       ['Serie S01', false, 120],
       ['Fertig', true, null],
+      ['Film', true, null],
     ]);
     expect(status.packages[1]).toMatchObject({ status: 'Entpacken OK', childCount: 2, hosts: ['rapidgator.net'] });
+  });
+
+  it('tells from the parts whether a package is being unpacked, and lists the parts on request', async () => {
+    const { jd, fetch } = fakeWorld();
+    await enable('off');
+    const jdownloader = createJDownloader({ settings, fetch, tickMs: 0 });
+    const status = await jdownloader.status();
+    expect(status.packages.map((pkg) => [pkg.name, pkg.extraction])).toEqual([
+      ['Serie S01', null],
+      ['Fertig', { state: 'done', percent: null, message: 'Entpacken OK' }],
+      // Finished downloading, still unpacking: the average of its parts.
+      ['Film', { state: 'running', percent: 38, message: 'Entpacken' }],
+    ]);
+    expect(status.packages.some((pkg) => 'links' in pkg)).toBe(false);
+
+    const detailed = await jdownloader.status(true);
+    expect(detailed.packages[0]!.links).toEqual([
+      { uuid: 201, name: 'serie.e01.mkv', host: 'ddownload.com', bytesLoaded: 40, bytesTotal: 50, speedBps: 2_500_000, eta: 4, finished: false, running: true, enabled: true, status: null, extraction: null },
+      { uuid: 202, name: 'serie.e02.mkv', host: null, bytesLoaded: 0, bytesTotal: 0, speedBps: 0, eta: null, finished: false, running: false, enabled: true, status: null, extraction: null },
+    ]);
+
+    // Without the parts, the packages still show – only without the unpacking.
+    jd.linksFail = true;
+    const without = await jdownloader.status(true);
+    expect(without.reachable).toBe(true);
+    expect(without.packages.map((pkg) => [pkg.name, pkg.extraction, pkg.links])).toEqual([
+      ['Serie S01', null, undefined],
+      ['Fertig', null, undefined],
+      ['Film', null, undefined],
+    ]);
+  });
+
+  it('counts a failed archive over the unpacked ones', () => {
+    const link = (state: 'running' | 'done' | 'failed' | null, message: string | null = null) =>
+      ({ extraction: state && { state, percent: null, message } }) as Parameters<typeof packageExtraction>[0][number];
+    expect(packageExtraction([link('done'), link('failed', 'Passwort falsch'), link(null)])).toEqual({ state: 'failed', percent: null, message: 'Passwort falsch' });
+    expect(packageExtraction([link('done'), link(null)])).toMatchObject({ state: 'done' });
+    expect(packageExtraction([link(null)])).toBeNull();
+    expect(packageExtraction([link('failed'), link('running')])).toMatchObject({ state: 'running', percent: null });
   });
 
   it('limits the speed while somebody streams and puts the old limit back afterwards', async () => {

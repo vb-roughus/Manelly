@@ -1,10 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AgentOverview, AgentStatus } from '@manelly/shared';
-import { Activity, LoaderCircle, Plug, Power } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { AgentOverview, AgentStatus, AgentUpdateResult } from '@manelly/shared';
+import { Activity, CloudDownload, LoaderCircle, Plug, Power, RotateCw } from 'lucide-react';
+import clsx from 'clsx';
 import { AgentForm } from '../components/AgentForm';
 import { Code, Message } from '../components/ConnectionForm';
 import { SettingsSection } from '../components/SettingsSection';
-import { useAgent, useAgentSettings, useStopAgent } from '../hooks/queries';
+import { useAgent, useAgentSettings, useRestartAgent, useStopAgent } from '../hooks/queries';
+import { useNow } from '../hooks/useNow';
 import { formatSpan } from '../lib/timeline';
 
 const PLATFORMS: Record<string, string> = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
@@ -57,14 +60,43 @@ const portOf = (url: string) => {
   }
 };
 
+/** A restart under way: what ran before, to tell the new process and the new update report apart. */
+interface PendingRestart {
+  update: boolean;
+  before: AgentStatus;
+}
+
 function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUrl: string }) {
   const stop = useStopAgent();
+  const restart = useRestartAgent();
+  const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   // What was running when it was stopped; afterwards the agent no longer answers.
   const [stopped, setStopped] = useState<AgentStatus | null>(null);
+  const [pending, setPending] = useState<PendingRestart | null>(null);
+  const [restarted, setRestarted] = useState<(PendingRestart & { after: AgentStatus }) | null>(null);
+  // Without refreshing the tools, which would start a few processes every time.
+  const poll = useAgent({ enabled: pending !== null, pollMs: 2000 });
   const status = overview.status;
 
+  // Done once a process with another start time answers.
+  useEffect(() => {
+    const next = poll.data?.status;
+    const previous = pending?.before.process;
+    if (!pending || !next?.process || (next.process.pid === previous?.pid && next.process.startedAt === previous?.startedAt)) return;
+    setRestarted({ ...pending, after: next });
+    setPending(null);
+    void queryClient.invalidateQueries({ queryKey: ['agent'] });
+  }, [pending, poll.data, queryClient]);
+
+  function startRestart(update: boolean) {
+    if (!status) return;
+    setRestarted(null);
+    restart.mutate(update, { onSuccess: () => setPending({ update, before: status }) });
+  }
+
   if (stopped) return <Stopped status={stopped} />;
+  if (pending) return <RestartProgress pending={pending} />;
   if (!status) {
     return <Message tone="critical">{overview.error ?? 'Der Agent antwortet nicht.'} Läuft er auf dem Jellyfin-Server?</Message>;
   }
@@ -89,14 +121,48 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
             </Detail>
             <Detail label="Gestartet">{process.autostart ? 'vom Autostart' : 'von Hand, in einem Fenster'}</Detail>
             <Detail label="Node.js">{process.node}</Detail>
+            {/* Right after an update, the result below says the same. */}
+            {process.lastUpdate && !restarted?.update && (
+              <Detail label="Letztes Update">
+                <span className={clsx(!process.lastUpdate.ok && 'text-critical')}>
+                  {new Date(process.lastUpdate.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })} · {process.lastUpdate.message}
+                </span>
+              </Detail>
+            )}
           </>
         )}
       </dl>
+
+      {restarted && <RestartResult restarted={restarted} />}
 
       {process && windows && (
         <p className="text-xs text-ink-2">
           Der Agent ist kein Dienst: Im Task-Manager steht er unter «Details» als <Code>{executable}</Code> mit der PID {process.pid}
           {process.autostart && <>, gestartet von der Aufgabe «Manelly Agent» in der Aufgabenplanung</>}.
+        </p>
+      )}
+
+      {process?.restartable && !confirming && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={restart.isPending} onClick={() => startRestart(false)} className={actionButton}>
+              <RotateCw className="size-4" aria-hidden /> Neu starten
+            </button>
+            <button type="button" disabled={restart.isPending} onClick={() => startRestart(true)} className={actionButton}>
+              <CloudDownload className="size-4" aria-hidden /> Aktualisieren & neu starten
+            </button>
+          </div>
+          <p className="text-xs text-ink-3">
+            Aktualisieren holt mit <Code>git pull</Code> den neuesten Stand von Manelly auf den Jellyfin-Server, baut den Agent und startet ihn neu. Klappt das
+            nicht, läuft die bisherige Version weiter. Eine laufende Umwandlung hält kurz an und macht danach weiter.
+          </p>
+          {restart.isError && <p className="text-sm text-critical">{restart.error.message}</p>}
+        </div>
+      )}
+      {process && !process.restartable && (
+        <p className="text-xs text-ink-2">
+          Neu starten und Aktualisieren gehen hier, sobald der Agent über <Code>scripts\run-agent.ps1</Code> läuft: einmal <Code>git pull</Code> und{' '}
+          <Code>scripts\start-agent.cmd -Install</Code> als Administrator ausführen.
         </p>
       )}
 
@@ -124,11 +190,7 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
             </div>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-card px-4 py-2 text-sm font-medium text-critical ring-1 ring-line transition hover:bg-critical/8"
-          >
+          <button type="button" onClick={() => setConfirming(true)} className={clsx(actionButton, 'text-critical hover:bg-critical/8')}>
             <Power className="size-4" aria-hidden /> Agent beenden …
           </button>
         )
@@ -148,6 +210,48 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
         </Message>
       )}
     </div>
+  );
+}
+
+const actionButton =
+  'inline-flex items-center gap-2 rounded-lg bg-card px-4 py-2 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait disabled:opacity-60';
+
+/** While the agent is away: how long, and what it does meanwhile. */
+function RestartProgress({ pending }: { pending: PendingRestart }) {
+  const [since] = useState(Date.now);
+  const now = useNow(1000);
+  const seconds = Math.round((now - since) / 1000);
+  return (
+    <div role="status" className="space-y-1 rounded-lg bg-card-2 px-4 py-3 text-sm ring-1 ring-line ring-inset">
+      <p className="flex items-center gap-2 font-medium">
+        <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden />
+        {pending.update ? 'Aktualisiert und startet den Agent neu …' : 'Der Agent startet neu …'}
+        <span className="font-normal text-ink-3 tabular-nums">{seconds} s</span>
+      </p>
+      <p className="text-ink-2">
+        {pending.update
+          ? 'git pull, falls nötig npm ci, dann der Build – das kann eine Minute dauern, mit neuen Abhängigkeiten auch länger.'
+          : 'Das dauert meist nur ein paar Sekunden.'}
+        {seconds > 180 && ' Dauert es zu lange, steht in agent\\data\\agent.log auf dem Server, woran es hängt.'}
+      </p>
+    </div>
+  );
+}
+
+/** What the restart brought: a new process, and with an update its report. */
+function RestartResult({ restarted }: { restarted: PendingRestart & { after: AgentStatus } }) {
+  const { update, before, after } = restarted;
+  const report: AgentUpdateResult | null | undefined = after.process?.lastUpdate;
+  const fresh = report && report.at !== before.process?.lastUpdate?.at ? report : null;
+  const version = before.version === after.version ? `Version ${after.version}` : `Version ${before.version} → ${after.version}`;
+  if (update && fresh && !fresh.ok) {
+    return <Message tone="critical">Update fehlgeschlagen: {fresh.message}</Message>;
+  }
+  const what = !update ? 'Neu gestartet.' : fresh ? `${fresh.message} Neu gestartet:` : 'Neu gestartet, ohne Bericht zum Update.';
+  return (
+    <Message tone="good">
+      {what} {version}, Prozess {after.process?.pid}.
+    </Message>
   );
 }
 

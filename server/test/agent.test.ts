@@ -34,8 +34,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
     jdownloader: Array<{ method: string; path: string; body: unknown }>;
     history: Array<{ method: string; path: string; body: unknown }>;
     shutdowns: number;
+    restarts: unknown[];
   } = {
     shutdowns: 0,
+    restarts: [],
     jdownloader: [],
     history: [],
     jobs: [],
@@ -64,7 +66,9 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
           ready: true,
           ...(version === '0.1.0' ? {} : { schedule: agent.schedule }),
           // Agents from 0.7.0 on tell their process and can end themselves.
-          ...(Number(version.split('.')[1]) >= 7 ? { process: { pid: 4711, startedAt: '2026-10-27T02:00:00.000Z', node: 'v22.12.0', execPath: 'node.exe', autostart: true, port: 8790 } } : {}),
+          ...(Number(version.split('.')[1]) >= 7
+            ? { process: { pid: 4711, startedAt: '2026-10-27T02:00:00.000Z', node: 'v22.12.0', execPath: 'node.exe', autostart: true, port: 8790, restartable: Number(version.split('.')[1]) >= 9 } }
+            : {}),
         });
       }
       if (url.pathname === '/api/jellyfin' && init?.method === 'PUT') {
@@ -88,6 +92,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname.startsWith('/api/jdownloader')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         return Response.json({ settings: body ?? { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } }, reachable: true, error: null, state: 'RUNNING', speedBps: 0, limit: null, packages: [], throttling: { active: false, reason: null } });
+      }
+      if (url.pathname === '/api/restart' && init?.method === 'POST') {
+        sent.restarts.push(body);
+        return Response.json({ restarting: true }, { status: 202 });
       }
       if (url.pathname === '/api/shutdown' && init?.method === 'POST') {
         sent.shutdowns++;
@@ -337,6 +345,19 @@ describe('agent connection', () => {
     const { app, world } = await setup(fakeWorld({ agentVersion: '0.7.0' }));
     expect((await app.inject({ method: 'POST', url: '/api/agent/shutdown' })).statusCode).toBe(204);
     expect(world.sent.shutdowns).toBe(1);
+  });
+
+  it('restarts the agent under its runner, with an update when asked', async () => {
+    const old = await setup(fakeWorld({ agentVersion: '0.7.0' }));
+    const refused = await old.app.inject({ method: 'POST', url: '/api/agent/restart', payload: { update: true } });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json<{ error: { message: string } }>().error.message).toMatch(/läuft ohne scripts\\run-agent\.ps1.*start-agent\.cmd -Install/);
+    expect(old.world.sent.restarts).toEqual([]);
+
+    const { app, world } = await setup(fakeWorld({ agentVersion: '0.9.0' }));
+    expect((await app.inject({ method: 'POST', url: '/api/agent/restart', payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/agent/restart', payload: { update: true } })).statusCode).toBe(202);
+    expect(world.sent.restarts).toEqual([{ update: true }]);
   });
 
   it('passes the recording settings and queries to the agent, and hands over Jellyfin to record streams', async () => {

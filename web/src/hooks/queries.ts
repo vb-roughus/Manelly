@@ -181,12 +181,12 @@ export function useAddToCollection() {
 // --- Agent -------------------------------------------------------------------
 
 /** `refreshTools` (settings page) lets the agent look for newly installed tools. */
-export function useAgent(options: { enabled?: boolean; refreshTools?: boolean } = {}) {
-  const { enabled = true, refreshTools = false } = options;
+export function useAgent(options: { enabled?: boolean; refreshTools?: boolean; pollMs?: number } = {}) {
+  const { enabled = true, refreshTools = false, pollMs = 30_000 } = options;
   return useQuery({
     queryKey: ['agent', refreshTools],
     queryFn: ({ signal }) => fetchJson<AgentOverview>(`/api/agent${refreshTools ? '?refresh=1' : ''}`, signal),
-    refetchInterval: 30_000,
+    refetchInterval: pollMs,
     enabled,
   });
 }
@@ -222,6 +222,13 @@ export function useStopAgent() {
     onSuccess: () => {
       setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['agent'] }), 1500);
     },
+  });
+}
+
+/** Ends the agent so its runner starts it again – after a git pull and a build when `update` is set. */
+export function useRestartAgent() {
+  return useMutation({
+    mutationFn: (update: boolean) => sendJson<{ restarting: boolean }>('POST', '/api/agent/restart', { update }),
   });
 }
 

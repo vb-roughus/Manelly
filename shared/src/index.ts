@@ -1017,6 +1017,17 @@ export interface HistoryResponse {
   error: string | null;
 }
 
+/** The last update the agent's runner made: git pull, dependencies, build. */
+export interface AgentUpdateResult {
+  /** ISO time. */
+  at: string;
+  ok: boolean;
+  /** Commits before and after the git pull, short form. */
+  from: string | null;
+  to: string | null;
+  message: string;
+}
+
 /** The agent's own process, so it can be found in the Task Manager and stopped from Manelly. */
 export interface AgentProcess {
   pid: number;
@@ -1029,6 +1040,14 @@ export interface AgentProcess {
   /** Started by the autostart (the scheduled task "Manelly Agent"), not by hand. */
   autostart: boolean;
   port: number;
+  /** Runs under scripts/run-agent.ps1, which starts it again on request; missing before 0.9.0. */
+  restartable?: boolean;
+  lastUpdate?: AgentUpdateResult | null;
+}
+
+/** POST /api/restart on the agent: start again, after a git pull and a build when update is set. */
+export interface AgentRestartRequest {
+  update: boolean;
 }
 
 export interface AgentTool {

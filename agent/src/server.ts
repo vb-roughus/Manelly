@@ -7,6 +7,7 @@ import type {
   AgentCheckResponse,
   AgentNetworkList,
   AgentProcess,
+  AgentRestartRequest,
   AgentScheduleStatus,
   AgentStatus,
   ConversionRequest,
@@ -39,9 +40,9 @@ export interface AgentServerOptions {
   resources: ResourceMonitor;
   jdownloader: JDownloader;
   recorder: Recorder;
-  process: AgentProcess;
-  /** Ends the agent after the answer went out. */
-  onShutdown: () => void;
+  process: () => Promise<AgentProcess>;
+  /** Ends the agent after the answer went out – for good, or to be started again by its runner. */
+  onExit: (how: 'stop' | 'restart' | 'update') => void;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -133,7 +134,7 @@ export function createAgentServer(options: AgentServerOptions) {
         resources: { supported: resources.supported },
         jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true },
         history: { enabled: settings.get().history.enabled },
-        process: options.process,
+        process: await options.process(),
       };
       return send(response, 200, status);
     }
@@ -191,7 +192,16 @@ export function createAgentServer(options: AgentServerOptions) {
     }
     if (route === 'POST /api/shutdown') {
       send(response, 202, { stopping: true });
-      response.once('finish', options.onShutdown);
+      response.once('finish', () => options.onExit('stop'));
+      return;
+    }
+    if (route === 'POST /api/restart') {
+      const { update } = await readJson<Partial<AgentRestartRequest>>(request);
+      if (!(await options.process()).restartable) {
+        throw new AgentError(409, 'Der Agent läuft ohne scripts\\run-agent.ps1 und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.');
+      }
+      send(response, 202, { restarting: true });
+      response.once('finish', () => options.onExit(update === true ? 'update' : 'restart'));
       return;
     }
     if (route === 'GET /api/history') {

@@ -93,9 +93,10 @@ Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** 
 - **Hardware testen** (mit [Agent](#agent-auf-dem-jellyfin-server-windows)): Das FFmpeg von Jellyfin kodiert und
   dekodiert auf dem Server ein paar Sekunden Testbild mit der eingestellten Beschleunigung – so zeigt sich, ob Treiber und
   Grafikeinheit wirklich funktionieren
-- **Agent:** Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten,
-  seine Werkzeuge, Version, Prozess-ID und Startzeit sehen und ihn beenden – z. B. wenn vor einem Update noch ein alter
-  Agent läuft
+- **Agent:** Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten, seine Werkzeuge, Version,
+  Prozess-ID, Startzeit und das letzte Update sehen, ihn **neu starten**, **aktualisieren und neu starten** (holt mit
+  `git pull` den neuesten Stand auf den Jellyfin-Server und baut den Agent; klappt das nicht, läuft die bisherige Version
+  weiter) oder **beenden**
 - **JDownloader:** Downloads und Link Grabber, Einstellungen hinter dem Zahnrad – siehe [Downloads](#downloads-jdownloader-mit-agent)
 
 ### Umwandlungen (mit Agent)
@@ -258,13 +259,16 @@ dem Jellyfin läuft:
   Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
-- Update: `git pull`, dann `.\scripts\start-agent.ps1 -Install` erneut ausführen (als Administrator). Das Skript beendet
-  den laufenden Agent – auch eine ältere Version – und startet den neuen; es meldet erst Erfolg, wenn die neue Version
-  antwortet. Bleibt der Port belegt, nennt es das Programm, das ihn hält. Eine laufende Umwandlung wird dabei
-  unterbrochen und macht danach weiter.
-- Der Agent ist **kein Dienst**: Im Task-Manager steht er unter «Details» als `node.exe`; der Autostart ist die Aufgabe
-  «Manelly Agent» in der Aufgabenplanung. Unter **Server → Agent** zeigt Manelly Version, Prozess-ID und Startzeit und
-  kann ihn **beenden** (ab Agent 0.7.0). Wieder starten: Windows neu starten, `Start-ScheduledTask -TaskName 'Manelly
+- Update: in Manelly unter **Server → Agent** «Aktualisieren & neu starten» (ab Agent 0.9.0). Der Agent läuft dafür
+  unter `scripts\run-agent.ps1`, das ihn nach `git pull`, falls nötig `npm ci`, und dem Build wieder startet – mit der
+  bisherigen Version, wenn etwas davon scheitert; das Ergebnis steht auf derselben Seite und in `agent\data\agent.log`.
+  Ältere Agents (und Änderungen am Installationsskript) brauchen einmal `git pull` und `.\scripts\start-agent.ps1 -Install`
+  (als Administrator). Das Skript beendet den laufenden Agent – auch eine ältere Version – und startet den neuen; es
+  meldet erst Erfolg, wenn die neue Version antwortet. Bleibt der Port belegt, nennt es das Programm, das ihn hält. Eine
+  laufende Umwandlung wird dabei unterbrochen und macht danach weiter.
+- Der Agent ist **kein Dienst**: Im Task-Manager steht er unter «Details» als `node.exe` (gestartet von einer
+  `powershell.exe` mit `run-agent.ps1`); der Autostart ist die Aufgabe «Manelly Agent» in der Aufgabenplanung. Unter
+  **Server → Agent** zeigt Manelly Version, Prozess-ID und Startzeit und kann ihn **beenden** (ab Agent 0.7.0). Wieder starten: Windows neu starten, `Start-ScheduledTask -TaskName 'Manelly
   Agent'` (als Administrator) oder das Skript mit `-Install`.
 
 ## Schnellstart mit Docker

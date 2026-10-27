@@ -16,6 +16,7 @@ import type {
   HardwareTestResult,
   HistoryResponse,
   HistorySettings,
+  JDownloaderAccounts,
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
@@ -570,6 +571,28 @@ export function useLinkGrabber(enabled: boolean, pollMs: number) {
     refetchInterval: pollMs,
     enabled: useAgentLive(enabled),
     retry: false,
+  });
+}
+
+/** The premium accounts in JDownloader, with their time and traffic left; from agent 0.13.0. */
+export function useJDownloaderAccounts(enabled: boolean, pollMs: number | false) {
+  return useQuery({
+    queryKey: ['jdownloader', 'accounts'],
+    queryFn: ({ signal }) => fetchJson<JDownloaderAccounts>('/api/agent/jdownloader/accounts', signal),
+    refetchInterval: pollMs,
+    enabled: useAgentLive(enabled),
+    retry: false,
+  });
+}
+
+/** JDownloader asks the hosters again; the new numbers arrive a few seconds later. */
+export function useRefreshJDownloaderAccounts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => sendJson<{ refreshing: number }>('POST', '/api/agent/jdownloader/accounts/refresh', { ids }),
+    onSuccess: () => {
+      for (const delay of [3_000, 10_000]) setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'accounts'] }), delay);
+    },
   });
 }
 

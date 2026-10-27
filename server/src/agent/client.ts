@@ -15,6 +15,7 @@ import type {
   HardwareTestResult,
   HistoryResponse,
   HistorySettings,
+  JDownloaderAccounts,
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
@@ -60,6 +61,10 @@ export interface AgentClient {
   linkGrabber(): Promise<LinkGrabberStatus>;
   /** Moves packages and links from the link grabber to the download list; answers with what is left. */
   moveFromLinkGrabber(request: LinkGrabberMoveRequest): Promise<LinkGrabberStatus>;
+  /** From agent 0.13.0. */
+  jdownloaderAccounts(): Promise<JDownloaderAccounts>;
+  /** No ids: all of them. */
+  refreshJDownloaderAccounts(ids: number[]): Promise<{ refreshing: number }>;
   /** Recorded load and streams between two times (milliseconds since the epoch). */
   history(from: number, to: number): Promise<HistoryResponse>;
   setHistorySettings(settings: HistorySettings): Promise<HistorySettings>;
@@ -131,6 +136,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     setJDownloaderLimit: (enabled, kbps) => call('PUT', '/api/jdownloader/limit', { enabled, kbps }, 20_000),
     linkGrabber: () => call('GET', '/api/jdownloader/linkgrabber', undefined, 20_000),
     moveFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/move', request, 30_000),
+    jdownloaderAccounts: () => call('GET', '/api/jdownloader/accounts', undefined, 20_000),
+    refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),
     // A long range means reading many days of records.
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),
     setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),

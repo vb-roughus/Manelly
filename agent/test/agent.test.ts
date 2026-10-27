@@ -497,9 +497,11 @@ describe('resources', () => {
 
 describe('JDownloader routes', () => {
   it('checks the settings and refuses to control a JDownloader that is switched off', async () => {
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
+    expect((await call('/api/jdownloader/accounts')).status).toBe(409);
+    expect((await post('/api/jdownloader/accounts/refresh', { ids: ['7'] })).status).toBe(400);
     expect((await put('/api/jdownloader/settings', { enabled: true, url: 'ftp://x', throttle: { mode: 'off', limitKBps: 1024 } })).status).toBe(400);
     expect((await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'fast', limitKBps: 1024 } })).status).toBe(400);
     const saved = await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128/', throttle: { mode: 'limit', limitKBps: 2048 } });

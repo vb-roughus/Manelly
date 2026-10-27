@@ -146,7 +146,7 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
 - **Entpacken** nach dem Download (ab Agent 0.10.0): Ein Paket, dessen Archive JDownloader gerade entpackt, bleibt
   oben in der Liste, mit «Entpacken 40 %» und blauem Balken; schlägt das Entpacken fehl (z. B. falsches Passwort),
   steht es rot mit dem Grund von JDownloader da. Erfolgreich entpackte Pakete zählen zu den fertigen («entpackt»)
-- Seite **Server → JDownloader** mit zwei Reitern:
+- Seite **Server → JDownloader** mit drei Reitern:
   - **Downloads:** alle Pakete; ein Klick auf ein Paket klappt seine **einzelnen Dateien (Parts)** auf, jede mit
     Fortschritt, Tempo, Restzeit, Status und ob sie entpackt ist; «Fertige ausblenden» zeigt nur die Dateien, die noch
     nicht fertig sind (die Wahl gilt auch für die nächsten Pakete). Die fertigen Pakete klappen ebenfalls auf.
@@ -154,6 +154,10 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     überschreiben (gilt sofort, auch während des Bremsens beim Streamen)
   - **Link Grabber:** was JDownloader gesammelt hat, nach Paketen, mit dem Status jedes Links (online, offline,
     unbekannt) und ob er noch sammelt; ein Link, ein Paket oder alle in die **Downloads übernehmen**
+  - **Premium-Accounts** (ab Agent 0.13.0): die in JDownloader eingerichteten Accounts mit Hoster, Benutzer und Zustand
+    (aktiv, vorübergehend gesperrt, abgelaufen, ungültig, ausgeschaltet), dem **restlichen Traffic** (mit Balken, oder
+    «unbegrenzt») und wie lange das **Premium** noch läuft (rot ab sieben Tagen). «Neu prüfen» lässt JDownloader die
+    Hoster sofort nach den aktuellen Werten fragen
 - Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite
 - **Bremsen, solange jemand streamt** (in den JDownloader-Einstellungen): Beginnt ein Stream, begrenzt der Agent
   JDownloader auf ein Tempo (z. B. 2 MB/s) oder pausiert ihn. Fünf Minuten nach dem letzten Stream stellt er ihn wieder

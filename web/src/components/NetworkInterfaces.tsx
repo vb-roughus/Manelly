@@ -1,31 +1,31 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import { Link } from 'react-router';
-import type { MonitoredInterface, NetworkRatePoint } from '@manelly/shared';
-import { Network, TriangleAlert } from 'lucide-react';
+import type { AgentNetworkStatus, MonitoredInterface, NetworkRatePoint } from '@manelly/shared';
+import { TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
-import { useAgentNetwork, useAgentSettings } from '../hooks/queries';
 import { formatBitrate } from '../lib/format';
 
 const WINDOW_MS = 10 * 60_000;
 
-/** Send and receive rates of the Jellyfin server's interfaces picked in the settings; nothing without them. */
-export function DashboardNetwork() {
-  const settings = useAgentSettings();
-  const configured = Boolean(settings.data?.url && settings.data.hasToken);
-  const { data } = useAgentNetwork(configured);
-  if (!data || data.interfaces.length === 0) return null;
-
-  return (
-    <section aria-labelledby="network-heading">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="network-heading" className="flex items-center gap-2 text-lg font-semibold">
-          <Network className="size-4 text-accent" aria-hidden />
-          Netzwerk des Servers
-        </h2>
-        <Link to="/settings" className="text-sm font-medium text-accent hover:underline">
-          Schnittstellen wählen
+/**
+ * Send and receive rates of the Jellyfin server's interfaces picked in the settings,
+ * or where to pick them (with the agent) when there are none.
+ */
+export function NetworkInterfaces({ data, agentConfigured }: { data: AgentNetworkStatus | undefined; agentConfigured: boolean }) {
+  if (!data || data.interfaces.length === 0) {
+    return (
+      <p className="text-sm text-ink-2">
+        {agentConfigured
+          ? 'Wähle die Netzwerkschnittstellen des Servers, um hier ihre Auslastung zu sehen: '
+          : 'Mit dem Manelly-Agent auf dem Jellyfin-Server siehst du hier auch die Auslastung seiner Netzwerkschnittstellen: '}
+        <Link to="/settings" className="font-medium text-accent hover:underline">
+          Einstellungen
         </Link>
-      </div>
+      </p>
+    );
+  }
+  return (
+    <>
       {data.error && <p className="mb-3 text-sm text-critical">{data.error}</p>}
       <ul className="grid gap-3 md:grid-cols-2">
         {data.interfaces.map((nic) => (
@@ -34,7 +34,7 @@ export function DashboardNetwork() {
           </li>
         ))}
       </ul>
-    </section>
+    </>
   );
 }
 
@@ -43,7 +43,7 @@ const rate = (bps: number | null) => (bps === null ? '–' : formatBitrate(bps))
 function InterfaceTile({ nic, intervalMs }: { nic: MonitoredInterface; intervalMs: number }) {
   const measuring = nic.rxBps === null || nic.txBps === null;
   return (
-    <article className="h-full rounded-2xl border border-line bg-card p-4 shadow-sm shadow-black/5">
+    <article className="h-full rounded-xl border border-line p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate font-semibold">{nic.name}</h3>

@@ -39,9 +39,11 @@ Live-Übersicht der laufenden Streams:
   viele nicht nachkommen), geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
 - Laufende und in den letzten 12 Stunden beendete [Umwandlungen](#umwandlungen-mit-agent) mit Fortschritt (mit Agent)
-- **Netzwerk des Jellyfin-Servers** (mit Agent): Senden und Empfangen der unter Einstellungen gewählten Schnittstellen,
-  Auslastung gemessen an der Link-Geschwindigkeit (ab 70 % gelb, ab 90 % rot) und der Verlauf der letzten 10 Minuten. Der
-  Agent misst nur die gewählten Schnittstellen und nur, solange Manelly sie anzeigt (danach noch 10 Minuten)
+- Ein Klick auf die Kachel **Bandbreite** klappt die Details auf: die aktuelle Bitrate jedes Streams (gesamt und davon
+  nach extern) und darunter das **Netzwerk des Jellyfin-Servers** (mit Agent): Senden und Empfangen der unter
+  Einstellungen gewählten Schnittstellen, Auslastung gemessen an der Link-Geschwindigkeit (ab 70 % gelb, ab 90 % rot) und
+  der Verlauf der letzten 10 Minuten. Der Agent misst nur die gewählten Schnittstellen und nur, solange das Dashboard
+  offen ist (danach noch 10 Minuten) – so ist der Verlauf beim Aufklappen schon da
 
 ### Medien
 

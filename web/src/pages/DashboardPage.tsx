@@ -1,14 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Activity, CircleCheck, Cpu, Gauge, MonitorPlay, RefreshCw, Shuffle, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import type { SessionsResponse } from '@manelly/shared';
+import { BandwidthPanel } from '../components/BandwidthPanel';
 import { DashboardConversions } from '../components/DashboardConversions';
-import { DashboardNetwork } from '../components/DashboardNetwork';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { SetupPanel } from '../components/SetupPanel';
 import { StatTile } from '../components/StatTile';
 import { StreamCard } from '../components/StreamCard';
-import { isConfigured, SESSIONS_REFRESH_MS, useSessions, useSettings } from '../hooks/queries';
+import { isConfigured, SESSIONS_REFRESH_MS, useAgentNetwork, useAgentSettings, useSessions, useSettings } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { useStickyError } from '../hooks/useStickyError';
 import { formatAgo, formatBitrate, joinParts } from '../lib/format';
@@ -37,7 +37,6 @@ export function DashboardPage() {
         <>
           {error && <StaleBanner error={error} />}
           <Summary data={data} />
-          <DashboardNetwork />
           <DashboardConversions />
           <StreamList data={data} sampledAt={dataUpdatedAt} />
         </>
@@ -94,6 +93,12 @@ function Summary({ data }: { data: SessionsResponse }) {
   const softwareTranscodes = summary.transcode - summary.hardwareTranscodes;
   const idle = idleSessions > 0 ? `${idleSessions} weitere ${idleSessions === 1 ? 'Gerät' : 'Geräte'} verbunden` : null;
   const viewers = streamingUsers(data);
+  const panelId = useId();
+  const [bandwidthOpen, setBandwidthOpen] = useState(false);
+  const agentSettings = useAgentSettings();
+  const agentConfigured = Boolean(agentSettings.data?.url && agentSettings.data.hasToken);
+  // Also while closed: the agent keeps measuring, so the chart already shows the last minutes when it opens.
+  const network = useAgentNetwork(agentConfigured);
 
   return (
     <section aria-labelledby="summary-heading">
@@ -138,8 +143,15 @@ function Summary({ data }: { data: SessionsResponse }) {
           caption="Geschätzt über alle Streams"
           icon={Gauge}
           tone="bg-accent/12 text-accent"
+          toggle={{
+            expanded: bandwidthOpen,
+            controls: panelId,
+            label: bandwidthOpen ? 'Bandbreite: Details ausblenden' : 'Bandbreite: Bitrate der Streams und Netzwerk des Servers zeigen',
+            onToggle: () => setBandwidthOpen((open) => !open),
+          }}
         />
       </dl>
+      {bandwidthOpen && <BandwidthPanel id={panelId} sessions={data.sessions} network={network.data} agentConfigured={agentConfigured} />}
     </section>
   );
 }

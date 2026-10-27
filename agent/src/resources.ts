@@ -202,6 +202,8 @@ export interface ResourceMonitorOptions {
   ownProcesses: () => ReadonlySet<number>;
   cpus?: () => Array<{ model: string; times: { user: number; nice: number; sys: number; idle: number; irq: number } }>;
   intervalMs?: number;
+  /** While only the recording asks, not Manelly: reading the counters costs CPU itself. */
+  backgroundIntervalMs?: number;
   /** Measuring stops this long after Manelly last asked. */
   lingerMs?: number;
   historyMs?: number;
@@ -211,6 +213,8 @@ export interface ResourceMonitorOptions {
   log?: (message: string) => void;
 }
 
+/** Manelly asks every few seconds while it shows CPU and GPU. */
+const VIEWER_MS = 30_000;
 const UNSUPPORTED = 'Auf diesem System kann der Agent CPU und GPU nicht messen (nur Windows und Linux).';
 const round = (value: number) => Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;
 
@@ -221,6 +225,7 @@ export function createResourceMonitor(options: ResourceMonitorOptions) {
     ownProcesses,
     cpus = systemCpus,
     intervalMs = 3000,
+    backgroundIntervalMs = 10_000,
     lingerMs = 10 * 60_000,
     historyMs = 10 * 60_000,
     retryMs = 30_000,
@@ -228,7 +233,9 @@ export function createResourceMonitor(options: ResourceMonitorOptions) {
     log = () => {},
   } = options;
   let stopSampler: (() => void) | null = null;
+  let pace = intervalMs;
   let lastDemand = Number.NEGATIVE_INFINITY;
+  let lastViewer = Number.NEGATIVE_INFINITY;
   let failedAt = Number.NEGATIVE_INFINITY;
   let error: string | null = null;
   let cpuBefore: { busy: number; total: number } | null = null;
@@ -324,11 +331,20 @@ export function createResourceMonitor(options: ResourceMonitorOptions) {
   }
 
   function ensureRunning() {
-    if (!source || stopSampler || now() - failedAt < retryMs) return;
-    log('CPU-/GPU-Messung gestartet.');
+    // Somebody looks at it in Manelly (which asks every few seconds), or only the recording does.
+    const wanted = now() - lastViewer <= VIEWER_MS ? intervalMs : backgroundIntervalMs;
+    if (!source || (stopSampler && pace === wanted) || now() - failedAt < retryMs) return;
+    if (stopSampler) {
+      stopSampler();
+      // Readings further apart would show as gaps in the dashboard's chart.
+      if (wanted < pace) history = [];
+    } else {
+      log('CPU-/GPU-Messung gestartet.');
+    }
+    pace = wanted;
     // The first reading is only the baseline; a few milliseconds of CPU time say nothing.
     cpuBefore = null;
-    stopSampler = source.start(intervalMs, onSample, (message) => {
+    stopSampler = source.start(pace, onSample, (message) => {
       log(message);
       error = message;
       failedAt = now();
@@ -347,9 +363,10 @@ export function createResourceMonitor(options: ResourceMonitorOptions) {
   return {
     supported: source !== null,
 
-    /** CPU and GPU right now and in the last minutes; starts measuring if needed. */
-    status(): AgentResourceStatus {
+    /** CPU and GPU right now and in the last minutes; starts measuring if needed. `background`: asked by the recording, not by Manelly. */
+    status(background = false): AgentResourceStatus {
       lastDemand = now();
+      if (!background) lastViewer = lastDemand;
       ensureRunning();
       return {
         cpu: latest?.cpu ?? null,
@@ -357,7 +374,7 @@ export function createResourceMonitor(options: ResourceMonitorOptions) {
         gpuNote: latest?.gpuNote ?? null,
         processes: latest?.processes ?? [],
         history,
-        intervalMs,
+        intervalMs: pace,
         error: source ? error : UNSUPPORTED,
       };
     },

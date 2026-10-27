@@ -11,6 +11,8 @@ import type {
   ConversionOptions,
   ConversionSchedule,
   HardwareTestResult,
+  HistoryResponse,
+  HistorySettings,
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
@@ -370,3 +372,41 @@ export const useControlJDownloader = () =>
 
 export const useJDownloaderLimit = () =>
   useJDownloaderMutation((limit: { enabled: boolean; kbps: number }) => sendJson<JDownloaderStatus>('PUT', '/api/agent/jdownloader/limit', limit));
+
+// --- Agent: recorded history ------------------------------------------------------------
+
+/** Load and streams recorded by the agent; `end` null follows the present. */
+export function useHistory(span: number, end: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['history', span, end],
+    queryFn: ({ signal }) => {
+      const to = Math.round(end ?? Date.now());
+      return fetchJson<HistoryResponse>(`/api/agent/history?from=${to - Math.round(span)}&to=${to}`, signal);
+    },
+    enabled,
+    // The charts keep showing the last range while the next one loads.
+    placeholderData: keepPreviousData,
+    // The agent records every 15 s; long ranges change slowly.
+    refetchInterval: end === null ? Math.max(30_000, span / 720) : false,
+    retry: false,
+  });
+}
+
+export function useSaveHistorySettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: HistorySettings) => sendJson<HistorySettings>('PUT', '/api/agent/history/settings', settings),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['history'] });
+      void queryClient.invalidateQueries({ queryKey: ['agent'] });
+    },
+  });
+}
+
+export function useClearHistory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => sendJson<null>('DELETE', '/api/agent/history'),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['history'] }),
+  });
+}

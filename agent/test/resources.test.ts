@@ -207,6 +207,29 @@ describe('monitor', () => {
     monitor.stop();
   });
 
+  it('measures less often while only the recording asks', () => {
+    let clock = 0;
+    const intervals: number[] = [];
+    const source: ResourceSource = {
+      start(interval) {
+        intervals.push(interval);
+        return () => {};
+      },
+    };
+    const monitor = createResourceMonitor({ source, ownProcesses: () => new Set(), cpus: fakeCpus().cpus, intervalMs: 3000, backgroundIntervalMs: 10_000, now: () => clock });
+    monitor.status(true);
+    expect(monitor.status(true).intervalMs).toBe(10_000);
+    // Somebody opens the dashboard, and leaves it again.
+    clock = 1000;
+    expect(monitor.status().intervalMs).toBe(3000);
+    clock = 20_000;
+    monitor.status(true);
+    clock = 60_000;
+    expect(monitor.status(true).intervalMs).toBe(10_000);
+    expect(intervals).toEqual([10_000, 3000, 10_000]);
+    monitor.stop();
+  });
+
   it('reports unsupported systems', () => {
     const monitor = createResourceMonitor({ source: null, ownProcesses: () => new Set() });
     expect(monitor.supported).toBe(false);

@@ -1,10 +1,57 @@
 import type { AgentJellyfinAccess, ConversionJob } from '@manelly/shared';
 
-export const AGENT_VERSION = '0.5.0';
+export const AGENT_VERSION = '0.6.0';
 const TIMEOUT_MS = 8000;
 
-/** What the agent asks Jellyfin: whether anybody streams, and to scan a new file. */
+interface JfMediaStream {
+  Type?: string;
+  Index?: number;
+  IsDefault?: boolean;
+  Codec?: string;
+  Height?: number;
+  VideoRangeType?: string;
+  Channels?: number;
+  BitRate?: number;
+}
+
+/** The parts of a Jellyfin session the agent records. */
+export interface JfSession {
+  Id?: string;
+  UserName?: string;
+  Client?: string;
+  DeviceName?: string;
+  DeviceId?: string;
+  RemoteEndPoint?: string;
+  NowPlayingItem?: {
+    Id?: string;
+    Name?: string;
+    Type?: string;
+    SeriesName?: string;
+    ParentIndexNumber?: number;
+    IndexNumber?: number;
+    ProductionYear?: number;
+    Artists?: string[];
+    Container?: string;
+    MediaStreams?: JfMediaStream[];
+  };
+  PlayState?: { PlayMethod?: string; AudioStreamIndex?: number };
+  TranscodingInfo?: {
+    Container?: string;
+    VideoCodec?: string;
+    AudioCodec?: string;
+    IsVideoDirect?: boolean;
+    IsAudioDirect?: boolean;
+    Height?: number;
+    AudioChannels?: number;
+    Bitrate?: number;
+    HardwareAccelerationType?: string;
+    TranscodeReasons?: string[];
+  };
+}
+
+/** What the agent asks Jellyfin: who streams what, and to scan a new file. */
 export interface JellyfinApi {
+  sessions(): Promise<JfSession[]>;
   countStreams(): Promise<number>;
   mediaUpdated(updates: Array<{ Path: string; UpdateType: 'Created' | 'Modified' | 'Deleted' }>): Promise<void>;
 }
@@ -32,11 +79,16 @@ export function createJellyfinApi(access: AgentJellyfinAccess, fetchImpl: typeof
     return response;
   }
 
+  async function sessions(): Promise<JfSession[]> {
+    const list = (await (await request('GET', '/Sessions?activeWithinSeconds=960')).json()) as unknown;
+    return Array.isArray(list) ? (list as JfSession[]) : [];
+  }
+
   return {
+    sessions,
     async countStreams() {
-      const sessions = (await (await request('GET', '/Sessions?activeWithinSeconds=960')).json()) as Array<{ NowPlayingItem?: unknown }>;
       // Paused streams count too: whoever paused will likely continue.
-      return Array.isArray(sessions) ? sessions.filter((session) => session.NowPlayingItem).length : 0;
+      return (await sessions()).filter((session) => session.NowPlayingItem).length;
     },
     async mediaUpdated(updates) {
       await request('POST', '/Library/Media/Updated', { Updates: updates });

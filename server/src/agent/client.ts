@@ -12,6 +12,8 @@ import type {
   ConversionSchedule,
   HardwareTestRequest,
   HardwareTestResult,
+  HistoryResponse,
+  HistorySettings,
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
@@ -48,6 +50,10 @@ export interface AgentClient {
   setJDownloaderSettings(settings: JDownloaderSettings): Promise<JDownloaderStatus>;
   controlJDownloader(action: JDownloaderAction): Promise<JDownloaderStatus>;
   setJDownloaderLimit(enabled: boolean, kbps: number): Promise<JDownloaderStatus>;
+  /** Recorded load and streams between two times (milliseconds since the epoch). */
+  history(from: number, to: number): Promise<HistoryResponse>;
+  setHistorySettings(settings: HistorySettings): Promise<HistorySettings>;
+  clearHistory(): Promise<void>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -106,5 +112,9 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     setJDownloaderSettings: (settings) => call('PUT', '/api/jdownloader/settings', settings, 20_000),
     controlJDownloader: (action) => call('POST', '/api/jdownloader/control', { action }, 20_000),
     setJDownloaderLimit: (enabled, kbps) => call('PUT', '/api/jdownloader/limit', { enabled, kbps }, 20_000),
+    // A long range means reading many days of records.
+    history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),
+    setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),
+    clearHistory: () => call('DELETE', '/api/history', undefined, 20_000),
   };
 }

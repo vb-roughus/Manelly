@@ -10,6 +10,8 @@ import type {
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
+  HistoryResponse,
+  HistorySettings,
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
@@ -233,6 +235,45 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     },
     async (request): Promise<JDownloaderStatus> => requireAgent(agent).setJDownloaderLimit(request.body.enabled, request.body.kbps),
   );
+
+  app.get<{ Querystring: { from: number; to: number } }>(
+    '/history',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          required: ['from', 'to'],
+          properties: { from: { type: 'integer', minimum: 0 }, to: { type: 'integer', minimum: 0 } },
+        },
+      },
+    },
+    async (request): Promise<HistoryResponse> => requireAgent(agent).history(request.query.from, request.query.to),
+  );
+
+  app.put<{ Body: HistorySettings }>(
+    '/history/settings',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['enabled', 'retentionDays'],
+          properties: { enabled: { type: 'boolean' }, retentionDays: { type: 'integer', minimum: 1, maximum: 3650 } },
+        },
+      },
+    },
+    async (request): Promise<HistorySettings> => {
+      const client = requireAgent(agent);
+      // The recording asks Jellyfin who streams what.
+      if (request.body.enabled) await handOverJellyfin(client);
+      return client.setHistorySettings(request.body);
+    },
+  );
+
+  app.delete('/history', async (_request, reply) => {
+    await requireAgent(agent).clearHistory();
+    return reply.status(204).send();
+  });
 
   const time = { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' };
   app.put<{ Body: ConversionSchedule }>(

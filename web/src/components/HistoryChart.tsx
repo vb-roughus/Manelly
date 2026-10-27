@@ -142,7 +142,7 @@ export function HistoryChart<T extends { t: number }>({ points, series, top, for
   );
 }
 
-function useWidth(ref: RefObject<HTMLElement | null>): number {
+export function useWidth(ref: RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const element = ref.current;

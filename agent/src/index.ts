@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dataDirFrom, loadConfig } from './config.js';
+import { createRecorder } from './history.js';
 import { createJDownloader } from './jdownloader.js';
 import { createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
@@ -59,7 +60,9 @@ const network = createNetworkMonitor({ source: defaultSource(), selection: () =>
 const resources = createResourceMonitor({ source: defaultResourceSource(), ownProcesses: () => conversionProcesses, log });
 // JDownloader on this machine: read and controlled from Manelly, held back while somebody streams.
 const jdownloader = createJDownloader({ settings, log });
-const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, resources, jdownloader, tools: currentTools });
+// Load and streams on disk, around the clock while switched on in Manelly; keeps both monitors measuring.
+const recorder = createRecorder({ dir: join(dataDir, 'history'), settings, resources, network, log });
+const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, resources, jdownloader, recorder, tools: currentTools });
 
 server.on('error', (error: NodeJS.ErrnoException) => {
   log(error.code === 'EADDRINUSE' ? `Port ${config.port} ist schon belegt – läuft der Agent bereits?` : error.message);
@@ -89,6 +92,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     network.stop();
     resources.stop();
     jdownloader.stop();
+    recorder.stop();
     void queue.stop().then(() => process.exit(0));
   });
 }

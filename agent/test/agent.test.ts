@@ -3,7 +3,8 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob, JDownloaderStatus } from '@manelly/shared';
+import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob, HistoryResponse, JDownloaderStatus } from '@manelly/shared';
+import { createRecorder, type Recorder } from '../src/history.js';
 import { createNotifier } from '../src/jellyfin.js';
 import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
@@ -67,6 +68,7 @@ let queue: JobQueue;
 let network: NetworkMonitor;
 let resources: ResourceMonitor;
 let jdownloader: JDownloader;
+let recorder: Recorder;
 
 // The network interfaces of the server: one Ethernet adapter whose counters grow by 1 MB per second.
 const fakeNetwork: CounterSource = {
@@ -107,13 +109,15 @@ async function start() {
   network = createNetworkMonitor({ source: fakeNetwork, selection: () => settings.get().network, now: () => 2000 });
   resources = createResourceMonitor({ source: { start: () => () => {} }, ownProcesses: () => new Set() });
   jdownloader = createJDownloader({ settings, fetch: fakeJellyfin, tickMs: 0 });
-  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, resources, jdownloader, tools: async () => tools, freeBytes: async () => free });
+  recorder = createRecorder({ dir: path.join(dataDir, 'history'), settings, resources, network, fetch: fakeJellyfin, now: () => 2500, tickMs: 0 });
+  const server = createAgentServer({ token: TOKEN, roots: [], queue, settings, network, resources, jdownloader, recorder, tools: async () => tools, freeBytes: async () => free });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
     network.stop();
     resources.stop();
     jdownloader.stop();
+    recorder.stop();
     await queue.stop();
     await new Promise((resolve) => server.close(resolve));
   };
@@ -390,5 +394,29 @@ describe('JDownloader routes', () => {
     expect(saved.status).toBe(200);
     expect(((await saved.json()) as JDownloaderStatus).settings).toEqual({ enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'limit', limitKBps: 2048 } });
     expect((await post('/api/jdownloader/control', { action: 'jump' })).status).toBe(400);
+  });
+});
+
+describe('history routes', () => {
+  it('records once switched on, and answers for a range', async () => {
+    const status = (await (await call('/api/status')).json()) as AgentStatus;
+    expect(status.history).toEqual({ enabled: false });
+    await call('/api/jellyfin', { method: 'PUT', body: JSON.stringify({ url: 'http://jellyfin:8096', apiKey: 'key' }) });
+    await call('/api/network/interfaces', { method: 'PUT', body: JSON.stringify({ interfaces: ['{A1}'] }) });
+    network.status();
+    streams = 1;
+
+    expect((await call('/api/history/settings', { method: 'PUT', body: JSON.stringify({ enabled: true, retentionDays: 0 }) })).status).toBe(400);
+    const saved = await call('/api/history/settings', { method: 'PUT', body: JSON.stringify({ enabled: true, retentionDays: 7 }) });
+    expect(await saved.json()).toEqual({ enabled: true, retentionDays: 7 });
+
+    const history = (await (await call('/api/history?from=0&to=60000')).json()) as HistoryResponse;
+    expect(history.points).toMatchObject([{ t: 0, cpu: null, streams: 1, transcodes: 0, network: { '{A1}': { rx: 800_000, tx: 8_000_000 } } }]);
+    expect(history.streams).toMatchObject([{ start: 2500, ongoing: true, phases: [{ type: 'start', title: 'Film', method: 'DirectPlay' }] }]);
+    expect(history.interfaces).toEqual([{ id: '{A1}', name: 'Ethernet' }]);
+
+    expect((await call('/api/history?from=10&to=5')).status).toBe(400);
+    expect((await call('/api/history', { method: 'DELETE' })).status).toBe(204);
+    expect(((await (await call('/api/history?from=0&to=60000')).json()) as HistoryResponse).points).toEqual([]);
   });
 });

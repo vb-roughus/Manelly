@@ -1,8 +1,10 @@
 import { Link } from 'react-router';
 import type { ConversionJob } from '@manelly/shared';
-import { WandSparkles } from 'lucide-react';
+import { ChevronDown, WandSparkles } from 'lucide-react';
+import clsx from 'clsx';
 import { useAgentSettings, useConversions } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
+import { usePersistentFlag } from '../hooks/usePersistentFlag';
 import { formatAgo } from '../lib/format';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge } from './ConversionStatus';
 
@@ -19,23 +21,39 @@ export function DashboardConversions() {
   const { data: jobs } = useConversions(configured);
   const now = useNow(30_000);
 
+  const [open, setOpen] = usePersistentFlag('manelly.dashboard.conversions.open', true);
+
   const shown = (jobs ?? []).filter((job) => isActive(job) || (job.finishedAt && now - Date.parse(job.finishedAt) < RECENT_MS)).slice(0, MAX_SHOWN);
   if (shown.length === 0) return null;
   const active = shown.filter(isActive).length;
+  const finished = shown.length - active;
 
   return (
     <section aria-labelledby="conversions-heading">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="conversions-heading" className="flex items-center gap-2 text-lg font-semibold">
-          <WandSparkles className="size-4 text-accent" aria-hidden />
-          Umwandlungen
-          {active > 0 && <span className="text-sm font-normal text-ink-2">· {active} aktiv</span>}
+      <div className={clsx('flex flex-wrap items-baseline justify-between gap-2', open && 'mb-3')}>
+        <h2 id="conversions-heading" className="text-lg font-semibold">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls="conversions-list"
+            onClick={() => setOpen(!open)}
+            className="flex items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <WandSparkles className="size-4 text-accent" aria-hidden />
+            Umwandlungen
+            {(active > 0 || !open) && (
+              <span className="text-sm font-normal text-ink-2">
+                · {[active > 0 && `${active} aktiv`, !open && finished > 0 && `${finished} beendet`].filter(Boolean).join(', ')}
+              </span>
+            )}
+            <ChevronDown className={clsx('size-4 text-ink-3 transition', !open && '-rotate-90')} aria-hidden />
+          </button>
         </h2>
         <Link to="/conversions" className="text-sm font-medium text-accent hover:underline">
           Alle Umwandlungen
         </Link>
       </div>
-      <ul className="grid gap-3 md:grid-cols-2">
+      <ul id="conversions-list" hidden={!open} className="grid gap-3 md:grid-cols-2">
         {shown.map((job) => (
           <li key={job.id}>
             <ConversionTile job={job} now={now} />

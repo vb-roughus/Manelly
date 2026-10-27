@@ -38,7 +38,8 @@ Live-Übersicht der laufenden Streams:
 - Kennzahlen: aktive Streams (mit den Benutzern, die gerade schauen), Direct Play / Direct Stream / Transcodes (inkl. wie
   viele nicht nachkommen), geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
-- Laufende und in den letzten 12 Stunden beendete [Umwandlungen](#umwandlungen-mit-agent) mit Fortschritt (mit Agent)
+- Laufende und in den letzten 12 Stunden beendete [Umwandlungen](#umwandlungen-mit-agent) mit Fortschritt (mit Agent),
+  einklappbar – der Browser merkt sich, ob der Abschnitt offen ist
 - Ein Klick auf die Kachel **Transcodes** zeigt die **Auslastung des Servers** (mit Agent): CPU und GPU (pro Einheit wie
   Video-Dekodierung, Video-Kodierung, Videoverarbeitung, 3D), jeweils mit dem Anteil von Jellyfins FFmpeg und einer
   laufenden Umwandlung, einem Verlauf der letzten 10 Minuten und den einzelnen FFmpeg-Prozessen. Der Agent misst nur,

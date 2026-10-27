@@ -1111,6 +1111,17 @@ export interface AgentProcess {
   lastUpdate?: AgentUpdateResult | null;
 }
 
+/** A drive letter the Windows user connected to a share, as the agent (started without logon) reaches it. */
+export interface NetworkDrive {
+  /** "Z:" */
+  letter: string;
+  /** "\\nas\filme" */
+  remote: string;
+  connected: boolean;
+  /** Why the agent could not connect it, with what helps. */
+  error: string | null;
+}
+
 /** POST /api/restart on the agent: start again, after a git pull and a build when update is set. */
 export interface AgentRestartRequest {
   update: boolean;
@@ -1192,6 +1203,8 @@ export interface AgentStatus {
   resources?: { supported: boolean };
   /** Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0. */
   jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean };
+  /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
+  drives?: NetworkDrive[];
   /** Whether the agent records the history; missing on agents before 0.6.0. */
   history?: { enabled: boolean };
   /** Missing on agents before 0.7.0, which cannot be stopped from Manelly either. */

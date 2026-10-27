@@ -15,6 +15,7 @@ import { createResourceMonitor, defaultResourceSource } from './resources.js';
 import { createGate, createSettingsStore } from './schedule.js';
 import { createAgentServer } from './server.js';
 import { discoverTools, type Tools } from './tools.js';
+import { createDrives, PASSWORD_HINT } from './drives.js';
 import { createUpdater } from './updater.js';
 
 const AGENT_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -49,12 +50,19 @@ async function currentTools(refresh = false): Promise<Tools> {
 }
 
 const settings = await createSettingsStore(dataDir);
+// The scheduled task passes --autostart; started by hand, the agent runs in a console window.
+const autostart = process.argv.includes('--autostart');
+// Started without a logon, the agent connects the user's network drives (Z:) itself when a path needs one.
+const drives = createDrives({ log, autostart });
+const access = { prepare: drives.prepare, networkHint: autostart ? PASSWORD_HINT : null };
+void drives.connectAll();
 const queue = await createJobQueue({
   dataDir,
   roots: config.roots,
   tools: () => currentTools(),
   gate: createGate({ settings: settings.get }),
   notify: createNotifier(() => settings.get().jellyfin, { log }),
+  access,
   log,
 });
 // Measures only the interfaces picked in Manelly, and only while somebody looks.
@@ -65,8 +73,6 @@ const resources = createResourceMonitor({ source: defaultResourceSource(), ownPr
 const jdownloader = createJDownloader({ settings, log });
 // Load and streams on disk, around the clock while switched on in Manelly; keeps both monitors measuring.
 const recorder = createRecorder({ dir: join(dataDir, 'history'), settings, resources, network, log });
-// The scheduled task passes --autostart; started by hand, the agent runs in a console window.
-const autostart = process.argv.includes('--autostart');
 // scripts/run-agent.ps1 starts the agent again when it ends with one of these codes; it sets the variable.
 const RESTART_EXIT = 75;
 const UPDATE_EXIT = 76;
@@ -110,6 +116,8 @@ const server = createAgentServer({
   tools: currentTools,
   process: async () => ({ ...processInfo, update: updater.progress(), lastUpdate: await lastUpdate() }),
   updater,
+  access,
+  drives: drives.list,
   onExit: (how) =>
     how === 'stop'
       ? shutdown('Beenden angefordert (Manelly oder Installationsskript)')

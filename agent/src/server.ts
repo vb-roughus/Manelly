@@ -14,6 +14,7 @@ import type {
   HardwareTestRequest,
   JDownloaderAction,
   LinkGrabberMoveRequest,
+  NetworkDrive,
 } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import { AgentError } from './errors.js';
@@ -27,6 +28,7 @@ import type { ResourceMonitor } from './resources.js';
 import { parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 import type { Updater } from './updater.js';
+import type { PathAccess } from './paths.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MONITORED = 16;
@@ -46,6 +48,10 @@ export interface AgentServerOptions {
   onExit: (how: 'stop' | 'restart' | 'update') => void;
   /** Updates while the agent keeps running, and restarts it afterwards; without it, the runner updates on exit. */
   updater?: Updater;
+  /** Connects the network drive a path from Manelly needs (Windows, started without logon). */
+  access?: PathAccess;
+  /** The user's network drives and whether the agent reaches them. */
+  drives?: () => Promise<NetworkDrive[]>;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -138,6 +144,7 @@ export function createAgentServer(options: AgentServerOptions) {
         jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
+        drives: (await options.drives?.()) ?? [],
       };
       return send(response, 200, status);
     }
@@ -153,6 +160,10 @@ export function createAgentServer(options: AgentServerOptions) {
     }
     if (route === 'POST /api/check') {
       const body = await readJson<AgentCheckRequest>(request);
+      // The network drives of these paths first, as for a conversion.
+      for (const path of [body.source, ...(Array.isArray(body.directories) ? body.directories.slice(0, 50) : [])]) {
+        if (typeof path === 'string') await options.access?.prepare(path);
+      }
       const sourceBytes = typeof body.source === 'string' ? await stat(body.source).then((info) => (info.isFile() ? info.size : null), () => null) : null;
       // Only the free space of the folders Manelly names – nothing is listed or searched.
       const directories = await Promise.all(

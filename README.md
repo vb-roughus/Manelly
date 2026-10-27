@@ -276,16 +276,19 @@ dem Jellyfin läuft:
    nächtlichen Neustart), unsichtbar unter deinem Benutzer. Ohne Administratorrechte startet er erst bei deiner Anmeldung.
    Ohne `-Install` läuft der Agent einfach in diesem Fenster.
 
-   Liegen die Medien auf einer **Netzwerkfreigabe** (`\\nas\filme`), braucht der Autostart dein Windows-Passwort, weil
-   Windows ohne Anmeldung sonst nur lokale Laufwerke freigibt:
+   Liegen die Medien auf einem **Netzlaufwerk** (`Z:`) oder einer **Netzwerkfreigabe** (`\\nas\filme`), braucht der
+   Autostart dein Windows-Passwort, weil Windows ohne Anmeldung keine Anmeldedaten fürs Netzwerk hat (die Umwandlung
+   meldet dann «nicht erreichbar» bzw. «Kein Zugriff»). Findet das Skript Netzlaufwerke, fragt es danach; sonst:
 
    ```powershell
    .\scripts\start-agent.ps1 -Install -StorePassword
    ```
 
-   Das Passwort speichert Windows in der Aufgabenplanung; nach einer Passwortänderung den Befehl erneut ausführen.
-   Verbundene Laufwerksbuchstaben (`Z:`) gibt es ohne Anmeldung nicht – Jellyfin sollte die Freigaben als `\\nas\…`
-   kennen.
+   Das Passwort speichert Windows in der Aufgabenplanung; nach einer Passwortänderung den Befehl erneut ausführen. Der
+   Agent läuft weiterhin als dein normaler Benutzer, nicht als Administrator. Verbundene Laufwerksbuchstaben gibt es ohne
+   Anmeldung eigentlich nicht – der Agent (ab 0.14.0) verbindet deshalb die Netzlaufwerke, die Windows für dich gespeichert
+   hat, selbst wieder, sobald eine Umwandlung sie braucht (und gleich beim Start). Unter **Server → Agent** steht, welche
+   er erreicht und warum nicht.
 2. Das Skript zeigt **Adresse** und **Schlüssel** an. Beides in Manelly unter **Server → Agent** eintragen; Manelly
    zeigt dann, welche Werkzeuge gefunden wurden.
 

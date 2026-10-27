@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -70,6 +70,34 @@ describe('planning the output', () => {
     const plan = await planOutput({ source, output: { mode: 'folder', directory: path.join(root, 'UHD'), subfolder: 'Film (2000)' } }, []);
     expect(plan).toMatchObject({ directory: path.join(root, 'UHD', 'Film (2000)'), createDirectory: true });
     expect(plan.output).toBe(path.join(root, 'UHD', 'Film (2000)', 'Film (2000).mkv'));
+  });
+
+  it('connects what a path needs first, and says why it cannot be reached', async () => {
+    const asked: string[] = [];
+    const access = {
+      prepare: async (file: string) => {
+        asked.push(file);
+        return file.includes('Netz') ? 'Das Netzlaufwerk Z: (\\\\nas\\filme) ist für den Agent nicht erreichbar: Zugriff verweigert.' : null;
+      },
+      networkHint: null,
+    };
+    await planOutput({ source, output: { mode: 'folder', directory: path.join(root, 'UHD') } }, [], process.platform, access);
+    expect(asked).toEqual([source, path.join(root, 'UHD')]);
+    await expect(planOutput({ source: path.join(root, 'Netz', 'Film.mkv'), output: { mode: 'alongside' } }, [], process.platform, access)).rejects.toThrow(
+      'Das Netzlaufwerk Z: (\\\\nas\\filme) ist für den Agent nicht erreichbar: Zugriff verweigert.',
+    );
+    // A file it may not read is not «not found».
+    const locked = path.join(root, 'Gesperrt');
+    await mkdir(locked);
+    await writeFile(path.join(locked, 'Film.mkv'), 'video');
+    await chmod(locked, 0o000);
+    try {
+      if (process.getuid?.() !== 0) {
+        await expect(planOutput({ source: path.join(locked, 'Film.mkv'), output: { mode: 'alongside' } }, [], process.platform, access)).rejects.toThrow(/^Kein Zugriff auf /);
+      }
+    } finally {
+      await chmod(locked, 0o755);
+    }
   });
 
   it('refuses unsafe or impossible requests', async () => {

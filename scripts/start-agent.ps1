@@ -288,12 +288,20 @@ if ($Install) {
     # With Windows, before anybody logs on – e.g. after a nightly restart.
     $task.Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $runnerArguments -WorkingDirectory $root
     $task.Trigger = New-ScheduledTaskTrigger -AtStartup
+    # Network drives (Z:) need the stored password: without a logon, Windows has no credentials for the network.
+    # The agent connects them itself; this only asks whether it may log on with the password.
+    $networkDrives = @(Get-ChildItem 'HKCU:\Network' -ErrorAction SilentlyContinue | ForEach-Object { "$($_.PSChildName.ToUpper()): $((Get-ItemProperty $_.PSPath).RemotePath)" })
+    if (-not $StorePassword -and $networkDrives.Count) {
+      Write-Warn "Du hast Netzlaufwerke ($($networkDrives -join ', ')). Ohne Anmeldung erreicht der Agent sie nur mit deinem gespeicherten Windows-Passwort."
+      $answer = Read-Host 'Passwort jetzt für den Autostart speichern? [J/n]'
+      if ($answer -notmatch '^\s*(n|nein|no)\s*$') { $StorePassword = $true }
+    }
     if ($StorePassword) {
       $credential = Get-Credential -UserName $user -Message 'Windows-Passwort für den Autostart des Agents (für Medien auf Netzwerkfreigaben)'
       if (-not $credential) { Stop-WithError 'Abgebrochen – ohne Passwort kein Autostart mit Zugriff auf Netzwerkfreigaben.' }
       $task.User = $credential.UserName
       $task.Password = $credential.GetNetworkCredential().Password
-      $startsWhen = 'mit Windows, auch ohne Anmeldung (mit gespeichertem Passwort, Netzwerkfreigaben erreichbar)'
+      $startsWhen = 'mit Windows, auch ohne Anmeldung (mit gespeichertem Passwort, Netzlaufwerke und Netzwerkfreigaben erreichbar)'
     } else {
       # S4U: runs as this user without a stored password; reaches local drives, but no network shares.
       $task.Principal = New-ScheduledTaskPrincipal -UserId $user -LogonType S4U -RunLevel Limited

@@ -22,6 +22,7 @@ import clsx from 'clsx';
 import { isConfigured, useServerStatus, useSettings } from '../hooks/queries';
 import { usePersistentFlag } from '../hooks/usePersistentFlag';
 import { useStickyError } from '../hooks/useStickyError';
+import { AgentRestartNotice } from './AgentRestartNotice';
 import { useTheme, type Theme } from '../hooks/useTheme';
 
 interface NavItem {
@@ -138,7 +139,10 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
         </div>
       </aside>
-      <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">{children}</main>
+      <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+        <AgentRestartNotice />
+        {children}
+      </main>
     </div>
   );
 }

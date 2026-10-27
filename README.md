@@ -267,6 +267,10 @@ dem Jellyfin läuft:
 - Update: in Manelly unter **Server → Agent** «Aktualisieren & neu starten» (ab Agent 0.9.0). Der Agent läuft dafür
   unter `scripts\run-agent.ps1`, das ihn nach `git pull`, falls nötig `npm ci`, und dem Build wieder startet – mit der
   bisherigen Version, wenn etwas davon scheitert; das Ergebnis steht auf derselben Seite und in `agent\data\agent.log`.
+  Solange der Agent neu startet, zeigt Manelly auf allen Seiten den letzten Stand und **keine Fehlermeldungen** des
+  Agents, nur einen Hinweis oben. Erst wenn er zurück ist – oder nach 2 Minuten (beim Aktualisieren nach 10) nicht –,
+  erscheint das Ergebnis, auch auf anderen Seiten: ein Erfolg verschwindet nach ein paar Sekunden, ein Fehler bleibt,
+  bis du ihn schliesst. «Nicht mehr warten» beendet das Warten vorher.
   Ältere Agents (und Änderungen am Installationsskript) brauchen einmal `git pull` und `.\scripts\start-agent.ps1 -Install`
   (als Administrator). Das Skript beendet den laufenden Agent – auch eine ältere Version – und startet den neuen; es
   meldet erst Erfolg, wenn die neue Version antwortet. Bleibt der Port belegt, nennt es das Programm, das ihn hält. Eine

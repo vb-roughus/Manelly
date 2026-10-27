@@ -17,6 +17,7 @@ import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import type { JobQueue } from './jobs.js';
 import type { NetworkMonitor } from './network.js';
+import type { ResourceMonitor } from './resources.js';
 import { parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 
@@ -29,6 +30,7 @@ export interface AgentServerOptions {
   queue: JobQueue;
   settings: SettingsStore;
   network: NetworkMonitor;
+  resources: ResourceMonitor;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -66,7 +68,7 @@ function send(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** The agent's HTTP API. Everything but the health check needs the token from agent.json. */
-export function createAgentServer({ token, roots, queue, settings, network, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
+export function createAgentServer({ token, roots, queue, settings, network, resources, tools, freeBytes = defaultFreeBytes }: AgentServerOptions) {
   async function networkList(): Promise<AgentNetworkList> {
     const interfaces = await network.list().catch((error: Error) => {
       throw new AgentError(503, error.message);
@@ -103,6 +105,7 @@ export function createAgentServer({ token, roots, queue, settings, network, tool
         ready: toolsReady(found),
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
+        resources: { supported: resources.supported },
       };
       return send(response, 200, status);
     }
@@ -138,6 +141,7 @@ export function createAgentServer({ token, roots, queue, settings, network, tool
       return send(response, 200, await runHardwareTest({ ...body, tests }, ffmpegPath));
     }
     if (route === 'GET /api/network') return send(response, 200, network.status());
+    if (route === 'GET /api/resources') return send(response, 200, resources.status());
     if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
     if (route === 'PUT /api/network/interfaces') {
       const body = await readJson<{ interfaces?: unknown }>(request);

@@ -39,6 +39,11 @@ Live-Übersicht der laufenden Streams:
   viele nicht nachkommen), geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
 - Laufende und in den letzten 12 Stunden beendete [Umwandlungen](#umwandlungen-mit-agent) mit Fortschritt (mit Agent)
+- Ein Klick auf die Kachel **Transcodes** zeigt die **Auslastung des Servers** (mit Agent): CPU und GPU (pro Einheit wie
+  Video-Dekodierung, Video-Kodierung, Videoverarbeitung, 3D), jeweils mit dem Anteil von Jellyfins FFmpeg und einer
+  laufenden Umwandlung, einem Verlauf der letzten 10 Minuten und den einzelnen FFmpeg-Prozessen. Der Agent misst nur,
+  solange die Anzeige offen ist (danach noch 10 Minuten). GPU-Werte gibt es auf Windows 10/11 für jede Grafikkarte mit
+  aktuellem Treiber, auf Linux nur für AMD und ohne Anteil pro Prozess
 - Ein Klick auf die Kachel **Bandbreite** klappt die Details auf: die aktuelle Bitrate jedes Streams (gesamt und davon
   nach extern) und darunter das **Netzwerk des Jellyfin-Servers** (mit Agent): Senden und Empfangen der unter
   Einstellungen gewählten Schnittstellen, Auslastung gemessen an der Link-Geschwindigkeit (ab 70 % gelb, ab 90 % rot) und
@@ -105,7 +110,8 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   hinaus fertig werden. **«Jetzt starten»** übergeht den Zeitplan.
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
-- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Abbrechen und der Ausgabe des Werkzeugs bei Fehlern; danach meldet
+- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Abbrechen, aufklappbarer **Auslastung des Servers** (dieselbe Anzeige
+  wie im Dashboard, mit dem Anteil der Umwandlung zuerst) und der Ausgabe des Werkzeugs bei Fehlern; danach meldet
   der Agent die neue Datei an Jellyfin, damit sie gleich erscheint
 - Für Zeitplan und Meldung gibt Manelly dem Agent die Jellyfin-Adresse und den API-Schlüssel (gespeichert in
   `agent\data\settings.json` auf dem Jellyfin-Server)

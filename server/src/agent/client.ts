@@ -4,6 +4,7 @@ import type {
   AgentJellyfinAccess,
   AgentNetworkList,
   AgentNetworkStatus,
+  AgentResourceStatus,
   AgentScheduleStatus,
   AgentStatus,
   ConversionJob,
@@ -38,6 +39,8 @@ export interface AgentClient {
   setNetworkInterfaces(ids: string[]): Promise<AgentNetworkList>;
   /** Rates of the monitored interfaces; asking keeps the agent measuring. */
   network(): Promise<AgentNetworkStatus>;
+  /** CPU and GPU of the Jellyfin server; asking keeps the agent measuring. */
+  resources(): Promise<AgentResourceStatus>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -90,5 +93,6 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     networkInterfaces: () => call('GET', '/api/network/interfaces', undefined, 30_000),
     setNetworkInterfaces: (ids) => call('PUT', '/api/network/interfaces', { interfaces: ids }, 30_000),
     network: () => call('GET', '/api/network'),
+    resources: () => call('GET', '/api/resources'),
   };
 }

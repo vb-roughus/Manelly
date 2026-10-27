@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { dataDirFrom, loadConfig } from './config.js';
 import { createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
+import { conversionProcesses } from './convert.js';
 import { createNetworkMonitor, defaultSource } from './network.js';
+import { createResourceMonitor, defaultResourceSource } from './resources.js';
 import { createGate, createSettingsStore } from './schedule.js';
 import { createAgentServer } from './server.js';
 import { discoverTools, type Tools } from './tools.js';
@@ -52,7 +54,9 @@ const queue = await createJobQueue({
 });
 // Measures only the interfaces picked in Manelly, and only while somebody looks.
 const network = createNetworkMonitor({ source: defaultSource(), selection: () => settings.get().network, log });
-const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, tools: currentTools });
+// CPU and GPU, with the shares of Jellyfin's FFmpeg and of the agent's own conversion; also only while somebody looks.
+const resources = createResourceMonitor({ source: defaultResourceSource(), ownProcesses: () => conversionProcesses, log });
+const server = createAgentServer({ token: config.token, roots: config.roots, queue, settings, network, resources, tools: currentTools });
 
 server.on('error', (error: NodeJS.ErrnoException) => {
   log(error.code === 'EADDRINUSE' ? `Port ${config.port} ist schon belegt – läuft der Agent bereits?` : error.message);
@@ -80,6 +84,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     log(`${signal} empfangen, beende den Agent …`);
     server.close();
     network.stop();
+    resources.stop();
     void queue.stop().then(() => process.exit(0));
   });
 }

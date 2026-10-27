@@ -4,6 +4,7 @@ import type {
   AgentNetworkList,
   AgentNetworkStatus,
   AgentOverview,
+  AgentResourceStatus,
   AgentScheduleStatus,
   AgentSettingsView,
   ConversionJob,
@@ -319,6 +320,17 @@ export function useAgentNetwork(enabled: boolean) {
     queryKey: ['network'],
     queryFn: ({ signal }) => fetchJson<AgentNetworkStatus>('/api/agent/network', signal),
     refetchInterval: (query) => (query.state.data?.interfaces.length ? 4_000 : 60_000),
+    enabled,
+    retry: false,
+  });
+}
+
+/** CPU and GPU of the Jellyfin server; only while shown, because the agent measures only while asked. */
+export function useAgentResources(enabled: boolean) {
+  return useQuery({
+    queryKey: ['resources'],
+    queryFn: ({ signal }) => fetchJson<AgentResourceStatus>('/api/agent/resources', signal),
+    refetchInterval: 3_000,
     enabled,
     retry: false,
   });

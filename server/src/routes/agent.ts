@@ -3,6 +3,7 @@ import type {
   AgentNetworkList,
   AgentNetworkStatus,
   AgentOverview,
+  AgentResourceStatus,
   AgentScheduleStatus,
   AgentSettingsView,
   AgentStatus,
@@ -162,6 +163,8 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   );
 
   app.get('/network', async (): Promise<AgentNetworkStatus> => requireAgent(agent).network());
+
+  app.get('/resources', async (): Promise<AgentResourceStatus> => requireAgent(agent).resources());
 
   const time = { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' };
   app.put<{ Body: ConversionSchedule }>(

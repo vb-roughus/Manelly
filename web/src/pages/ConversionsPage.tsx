@@ -1,11 +1,12 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { ConversionJob } from '@manelly/shared';
 import { Ban, Clock, Play, RotateCcw, Trash2, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge } from '../components/ConversionStatus';
+import { ResourceUsage } from '../components/ResourceUsage';
 import { SchedulePanel } from '../components/SchedulePanel';
-import { useAgent, useCancelConversion, useConversions, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
+import { useAgent, useAgentResources, useCancelConversion, useConversions, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
 import { formatAgo } from '../lib/format';
 
 export function ConversionsPage() {
@@ -120,6 +121,7 @@ function JobCard({ job }: { job: ConversionJob }) {
           <ConversionProgress job={job} />
         </div>
       )}
+      {job.state === 'running' && <ServerLoad />}
       {job.state === 'queued' && (
         <p className="mt-3 flex gap-2 text-sm text-ink-2">
           <Clock className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -160,6 +162,26 @@ function JobCard({ job }: { job: ConversionJob }) {
       )}
     </article>
   );
+}
+
+/** CPU and GPU of the Jellyfin server, with the share of this conversion; the agent measures only while it is open. */
+function ServerLoad() {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="mt-3 text-xs" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer text-ink-2">Auslastung des Servers</summary>
+      {open && (
+        <div className="mt-3 rounded-lg bg-card-2/50 p-3 text-sm ring-1 ring-line">
+          <ServerLoadDetails />
+        </div>
+      )}
+    </details>
+  );
+}
+
+function ServerLoadDetails() {
+  const resources = useAgentResources(true);
+  return <ResourceUsage data={resources.data} error={resources.error} focus="conversion" />;
 }
 
 function Panel({ tone, children }: { tone?: 'critical'; children: ReactNode }) {

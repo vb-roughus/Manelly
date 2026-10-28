@@ -114,7 +114,9 @@ Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** 
 ### Umwandlungen (mit Agent)
 
 Dolby Vision **Profil 7** (UHD-Blu-ray-Remuxe) spielen viele Geräte nicht ab, Profil 8.1 schon. Ein kleiner Agent auf dem
-Jellyfin-Server wandelt solche Dateien direkt dort um:
+Jellyfin-Server wandelt solche Dateien direkt dort um. Im Menü ist **Umwandlungen** aufklappbar: **Übersicht** (laufende
+und fertige Umwandlungen), **Backups** (die im Arbeitsordner behaltenen Originale) und **Einstellungen** (Zeitplan,
+Arbeitsordner, Kopieren begrenzen).
 
 - In den Medien mit dem Filter **«Dolby Vision P7»** die Kandidaten finden, Titel öffnen, **«In Profil 8.1 umwandeln»**
 - Speicherort wählen: **neben dem Original** (Jellyfin zeigt beide als Versionen), **Original ersetzen** (das Original
@@ -124,7 +126,7 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 - Der Agent löst die Videospur heraus (ffmpeg), wandelt die Dolby-Vision-Daten um (`dovi_tool -m 2 convert --discard`) und
   setzt die Datei mit allen Ton- und Untertitelspuren, Kapiteln und Anhängen neu zusammen (mkvmerge). Das Bild wird nicht
   neu kodiert; der Enhancement Layer fällt weg (bei «FEL»-Dateien geht dessen Zusatzinformation verloren)
-- **Arbeitsordner** (ab Agent 0.17.0): Auf der Seite **Umwandlungen** einen Ordner auf einer schnellen Platte des
+- **Arbeitsordner** (ab Agent 0.17.0): Unter **Umwandlungen → Einstellungen** einen Ordner auf einer schnellen Platte des
   Jellyfin-Servers eintragen (z. B. `E:\Manelly` auf einer zusätzlichen SSD; den Ordner zuerst anlegen). Im
   Umwandlungsdialog ist dann **«Im Arbeitsordner»** vorgewählt: Der Agent kopiert das Original dorthin, wandelt dort um und
   kopiert das Ergebnis zurück – an den gewählten Speicherort, wie oben. Der Speicher, auf dem die Filme liegen (z. B. das
@@ -132,7 +134,7 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
   macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** wandelt wie bisher dort um, wo die Datei
   liegt
-- **Kopieren begrenzen** (ab Agent 0.21.0): Beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
+- **Kopieren begrenzen** (ab Agent 0.21.0): Unter **Umwandlungen → Einstellungen** beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
   darf, damit auf dem Speicher genug für Streams bleibt. **Automatisch während Streams**: einmal eintragen, was der
   Speicher insgesamt schafft (z. B. 220 MB/s; zu sehen bei einer Umwandlung unter «Auslastung der Storage-Schnittstelle»,
   «Zusammen»). Solange jemand streamt, kopiert der Agent höchstens mit diesem Wert − Bitrate der laufenden Streams
@@ -143,11 +145,11 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 - **Originale im Arbeitsordner** (ab Agent 0.18.0): Bei **«Original ersetzen»** im Arbeitsordner kommt das Original nicht in
   `.manelly-backup` auf dem Speicher, sondern bleibt als die Kopie, die schon im Arbeitsordner liegt, in dessen Unterordner
   `Originale`. Auf dem Speicher wird es erst ganz am Schluss gegen die umgewandelte Datei getauscht – bis dahin spielt
-  Jellyfin es normal ab. Hat sich das Original während der Umwandlung verändert, bleibt es, wie es ist. Die Seite
-  **Umwandlungen** listet diese Originale mit Herkunft, Grösse und Alter: länger als 30 Tage aufbewahrt **gelb**, länger
+  Jellyfin es normal ab. Hat sich das Original während der Umwandlung verändert, bleibt es, wie es ist. **Umwandlungen →
+  Backups** listet diese Originale mit Herkunft, Grösse und Alter: länger als 30 Tage aufbewahrt **gelb**, länger
   als 90 Tage **rot**. Passt das Ergebnis, dort **«Löschen»** (mit Rückfrage). Der Agent löscht nur Originale, die er
   selbst dort abgelegt hat. «Neben dem Original» und «Anderer Ordner» lassen das Original auf dem Speicher
-- **Sofort** oder **nach Zeitplan**: Auf der Seite **Umwandlungen** ein Zeitfenster (z. B. 01:00–07:00, Uhrzeit des
+- **Sofort** oder **nach Zeitplan**: Unter **Umwandlungen → Einstellungen** ein Zeitfenster (z. B. 01:00–07:00, Uhrzeit des
   Jellyfin-Servers) und/oder «nur wenn niemand streamt» einstellen. Geplante Umwandlungen startet der Agent selbst, auch
   wenn Manelly nicht läuft. Beginnt ein Stream, pausiert die Umwandlung und macht später beim zuletzt fertigen Schritt
   weiter; nach einem Stream wartet der Agent noch 5 Minuten. Eine laufende Umwandlung darf über das Ende des Zeitfensters
@@ -159,7 +161,7 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   bleibt auch über einen Neustart des Agents pausiert
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
-- Seite **Umwandlungen** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Umwandlung – so
+- **Umwandlungen → Übersicht** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Umwandlung – so
   lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt mit dem aktuellen Tempo des laufenden Schritts in MB/s
   (ab Agent 0.21.0; gemessen daran, wie schnell die Datei wächst, die der Schritt schreibt), Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
   Storage-Schnittstelle** und der Ausgabe des Werkzeugs bei Fehlern; danach meldet der Agent die neue Datei an Jellyfin,

@@ -1,17 +1,15 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import type { ConversionJob, CopyThrottle } from '@manelly/shared';
 import { Ban, Clock, Pause, Play, RotateCcw, Trash2, TriangleAlert } from 'lucide-react';
-import clsx from 'clsx';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge, STEP_LABELS } from '../components/ConversionStatus';
 import { InterfaceTile } from '../components/NetworkInterfaces';
-import { SchedulePanel } from '../components/SchedulePanel';
-import { OriginalsPanel } from '../components/OriginalsPanel';
-import { WorkFolderPanel } from '../components/WorkFolderPanel';
+import { AgentNotices, ConversionsHeader, Panel } from '../components/ConversionPanels';
 import { useAgent, useAgentNetwork, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
 import { formatAgo, formatBitrate, formatBytes, formatEta, formatSpeed, joinParts } from '../lib/format';
 import { roleLabel } from '../lib/networkRoles';
 
+/** «Umwandlungen → Übersicht»: the running, waiting and finished conversions. */
 export function ConversionsPage() {
   useEffect(() => {
     document.title = 'Umwandlungen · Manelly';
@@ -22,28 +20,12 @@ export function ConversionsPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Umwandlungen</h1>
-        <p className="mt-1 text-sm text-ink-2">
-          Dolby Vision Profil 7 in Profil 8.1 umwandeln – direkt auf dem Jellyfin-Server, mit dem Manelly-Agent.
-        </p>
-      </header>
+      <ConversionsHeader title="Übersicht">
+        Dolby Vision Profil 7 in Profil 8.1 umwandeln – direkt auf dem Jellyfin-Server, mit dem Manelly-Agent.
+      </ConversionsHeader>
 
       <div className="mt-6 space-y-4">
-        {agent.isPending && <div aria-busy className="h-24 animate-pulse rounded-2xl bg-card-2" />}
-        {agent.data && !configured && (
-          <Panel>
-            <p className="font-medium">Noch kein Agent eingerichtet</p>
-            <p className="mt-1 text-sm text-ink-2">
-              Installiere den Agent auf dem Jellyfin-Server mit <code>scripts\start-agent.cmd</code> und trage Adresse und Schlüssel unter{' '}
-              <Link to="/server/agent" className="font-medium text-accent hover:underline">
-                Server → Agent
-              </Link>{' '}
-              ein.
-            </p>
-          </Panel>
-        )}
-        {agent.data?.error && <Panel tone="critical">{agent.data.error}</Panel>}
+        <AgentNotices agent={agent} />
         {agent.data?.status && !agent.data.status.ready && (
           <Panel tone="critical">
             Dem Agent auf {agent.data.status.hostname} fehlen Werkzeuge – Details unter{' '}
@@ -54,23 +36,6 @@ export function ConversionsPage() {
           </Panel>
         )}
 
-        {agent.data?.status &&
-          (agent.data.status.schedule ? (
-            <>
-              <SchedulePanel schedule={agent.data.status.schedule} />
-              {/* Missing on agents before 0.17.0. */}
-              {agent.data.status.work && <WorkFolderPanel work={agent.data.status.work} />}
-              {/* Missing on agents before 0.18.0. */}
-              {agent.data.status.originals && <OriginalsPanel />}
-            </>
-          ) : (
-            <Panel>
-              Der Agent auf {agent.data.status.hostname} ist zu alt für Zeitplan und Fortsetzen nach einem Neustart (Version{' '}
-              {agent.data.status.version}). Auf dem Jellyfin-Server <code>git pull</code> und <code>scripts\start-agent.cmd -Install</code>{' '}
-              ausführen.
-            </Panel>
-          ))}
-
         {configured && (
           <Panel>
             <p className="text-sm text-ink-2">
@@ -78,7 +43,11 @@ export function ConversionsPage() {
               <Link to="/media?dynamicRange=DV7" className="font-medium text-accent hover:underline">
                 Medien mit dem Filter «Dolby Vision P7»
               </Link>
-              : Titel öffnen und «In Profil 8.1 umwandeln» wählen.
+              : Titel öffnen und «In Profil 8.1 umwandeln» wählen. Zeitplan, Arbeitsordner und Kopieren unter{' '}
+              <Link to="/conversions/settings" className="font-medium text-accent hover:underline">
+                Einstellungen
+              </Link>
+              .
             </p>
           </Panel>
         )}
@@ -205,9 +174,17 @@ function JobCard({ job }: { job: ConversionJob }) {
       )}
       {job.state === 'done' && job.backup && (
         <p className="mt-3 text-xs text-ink-3">
-          {job.work && job.mode === 'replace'
-            ? 'Das Original liegt im Arbeitsordner. Passt das Ergebnis, kannst du es unter «Originale im Arbeitsordner» löschen.'
-            : 'Passt das Ergebnis, kannst du das Backup löschen – Manelly macht das nicht von sich aus.'}
+          {job.work && job.mode === 'replace' ? (
+            <>
+              Das Original liegt im Arbeitsordner. Passt das Ergebnis, kannst du es unter{' '}
+              <Link to="/conversions/backups" className="font-medium text-accent hover:underline">
+                Backups
+              </Link>{' '}
+              löschen.
+            </>
+          ) : (
+            'Passt das Ergebnis, kannst du das Backup löschen – Manelly macht das nicht von sich aus.'
+          )}
         </p>
       )}
     </article>
@@ -217,7 +194,7 @@ function JobCard({ job }: { job: ConversionJob }) {
 /** Why the copy runs slower than it could – only while it does. */
 function throttleReason({ bytesPerSecond, streams, streamsBitsPerSecond }: CopyThrottle): string {
   const limit = `Kopiert mit höchstens ${formatSpeed(bytesPerSecond)}`;
-  if (streams === null) return `${limit}, wie beim Arbeitsordner eingestellt.`;
+  if (streams === null) return `${limit}, wie unter Einstellungen festgelegt.`;
   const who = streams === 1 ? '1 Stream braucht' : `${streams} Streams brauchen`;
   return `${limit}: ${who} gerade etwa ${formatBitrate(streamsBitsPerSecond ?? 0)}, dazu 20 Mbit/s Reserve.`;
 }
@@ -275,14 +252,6 @@ function StorageLoadDetails() {
         })}
       </ul>
     </>
-  );
-}
-
-function Panel({ tone, children }: { tone?: 'critical'; children: ReactNode }) {
-  return (
-    <div className={clsx('rounded-2xl border p-4 text-sm', tone === 'critical' ? 'border-critical/30 bg-critical/8' : 'border-line bg-card')}>
-      {children}
-    </div>
   );
 }
 

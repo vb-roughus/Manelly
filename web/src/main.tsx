@@ -7,6 +7,8 @@ import { AgentPage } from './pages/AgentPage';
 import { JDownloaderPage } from './pages/JDownloaderPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { MediaPage } from './pages/MediaPage';
+import { ConversionBackupsPage } from './pages/ConversionBackupsPage';
+import { ConversionSettingsPage } from './pages/ConversionSettingsPage';
 import { ConversionsPage } from './pages/ConversionsPage';
 import { ServerPage } from './pages/ServerPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -31,7 +33,11 @@ createRoot(document.getElementById('root')!).render(
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/media" element={<MediaPage />} />
-            <Route path="/conversions" element={<ConversionsPage />} />
+            {/* Like Server: a heading in the menu, its first page stands in for it. */}
+            <Route path="/conversions" element={<Navigate to="/conversions/overview" replace />} />
+            <Route path="/conversions/overview" element={<ConversionsPage />} />
+            <Route path="/conversions/backups" element={<ConversionBackupsPage />} />
+            <Route path="/conversions/settings" element={<ConversionSettingsPage />} />
             {/* Server is only a heading in the menu; its first page stands in for it. */}
             <Route path="/server" element={<Navigate to="/server/general" replace />} />
             <Route path="/server/general" element={<ServerPage />} />

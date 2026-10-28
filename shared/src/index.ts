@@ -690,6 +690,13 @@ export interface ConversionJob {
   work?: string | null;
   /** Size of the original when the job was added; null when unknown. Missing before agent 0.20.0. */
   sourceBytes?: number | null;
+  /**
+   * How fast the running step moves the film right now, in bytes per second – as fast as the file it writes grows.
+   * null between steps and until measured; missing before agent 0.21.0.
+   */
+  bytesPerSecond?: number | null;
+  /** While copying to or from the work folder is held back; null otherwise. Missing before agent 0.21.0. */
+  copyThrottle?: CopyThrottle | null;
 }
 
 /** "HH:MM" in the time zone of the agent (the Jellyfin server); may span midnight. */
@@ -1305,6 +1312,32 @@ export interface WorkFolderStatus {
   freeBytes: number | null;
   /** Why the agent cannot use it right now, e.g. the disk is gone. */
   error: string | null;
+  /** How fast conversions copy to and from it; missing before agent 0.21.0. */
+  copyLimit?: CopyLimit;
+}
+
+/**
+ * Copying to and from the work folder: at full speed; while somebody streams with what the streams leave of the
+ * storage; or always at a fixed rate.
+ */
+export type CopyLimitMode = 'off' | 'streaming' | 'always';
+
+/** PUT /api/work/copy-limit on the agent (from 0.21.0). Rates in MB/s, with 1 MB = 1024 × 1024 bytes as Manelly shows them. */
+export interface CopyLimit {
+  mode: CopyLimitMode;
+  /** 'always': copy at most this fast. */
+  limitMBps: number;
+  /** 'streaming': what the storage manages in all; copying gets that minus the running streams and a reserve. */
+  storageMBps: number;
+}
+
+/** Why and how much a copy to or from the work folder is held back right now. */
+export interface CopyThrottle {
+  bytesPerSecond: number;
+  /** The running streams that make room for themselves; null when always limited. */
+  streams: number | null;
+  /** What they read from the storage, estimated from their files; null when always limited. */
+  streamsBitsPerSecond: number | null;
 }
 
 /** An original that a conversion in the work folder replaced: kept there until it is deleted in Manelly. */

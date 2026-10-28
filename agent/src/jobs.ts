@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ConversionJob, ConversionRequest } from '@manelly/shared';
+import type { ConversionJob, ConversionRequest, CopyThrottle } from '@manelly/shared';
 import { discardTemp, overallProgress, PAUSE, runConversion, type ConversionContext, type ConversionResult } from './convert.js';
 import { suspendProcess, type Suspender } from './suspend.js';
 import { AgentError } from './errors.js';
@@ -39,6 +39,8 @@ export interface JobQueueOptions {
   retryMs?: number;
   /** The work folder set in Manelly, for jobs that convert there. */
   workFolder?: () => string | null;
+  /** How much copying to and from the work folder is held back right now; null for full speed. */
+  copyLimit?: () => CopyThrottle | null;
   /** Remembers the originals that conversions in the work folder replaced and kept there. */
   originals?: Pick<Originals, 'add'>;
   now?: () => Date;
@@ -123,7 +125,12 @@ export async function createJobQueue(options: JobQueueOptions) {
     return job.scheduled && !lastGate ? 'Prüft den Zeitplan …' : null;
   }
 
-  const view = (job: ConversionJob): ConversionJob => ({ ...job, waitReason: waitReason(job) });
+  const copying = (job: ConversionJob) => job.state === 'running' && !job.paused && (job.step === 'fetch' || job.step === 'store');
+  const view = (job: ConversionJob): ConversionJob => ({
+    ...job,
+    waitReason: waitReason(job),
+    copyThrottle: copying(job) ? (options.copyLimit?.() ?? null) : null,
+  });
 
   /** Looks at the schedule: starts what may start, pauses a scheduled job when somebody streams. */
   async function checkOnce() {
@@ -229,7 +236,7 @@ export async function createJobQueue(options: JobQueueOptions) {
     const controller = new AbortController();
     const running: Current = { entry, controller, pids: new Set(), held: new Set(), waiting: [], turns: Promise.resolve() };
     current = running;
-    Object.assign(job, { state: 'running', startedAt: now().toISOString(), step: 'probe', progress: null });
+    Object.assign(job, { state: 'running', startedAt: now().toISOString(), step: 'probe', progress: null, bytesPerSecond: null });
     void save();
     log(`Umwandlung ${job.interruptions ? 'fortgesetzt' : 'gestartet'}: ${job.source}`);
     try {
@@ -247,6 +254,10 @@ export async function createJobQueue(options: JobQueueOptions) {
         tools: await tools(),
         signal: controller.signal,
         freeBytes,
+        copyLimit: () => options.copyLimit?.()?.bytesPerSecond ?? null,
+        onRate: (bytesPerSecond) => {
+          job.bytesPerSecond = bytesPerSecond === null ? null : Math.round(bytesPerSecond);
+        },
         onProgress: (step, fraction) => {
           job.step = step;
           job.progress = overallProgress(step, fraction, Boolean(entry.plan.work));

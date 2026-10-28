@@ -21,6 +21,7 @@ import { createRecorder, type Recorder } from '../src/history.js';
 import { createNotifier } from '../src/jellyfin.js';
 import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
+import { createCopyLimiter } from '../src/copyLimit.js';
 import { createOriginals } from '../src/originals.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
 import { createResourceMonitor, type ResourceMonitor } from '../src/resources.js';
@@ -153,6 +154,7 @@ async function start() {
     tickMs: 0,
     notify: createNotifier(() => settings.get().jellyfin, { fetch: fakeJellyfin }),
     workFolder: () => settings.get().work,
+    copyLimit: createCopyLimiter({ settings, fetch: fakeJellyfin }).current,
     originals,
   });
   network = createNetworkMonitor({ source: fakeNetwork, selection: () => settings.get().network, now: () => 2000 });
@@ -304,7 +306,7 @@ describe('agent', () => {
 
   it('reports sizes and free space only for the paths it is given', async () => {
     const response = await call('/api/check', { method: 'POST', body: JSON.stringify({ source, directories: [media] }) });
-    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }], work: { directory: null, freeBytes: null, error: null } });
+    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }], work: { directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMBps: 50, storageMBps: 200 } } });
   });
 
 });
@@ -471,7 +473,7 @@ describe('pause', () => {
 describe('work folder', () => {
   it('takes only a folder that is there and takes files', async () => {
     const work = path.join(root, 'work');
-    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: null, freeBytes: null, error: null });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMBps: 50, storageMBps: 200 } });
     const refused = async (directory: unknown) => {
       const response = await put('/api/work', { directory });
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
@@ -481,14 +483,40 @@ describe('work folder', () => {
     await mkdir(work);
     const saved = await put('/api/work', { directory: ` ${work} ` });
     expect(saved.status).toBe(200);
-    expect(await saved.json()).toEqual<WorkFolderStatus>({ directory: work, freeBytes: free, error: null });
+    expect(await saved.json()).toEqual<WorkFolderStatus>({ directory: work, freeBytes: free, error: null, copyLimit: { mode: 'off', limitMBps: 50, storageMBps: 200 } });
     // The write test leaves nothing behind.
     expect(await readdir(work)).toEqual([]);
     expect(((await (await call('/api/status')).json()) as AgentStatus).work?.directory).toBe(work);
 
     await rm(work, { recursive: true });
-    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: work, freeBytes: null, error: `Den Arbeitsordner ${work} gibt es auf dem Server nicht (mehr).` });
-    expect(await (await put('/api/work', { directory: null })).json()).toEqual({ directory: null, freeBytes: null, error: null });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toMatchObject({ directory: work, freeBytes: null, error: `Den Arbeitsordner ${work} gibt es auf dem Server nicht (mehr).` });
+    expect(await (await put('/api/work', { directory: null })).json()).toMatchObject({ directory: null, freeBytes: null, error: null });
+  });
+
+  it('keeps copying to and from the work folder to the limit set in Manelly', async () => {
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    await put('/api/work', { directory: work });
+    const refused = async (body: unknown) => {
+      const response = await put('/api/work/copy-limit', body);
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refused({ mode: 'sometimes', limitMBps: 50, storageMBps: 200 })).toEqual([400, 'Unbekannte Art der Begrenzung.']);
+    expect(await refused({ mode: 'always', limitMBps: 0, storageMBps: 200 })).toEqual([400, 'Die Werte müssen zwischen 1 und 5000 MB/s liegen.']);
+    expect(await refused({ mode: 'streaming', limitMBps: 50 })).toEqual([400, 'Die Werte müssen zwischen 1 und 5000 MB/s liegen.']);
+    const saved = await put('/api/work/copy-limit', { mode: 'always', limitMBps: 1, storageMBps: 200 });
+    expect(((await saved.json()) as WorkFolderStatus).copyLimit).toEqual({ mode: 'always', limitMBps: 1, storageMBps: 200 });
+
+    // 1.5 MB at 1 MB/s: the copy into the work folder takes about one and a half seconds, and the job says why.
+    await writeFile(source, Buffer.alloc(1.5 * 1024 * 1024));
+    const started = Date.now();
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, work: true })).json()) as ConversionJob;
+    const copying = await waitFor(created.id, (job) => job.step === 'fetch');
+    expect(copying.copyThrottle).toEqual({ bytesPerSecond: 1024 * 1024, streams: null, streamsBitsPerSecond: null });
+    const done = await waitFor(created.id, finished);
+    expect(done.state).toBe('done');
+    expect(done.copyThrottle).toBeNull();
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1400);
   });
 
   it('copies the original into the work folder, converts there and copies the result back', async () => {

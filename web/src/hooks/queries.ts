@@ -13,6 +13,7 @@ import type {
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
+  CopyLimit,
   DriveCredentialRequest,
   ManellyStatus,
   HardwareTestResult,
@@ -537,6 +538,15 @@ export function useSaveWorkFolder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (directory: string | null) => sendJson<WorkFolderStatus>('PUT', '/api/agent/work', { directory }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['agent'] }),
+  });
+}
+
+/** How fast conversions copy to and from the work folder (agent from 0.21.0). */
+export function useSaveCopyLimit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (limit: CopyLimit) => sendJson<WorkFolderStatus>('PUT', '/api/agent/work/copy-limit', limit),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['agent'] }),
   });
 }

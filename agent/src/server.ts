@@ -34,7 +34,7 @@ import type { JobQueue } from './jobs.js';
 import type { Originals } from './originals.js';
 import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
-import { NETWORK_ROLES, parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type NetworkSelection, type SettingsStore } from './schedule.js';
+import { NETWORK_ROLES, parseCopyLimit, parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type NetworkSelection, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 import type { Updater } from './updater.js';
 import { isWithin, pathApiFor, type PathAccess } from './paths.js';
@@ -130,13 +130,13 @@ export function createAgentServer(options: AgentServerOptions) {
 
   /** The work folder as Manelly set it, with its free space – or why it cannot be used right now. */
   async function workStatus(): Promise<WorkFolderStatus> {
-    const directory = settings.get().work;
-    if (!directory) return { directory: null, freeBytes: null, error: null };
+    const { work: directory, copyLimit } = settings.get();
+    if (!directory) return { directory: null, freeBytes: null, error: null, copyLimit };
     await options.access?.prepare(directory);
     const there = await stat(directory).then((info) => info.isDirectory(), () => false);
     return there
-      ? { directory, freeBytes: await freeBytes(directory), error: null }
-      : { directory, freeBytes: null, error: `Den Arbeitsordner ${directory} gibt es auf dem Server nicht (mehr).` };
+      ? { directory, freeBytes: await freeBytes(directory), error: null, copyLimit }
+      : { directory, freeBytes: null, error: `Den Arbeitsordner ${directory} gibt es auf dem Server nicht (mehr).`, copyLimit };
   }
 
   /** Only a folder that is there and takes files; nothing is created or searched. */
@@ -333,6 +333,10 @@ export function createAgentServer(options: AgentServerOptions) {
     if (route === 'PUT /api/work') {
       const { directory } = await readJson<Partial<WorkFolderRequest>>(request);
       await settings.setWork(directory === null ? null : await checkWorkFolder(directory));
+      return send(response, 200, await workStatus());
+    }
+    if (route === 'PUT /api/work/copy-limit') {
+      await settings.setCopyLimit(parseCopyLimit(await readJson(request)));
       return send(response, 200, await workStatus());
     }
     if (route === 'PUT /api/drives/credentials') {

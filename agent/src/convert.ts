@@ -20,6 +20,10 @@ export interface ConversionContext {
   freeBytes?: (directory: string) => Promise<number | null>;
   /** Lets the job pause: it learns which tool runs, and holds the next one back while paused. */
   control?: ToolControl;
+  /** Bytes per second that copying to and from the work folder may use right now; null for full speed. */
+  copyLimit?: () => number | null;
+  /** How fast the running step moves the film, in bytes per second; null when a step ends. */
+  onRate?: (bytesPerSecond: number | null) => void;
 }
 
 /** How a paused job holds its tools: the running one is suspended, the next one waits. */
@@ -241,9 +245,62 @@ async function requireSpace(directory: string, required: number, what: string, c
   }
 }
 
+/** How often the rate of the running step is measured, and over how long it is averaged. */
+const RATE_INTERVAL_MS = 2000;
+const RATE_SAMPLES = 4;
+
 /**
- * Copies a file in chunks, into "<to>.part" first: shows progress, waits while the job is paused, and continues a
- * copy that a pause or a restart interrupted. Reads and writes one stream each – the network sees one long transfer.
+ * Runs a step and measures how fast the file it writes grows: what the step moves per second, also for the tools that
+ * tell nothing about it. Reading goes at about the same rate, as every step passes the video on as it is.
+ */
+export async function metered<T>(file: string, ctx: Pick<ConversionContext, 'onRate'>, step: () => Promise<T>, intervalMs = RATE_INTERVAL_MS): Promise<T> {
+  const onRate = ctx.onRate;
+  if (!onRate) return step();
+  // The last few sizes: averaged over them, a copy that writes in big chunks shows a steady rate.
+  const samples: Array<{ t: number; size: number }> = [];
+  let stopped = false;
+  const timer = setInterval(() => {
+    stat(file).then(
+      (info) => {
+        if (stopped) return;
+        if (samples.length && info.size < samples.at(-1)!.size) samples.length = 0;
+        samples.push({ t: Date.now(), size: info.size });
+        if (samples.length > RATE_SAMPLES) samples.shift();
+        const [first, last] = [samples[0]!, samples.at(-1)!];
+        if (last.t > first.t) onRate(((last.size - first.size) * 1000) / (last.t - first.t));
+      },
+      () => {},
+    );
+  }, intervalMs);
+  try {
+    return await step();
+  } finally {
+    stopped = true;
+    clearInterval(timer);
+    onRate(null);
+  }
+}
+
+/** Longest wait in one go while pacing a copy, so a changed limit, a pause or a cancel take effect soon. */
+const PACE_SLICE_MS = 500;
+
+/**
+ * Waits until a chunk of `bytes` that took from `since` until now fits the copy limit of the moment. Pacing chunk by
+ * chunk, a pause or a faster stretch builds up no allowance that would come out as a burst later.
+ */
+async function pace(bytes: number, since: number, ctx: ConversionContext): Promise<void> {
+  for (;;) {
+    const limit = ctx.copyLimit?.() ?? null;
+    const wait = limit === null ? 0 : since + (bytes / limit) * 1000 - Date.now();
+    if (wait <= 0 || ctx.signal.aborted) return;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(wait, PACE_SLICE_MS)));
+  }
+}
+
+/**
+ * Copies a file in chunks, into "<to>.part" first: shows progress, waits while the job is paused, keeps to the copy
+ * limit, and continues a copy that a pause or a restart interrupted. Reads and writes one stream each – the network
+ * sees one long transfer.
  */
 async function copyResumable(from: string, to: string, step: 'fetch' | 'store', ctx: ConversionContext): Promise<void> {
   const total = (await stat(from)).size;
@@ -255,12 +312,15 @@ async function copyResumable(from: string, to: string, step: 'fetch' | 'store', 
   const reader = createReadStream(from, { start: copied, highWaterMark: COPY_CHUNK_BYTES });
   const writer = createWriteStream(partial, { flags: copied ? 'a' : 'w' });
   try {
+    let since = Date.now();
     for await (const chunk of reader as AsyncIterable<Buffer>) {
       await ctx.control?.proceed();
       if (ctx.signal.aborted) throw new AgentError(499, 'Abgebrochen.');
       if (!writer.write(chunk)) await once(writer, 'drain');
       copied += chunk.length;
       ctx.onProgress(step, total ? copied / total : 1);
+      await pace(chunk.length, since, ctx);
+      since = Date.now();
     }
     writer.end();
     await finished(writer);
@@ -279,7 +339,10 @@ async function copyResumable(from: string, to: string, step: 'fetch' | 'store', 
 export async function runConversion(ctx: ConversionContext): Promise<ConversionResult> {
   const { request, plan, tools, signal } = ctx;
   const api = pathApiFor(request.source);
-  if (!tools.ffmpeg.path || !tools.doviTool.path || !tools.mkvmerge.path) {
+  const ffmpeg = tools.ffmpeg.path;
+  const doviTool = tools.doviTool.path;
+  const mkvmerge = tools.mkvmerge.path;
+  if (!ffmpeg || !doviTool || !mkvmerge) {
     throw new AgentError(503, 'Es fehlen Werkzeuge (ffmpeg, dovi_tool oder mkvmerge) – siehe Agent-Status in Manelly.');
   }
 
@@ -320,7 +383,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
     }
 
     if (work && !reached('fetch')) {
-      await copyResumable(request.source, input, 'fetch', ctx);
+      await metered(`${input}.part`, ctx, () => copyResumable(request.source, input, 'fetch', ctx));
       await writeCheckpoint(checkpointFile, { done: 'fetch', info: null });
     }
 
@@ -332,17 +395,19 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
 
       const duration = info.durationMs;
       ctx.onProgress('extract', duration ? 0 : null);
-      await runTool({
-        tool: tools.ffmpeg.path,
-        label: 'ffmpeg',
-        args: ['-hide_banner', '-nostdin', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', input, '-map', '0:v:0', '-c:v', 'copy', '-bsf:v', 'hevc_mp4toannexb', '-f', 'hevc', video],
-        signal,
-        control: ctx.control,
-        onLine: (line) => {
-          const match = line.match(/^out_time_us=(\d+)/);
-          if (match && duration) ctx.onProgress('extract', Number(match[1]) / 1000 / duration);
-        },
-      });
+      await metered(video, ctx, () =>
+        runTool({
+          tool: ffmpeg,
+          label: 'ffmpeg',
+          args: ['-hide_banner', '-nostdin', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', input, '-map', '0:v:0', '-c:v', 'copy', '-bsf:v', 'hevc_mp4toannexb', '-f', 'hevc', video],
+          signal,
+          control: ctx.control,
+          onLine: (line) => {
+            const match = line.match(/^out_time_us=(\d+)/);
+            if (match && duration) ctx.onProgress('extract', Number(match[1]) / 1000 / duration);
+          },
+        }),
+      );
       await writeCheckpoint(checkpointFile, { done: 'extract', info });
     }
 
@@ -357,7 +422,9 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
         );
       }, 1000);
       try {
-        await runTool({ tool: tools.doviTool.path, label: 'dovi_tool', args: ['-m', '2', 'convert', '--discard', video, '-o', converted], signal, control: ctx.control });
+        await metered(converted, ctx, () =>
+          runTool({ tool: doviTool, label: 'dovi_tool', args: ['-m', '2', 'convert', '--discard', video, '-o', converted], signal, control: ctx.control }),
+        );
       } finally {
         clearInterval(watch);
       }
@@ -368,27 +435,29 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
     if (!reached('mux')) {
       ctx.onProgress('mux', 0);
       await rm(muxed, { force: true });
-      await runTool({
-        tool: tools.mkvmerge.path,
-        label: 'mkvmerge',
-        args: [
-          '--gui-mode',
-          '-o',
-          muxed,
-          ...(info.frameRate ? ['--default-duration', `0:${info.frameRate}p`] : []),
-          converted,
-          // Everything but the video from the original: audio, subtitles, chapters, attachments.
-          '--no-video',
-          input,
-        ],
-        signal,
-        control: ctx.control,
-        okCodes: [0, 1],
-        onLine: (line) => {
-          const match = line.match(/^#GUI#progress (\d+)%/);
-          if (match) ctx.onProgress('mux', Number(match[1]) / 100);
-        },
-      });
+      await metered(muxed, ctx, () =>
+        runTool({
+          tool: mkvmerge,
+          label: 'mkvmerge',
+          args: [
+            '--gui-mode',
+            '-o',
+            muxed,
+            ...(info.frameRate ? ['--default-duration', `0:${info.frameRate}p`] : []),
+            converted,
+            // Everything but the video from the original: audio, subtitles, chapters, attachments.
+            '--no-video',
+            input,
+          ],
+          signal,
+          control: ctx.control,
+          okCodes: [0, 1],
+          onLine: (line) => {
+            const match = line.match(/^#GUI#progress (\d+)%/);
+            if (match) ctx.onProgress('mux', Number(match[1]) / 100);
+          },
+        }),
+      );
       await writeCheckpoint(checkpointFile, { done: 'mux', info });
       await unlink(converted);
       // The copy of the original is not needed any more – unless it is kept as the backup.
@@ -400,7 +469,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
       await mkdir(landing, { recursive: true });
       await writeFile(api.join(landing, '.ignore'), '');
       result = api.join(landing, 'output.mkv');
-      await copyResumable(muxed, result, 'store', ctx);
+      await metered(`${result}.part`, ctx, () => copyResumable(muxed, result, 'store', ctx));
     }
 
     ctx.onProgress('finalize', 0);

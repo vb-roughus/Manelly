@@ -1,6 +1,7 @@
 import type { ConversionJob, ConversionStep } from '@manelly/shared';
 import { Ban, CalendarClock, CircleCheck, CircleX, Clock, LoaderCircle, Pause } from 'lucide-react';
 import clsx from 'clsx';
+import { formatSpeed, joinParts } from '../lib/format';
 
 export const STEP_LABELS: Record<ConversionStep, string> = {
   fetch: 'Original in den Arbeitsordner kopieren',
@@ -41,9 +42,10 @@ export function StateBadge({ job }: { job: ConversionJob }) {
   );
 }
 
-/** Current step and overall progress of a running conversion. */
+/** Current step, how fast it moves the film, and overall progress of a running conversion. */
 export function ConversionProgress({ job }: { job: ConversionJob }) {
   const percent = job.progress !== null ? Math.round(job.progress * 100) : null;
+  const rate = !job.paused && job.bytesPerSecond != null ? formatSpeed(job.bytesPerSecond) : null;
   return (
     <div>
       <div className="flex justify-between gap-2 text-xs text-ink-2">
@@ -51,7 +53,11 @@ export function ConversionProgress({ job }: { job: ConversionJob }) {
           {job.step ? STEP_LABELS[job.step] : 'Startet …'}
           {job.paused && ' · pausiert'}
         </span>
-        {percent !== null && <span className="tabular-nums">{percent} %</span>}
+        {(rate || percent !== null) && (
+          <span className="shrink-0 tabular-nums" title={rate ? 'So schnell schreibt der laufende Schritt gerade' : undefined}>
+            {joinParts([rate, percent !== null && `${percent} %`])}
+          </span>
+        )}
       </div>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-card-2" role="progressbar" aria-label="Fortschritt" aria-valuenow={percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
         <div

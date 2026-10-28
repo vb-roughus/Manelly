@@ -11,6 +11,7 @@ import { AGENT_VERSION, createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
 import { createOriginals } from './originals.js';
 import { conversionProcesses } from './convert.js';
+import { createCopyLimiter } from './copyLimit.js';
 import { createNetworkMonitor, defaultSource } from './network.js';
 import { createResourceMonitor, defaultResourceSource } from './resources.js';
 import { createGate, createSettingsStore } from './schedule.js';
@@ -68,6 +69,8 @@ const queue = await createJobQueue({
   notify: createNotifier(() => settings.get().jellyfin, { log }),
   access,
   workFolder: () => settings.get().work,
+  // Copying to and from the work folder leaves the storage enough for streams, as set in Manelly.
+  copyLimit: createCopyLimiter({ settings }).current,
   originals,
   log,
 });

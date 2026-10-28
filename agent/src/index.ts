@@ -9,6 +9,7 @@ import { createRecorder } from './history.js';
 import { createJDownloader } from './jdownloader.js';
 import { AGENT_VERSION, createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
+import { createOriginals } from './originals.js';
 import { conversionProcesses } from './convert.js';
 import { createNetworkMonitor, defaultSource } from './network.js';
 import { createResourceMonitor, defaultResourceSource } from './resources.js';
@@ -57,6 +58,8 @@ const autostart = process.argv.includes('--autostart');
 const drives = createDrives({ log, credentials: { get: () => settings.get().networkCredentials, set: settings.setNetworkCredentials } });
 const access = { prepare: drives.prepare, networkHint: process.platform === 'win32' ? CREDENTIALS_HINT : null };
 void drives.connectAll();
+// The originals that conversions in the work folder replaced and kept there.
+const originals = await createOriginals(dataDir);
 const queue = await createJobQueue({
   dataDir,
   roots: config.roots,
@@ -65,6 +68,7 @@ const queue = await createJobQueue({
   notify: createNotifier(() => settings.get().jellyfin, { log }),
   access,
   workFolder: () => settings.get().work,
+  originals,
   log,
 });
 // Measures only the interfaces picked in Manelly, and only while somebody looks.
@@ -120,6 +124,7 @@ const server = createAgentServer({
   updater,
   access,
   drives,
+  originals,
   onExit: (how) =>
     how === 'stop'
       ? shutdown('Beenden angefordert (Manelly oder Installationsskript)')

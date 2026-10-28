@@ -206,14 +206,16 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
           mode === 'alongside'
             ? 'Neue Datei im selben Ordner. Jellyfin zeigt beide als Versionen desselben Films.'
             : mode === 'replace'
-              ? 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original wird verschoben, nicht gelöscht – Jellyfin ignoriert den Backup-Ordner.'
+              ? staged
+                ? 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original bleibt im Arbeitsordner statt auf dem Speicher, bis du es unter Umwandlungen löschst.'
+                : 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original wird verschoben, nicht gelöscht – Jellyfin ignoriert den Backup-Ordner.'
               : 'In einen Ordner einer Jellyfin-Bibliothek, z. B. eine eigene UHD-Bibliothek.'
         }
       >
         {mode === 'alongside' && <TextInput label="Dateiname" value={alongsideName} onChange={setAlongsideName} />}
         {mode === 'replace' && (
           <p className="text-xs text-ink-2">
-            Backup: <span className="font-mono break-all">{options.replace.backup}</span>
+            Backup: <span className="font-mono break-all">{staged ? work.backup : options.replace.backup}</span>
           </p>
         )}
         {mode === 'folder' && (

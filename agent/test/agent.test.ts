@@ -3,12 +3,25 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob, ConversionStep, HistoryResponse, JDownloaderStatus, WorkFolderStatus } from '@manelly/shared';
+import type {
+  AgentNetworkList,
+  AgentNetworkStatus,
+  AgentResourceStatus,
+  AgentScheduleStatus,
+  AgentStatus,
+  ArchivedOriginals,
+  ConversionJob,
+  ConversionStep,
+  HistoryResponse,
+  JDownloaderStatus,
+  WorkFolderStatus,
+} from '@manelly/shared';
 import { runConversion } from '../src/convert.js';
 import { createRecorder, type Recorder } from '../src/history.js';
 import { createNotifier } from '../src/jellyfin.js';
 import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
+import { createOriginals } from '../src/originals.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
 import { createResourceMonitor, type ResourceMonitor } from '../src/resources.js';
 import { planOutput } from '../src/paths.js';
@@ -130,6 +143,7 @@ async function start() {
   tools = await createFakeTools(path.join(root, 'bin'));
   const dataDir = path.join(root, 'data');
   const settings = await createSettingsStore(dataDir);
+  const originals = await createOriginals(dataDir);
   queue = await createJobQueue({
     dataDir,
     roots: [],
@@ -139,6 +153,7 @@ async function start() {
     tickMs: 0,
     notify: createNotifier(() => settings.get().jellyfin, { fetch: fakeJellyfin }),
     workFolder: () => settings.get().work,
+    originals,
   });
   network = createNetworkMonitor({ source: fakeNetwork, selection: () => settings.get().network, now: () => 2000 });
   resources = createResourceMonitor({ source: { start: () => () => {} }, ownProcesses: () => new Set() });
@@ -161,6 +176,7 @@ async function start() {
       return withUpdater ? fakeUpdater : undefined;
     },
     drives: fakeDrives,
+    originals,
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -480,17 +496,64 @@ describe('work folder', () => {
     expect((await post('/api/jobs', { source, output: { mode: 'alongside' }, work: true })).status).toBe(400);
     await put('/api/work', { directory: work });
 
-    const created = (await (await post('/api/jobs', { source, output: { mode: 'replace' }, work: true })).json()) as ConversionJob;
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, work: true })).json()) as ConversionJob;
     expect(created.work).toBe(work);
     const job = await waitFor(created.id, finished);
-    expect(job).toMatchObject({ state: 'done', output: source, backup: path.join(media, '.manelly-backup', 'Film (2000).mkv'), progress: 1 });
-    expect(await readFile(source, 'utf8')).toBe('original');
+    expect(job).toMatchObject({ state: 'done', output: path.join(media, 'Film (2000) - DV P8.mkv'), backup: null, progress: 1 });
     // Muxed from the copy in the work folder, not from the storage.
     const args = JSON.parse(await readFile(process.env.FAKE_LOG!, 'utf8')) as string[];
     expect(args.slice(-2)).toEqual(['--no-video', path.join(work, `.manelly-tmp-${job.id}`, 'source.mkv')]);
-    // Nothing left behind, neither in the work folder nor at the target.
+    // Next to the original, the original stays on the storage; nothing is left in the work folder.
     expect(await readdir(work)).toEqual([]);
-    expect((await readdir(media)).sort()).toEqual(['.manelly-backup', 'Film (2000).mkv']);
+    expect((await readdir(media)).sort()).toEqual(['Film (2000) - DV P8.mkv', 'Film (2000).mkv']);
+    expect(((await (await call('/api/originals')).json()) as ArchivedOriginals).originals).toEqual([]);
+  });
+
+  it('keeps a replaced original in the work folder instead of on the storage, until it is deleted', async () => {
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    await put('/api/work', { directory: work });
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'replace' }, work: true, title: 'Film (2000)' })).json()) as ConversionJob;
+    const archived = path.join(work, 'Originale', 'Film (2000).mkv');
+    expect(created.backup).toBe(archived);
+    const job = await waitFor(created.id, finished);
+    expect(job).toMatchObject({ state: 'done', output: source, backup: archived });
+    // The storage holds only the result; the original is in the work folder.
+    expect(await readdir(media)).toEqual(['Film (2000).mkv']);
+    expect(await readdir(work)).toEqual(['Originale']);
+    expect(await readFile(archived, 'utf8')).toBe('original');
+
+    const listed = (await (await call('/api/originals')).json()) as ArchivedOriginals;
+    expect(listed).toEqual({ freeBytes: free, originals: [{ id: expect.any(String), title: 'Film (2000)', source, path: archived, bytes: 8, archivedAt: expect.any(String) }] });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).originals).toBe(true);
+
+    expect((await call('/api/originals/unknown', { method: 'DELETE' })).status).toBe(404);
+    const deleted = await call(`/api/originals/${listed.originals[0]!.id}`, { method: 'DELETE' });
+    expect(deleted.status).toBe(200);
+    expect(((await deleted.json()) as ArchivedOriginals).originals).toEqual([]);
+    expect(await readdir(path.join(work, 'Originale'))).toEqual([]);
+  });
+
+  it('forgets an original deleted by hand, and leaves an original alone that changed meanwhile', async () => {
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    await put('/api/work', { directory: work });
+    const first = (await (await post('/api/jobs', { source, output: { mode: 'replace' }, work: true })).json()) as ConversionJob;
+    await waitFor(first.id, finished);
+    await rm(path.join(work, 'Originale', 'Film (2000).mkv'));
+    expect(((await (await call('/api/originals')).json()) as ArchivedOriginals).originals).toEqual([]);
+
+    // Someone replaces the file on the storage while it is converted: it is not touched.
+    process.env.FAKE_DOVI_SLEEP = '300';
+    await writeFile(source, 'original');
+    const second = (await (await post('/api/jobs', { source, output: { mode: 'replace' }, work: true })).json()) as ConversionJob;
+    await waitFor(second.id, (job) => job.step === 'convert');
+    await writeFile(source, 'a newer file');
+    const failed = await waitFor(second.id, finished);
+    expect(failed.error).toBe(`${source} hat sich während der Umwandlung verändert – das Original bleibt, wie es ist.`);
+    expect(await readFile(source, 'utf8')).toBe('a newer file');
+    expect(await readdir(path.join(work, 'Originale'))).toEqual([]);
+    expect((await readdir(work)).sort()).toEqual(['Originale']);
   });
 
   it('continues a copy that was interrupted, and goes through every step', async () => {

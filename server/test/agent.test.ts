@@ -36,8 +36,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
     shutdowns: number;
     restarts: unknown[];
     drives: Array<{ method: string; path: string; body: unknown }>;
+    originals: string[];
   } = {
     drives: [],
+    originals: [],
     shutdowns: 0,
     restarts: [],
     jdownloader: [],
@@ -50,7 +52,9 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
   };
   const jobs: ConversionJob[] = [];
   // Agents from 0.2.0 on report their schedule and what Jellyfin they know.
-  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus, network: [] as string[], work: null as string | null };
+  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus, network: [] as string[], work: null as string | null, originals: [
+    { id: 'o1', title: 'Pitch Black (2000)', source: 'D:\\Filme\\Pitch Black (2000)\\Pitch Black (2000).mkv', path: 'F:\\Manelly\\Originale\\Pitch Black (2000).mkv', bytes: 40e9, archivedAt: '2026-08-01T10:00:00Z' },
+  ] };
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -144,6 +148,11 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
           work: { directory: agent.work, freeBytes: agent.work ? 900_000_000_000 : null, error: null },
         });
       }
+      if (url.pathname.startsWith('/api/originals')) {
+        sent.originals.push(`${init?.method ?? 'GET'} ${url.pathname}`);
+        if (init?.method === 'DELETE') agent.originals = agent.originals.filter((original) => !url.pathname.endsWith(original.id));
+        return Response.json({ originals: agent.originals, freeBytes: 600_000_000_000 });
+      }
       if (url.pathname === '/api/work' && init?.method === 'PUT') {
         agent.work = body.directory;
         return Response.json({ directory: agent.work, freeBytes: agent.work ? 900_000_000_000 : null, error: null });
@@ -230,7 +239,14 @@ describe('agent connection', () => {
     expect((await app.inject({ method: 'PUT', url: '/api/agent/work', payload: { directory: 'F:\\Manelly' } })).json()).toEqual({ directory: 'F:\\Manelly', freeBytes: 900_000_000_000, error: null });
     const options = (await app.inject('/api/agent/conversions/options?itemId=movie')).json<ConversionOptions>();
     // The copy of the original and both video streams in the work folder; only the result at the target.
-    expect(options.work).toEqual({ directory: 'F:\\Manelly', freeBytes: 900_000_000_000, error: null, requiredBytes: 124_000_000_000, targetBytes: 42_000_000_000 });
+    expect(options.work).toEqual({
+      directory: 'F:\\Manelly',
+      freeBytes: 900_000_000_000,
+      error: null,
+      requiredBytes: 124_000_000_000,
+      targetBytes: 42_000_000_000,
+      backup: 'F:\\Manelly\\Originale\\Pitch Black (2000).mkv',
+    });
     await app.inject({ method: 'POST', url: '/api/agent/jobs', payload: { itemId: 'movie', output: { mode: 'replace' }, work: true } });
     expect(world.sent.jobs[0]).toMatchObject({ output: { mode: 'replace' }, work: true });
     expect((await app.inject({ method: 'PUT', url: '/api/agent/work', payload: { directory: null } })).json().directory).toBeNull();
@@ -427,6 +443,15 @@ describe('agent connection', () => {
     expect((await app.inject({ method: 'PUT', url: '/api/agent/drives/credentials', payload: { ...login, server: 'nas' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'PUT', url: '/api/agent/drives/credentials', payload: { server: '\\\\nas', username: 'rolf' } })).statusCode).toBe(400);
     expect(world.sent.drives).toHaveLength(2);
+  });
+
+  it('lists the originals kept in the work folder and deletes one', async () => {
+    const { app, world } = await setup();
+    expect((await app.inject('/api/agent/originals')).json().originals).toHaveLength(1);
+    expect((await app.inject({ method: 'DELETE', url: '/api/agent/originals/..%2F..%2Fx' })).statusCode).toBe(400);
+    const deleted = await app.inject({ method: 'DELETE', url: '/api/agent/originals/o1' });
+    expect(deleted.json()).toEqual({ originals: [], freeBytes: 600_000_000_000 });
+    expect(world.sent.originals).toEqual(['GET /api/originals', 'GET /api/originals', 'DELETE /api/originals/o1']);
   });
 
   it('ends the agent on request, but not an agent too old to end itself', async () => {

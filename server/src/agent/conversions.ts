@@ -91,7 +91,13 @@ export async function conversionOptions(client: JellyfinClient, agent: AgentClie
     subfolder: inLibraryRoot ? stem : api.basename(directory),
     // Agents before 0.17.0 have none.
     work: check.work?.directory
-      ? { ...check.work, directory: check.work.directory, requiredBytes: space(WORK_SPACE_FACTOR), targetBytes: space(TARGET_SPACE_FACTOR) }
+      ? {
+          ...check.work,
+          directory: check.work.directory,
+          requiredBytes: space(WORK_SPACE_FACTOR),
+          targetBytes: space(TARGET_SPACE_FACTOR),
+          backup: pathApiFor(check.work.directory).join(check.work.directory, 'Originale', api.basename(source.Path)),
+        }
       : null,
   };
 }

@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge, STEP_LABELS } from '../components/ConversionStatus';
 import { ResourceUsage } from '../components/ResourceUsage';
 import { SchedulePanel } from '../components/SchedulePanel';
+import { OriginalsPanel } from '../components/OriginalsPanel';
 import { WorkFolderPanel } from '../components/WorkFolderPanel';
 import { useAgent, useAgentResources, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
 import { formatAgo } from '../lib/format';
@@ -58,6 +59,8 @@ export function ConversionsPage() {
               <SchedulePanel schedule={agent.data.status.schedule} />
               {/* Missing on agents before 0.17.0. */}
               {agent.data.status.work && <WorkFolderPanel work={agent.data.status.work} />}
+              {/* Missing on agents before 0.18.0. */}
+              {agent.data.status.originals && <OriginalsPanel />}
             </>
           ) : (
             <Panel>
@@ -192,7 +195,11 @@ function JobCard({ job }: { job: ConversionJob }) {
         </details>
       )}
       {job.state === 'done' && job.backup && (
-        <p className="mt-3 text-xs text-ink-3">Passt das Ergebnis, kannst du das Backup löschen – Manelly macht das nicht von sich aus.</p>
+        <p className="mt-3 text-xs text-ink-3">
+          {job.work && job.mode === 'replace'
+            ? 'Das Original liegt im Arbeitsordner. Passt das Ergebnis, kannst du es unter «Originale im Arbeitsordner» löschen.'
+            : 'Passt das Ergebnis, kannst du das Backup löschen – Manelly macht das nicht von sich aus.'}
+        </p>
       )}
     </article>
   );

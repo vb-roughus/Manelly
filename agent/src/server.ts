@@ -10,6 +10,7 @@ import type {
   AgentRestartRequest,
   AgentScheduleStatus,
   AgentStatus,
+  ArchivedOriginals,
   ConversionRequest,
   DriveCredentialRequest,
   HardwareTestRequest,
@@ -29,6 +30,7 @@ import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
+import type { Originals } from './originals.js';
 import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
 import { parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
@@ -61,6 +63,8 @@ export interface AgentServerOptions {
   updater?: Updater;
   /** Connects the network drive a path from Manelly needs (Windows, started without logon). */
   access?: PathAccess;
+  /** The originals that conversions in the work folder replaced and kept there. */
+  originals?: Pick<Originals, 'list' | 'remove'>;
   /** The user's network drives, whether the agent reaches them, and the logins Manelly hands over for them. */
   drives?: Pick<Drives, 'list' | 'setCredential' | 'removeCredential'>;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
@@ -189,6 +193,7 @@ export function createAgentServer(options: AgentServerOptions) {
         process: await options.process(),
         drives: (await options.drives?.list()) ?? [],
         work: await workStatus(),
+        originals: Boolean(options.originals),
       };
       return send(response, 200, status);
     }
@@ -310,6 +315,18 @@ export function createAgentServer(options: AgentServerOptions) {
       await jdownloaderCall(() => jdownloader.addContainer(type, file));
       const answer: LinkGrabberContainerAnswer = { added: name };
       return send(response, 202, answer);
+    }
+    if (route === 'GET /api/originals') {
+      const work = await workStatus();
+      const answer: ArchivedOriginals = { originals: (await options.originals?.list()) ?? [], freeBytes: work.freeBytes };
+      return send(response, 200, answer);
+    }
+    const original = url.pathname.match(/^\/api\/originals\/([\w-]+)$/);
+    if (original && request.method === 'DELETE') {
+      if (!options.originals) throw new AgentError(404, 'Dieses Original gibt es nicht (mehr).');
+      await options.originals.remove(original[1]!);
+      const answer: ArchivedOriginals = { originals: await options.originals.list(), freeBytes: (await workStatus()).freeBytes };
+      return send(response, 200, answer);
     }
     if (route === 'PUT /api/work') {
       const { directory } = await readJson<Partial<WorkFolderRequest>>(request);

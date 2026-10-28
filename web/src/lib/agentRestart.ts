@@ -32,6 +32,6 @@ export function agentRestartSummary(finished: FinishedRestart<AgentStatus>): { o
 }
 
 /** The queries that ask the agent; they hold still while it restarts, so its absence shows no errors. */
-const AGENT_QUERIES = new Set(['agent', 'conversions', 'conversion-options', 'network', 'network-interfaces', 'resources', 'jdownloader', 'linkgrabber', 'history']);
+const AGENT_QUERIES = new Set(['agent', 'conversions', 'conversion-options', 'network', 'network-interfaces', 'resources', 'jdownloader', 'linkgrabber', 'history', 'originals']);
 
 export const isAgentQuery = (queryKey: readonly unknown[]): boolean => typeof queryKey[0] === 'string' && AGENT_QUERIES.has(queryKey[0]);

@@ -8,6 +8,7 @@ import type {
   AgentRestartAnswer,
   AgentScheduleStatus,
   AgentStatus,
+  ArchivedOriginals,
   ConversionJob,
   ConversionRequest,
   ConversionSchedule,
@@ -76,6 +77,10 @@ export interface AgentClient {
   history(from: number, to: number): Promise<HistoryResponse>;
   setHistorySettings(settings: HistorySettings): Promise<HistorySettings>;
   clearHistory(): Promise<void>;
+  /** From agent 0.18.0: the originals that conversions in the work folder replaced and kept there. */
+  originals(): Promise<ArchivedOriginals>;
+  /** Deletes one of them for good; answers with the rest. */
+  removeOriginal(id: string): Promise<ArchivedOriginals>;
   /** From agent 0.17.0: where conversions copy the original to and convert; null switches it off. */
   setWorkFolder(directory: string | null): Promise<WorkFolderStatus>;
   /** From agent 0.16.0: the login for the shares of a server; the agent keeps it, Manelly does not. */
@@ -156,6 +161,9 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),
     clearHistory: () => call('DELETE', '/api/history', undefined, 20_000),
     setWorkFolder: (directory) => call('PUT', '/api/work', { directory }),
+    // Checks every file it lists; a slow disk may take a moment.
+    originals: () => call('GET', '/api/originals', undefined, 20_000),
+    removeOriginal: (id) => call('DELETE', `/api/originals/${encodeURIComponent(id)}`, undefined, 60_000),
     // Connecting the drives with the new login may take a while when the NAS is slow to answer.
     setDriveCredential: (request) => call('PUT', '/api/drives/credentials', request, 60_000),
     removeDriveCredential: (server) => call('DELETE', `/api/drives/credentials?${new URLSearchParams({ server })}`),

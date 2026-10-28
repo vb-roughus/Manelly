@@ -9,6 +9,7 @@ import type {
   AgentScheduleStatus,
   AgentSettingsView,
   AgentStatus,
+  ArchivedOriginals,
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
@@ -504,6 +505,28 @@ export function useSaveSchedule() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['agent'] });
       void queryClient.invalidateQueries({ queryKey: ['conversions'] });
+    },
+  });
+}
+
+/** The originals that conversions in the work folder replaced and kept there (agent from 0.18.0). */
+export function useOriginals(enabled: boolean) {
+  return useQuery({
+    queryKey: ['originals'],
+    queryFn: ({ signal }) => fetchJson<ArchivedOriginals>('/api/agent/originals', signal),
+    refetchInterval: 60_000,
+    enabled: useAgentLive(enabled),
+  });
+}
+
+/** Deletes an original for good; the answer is the rest. */
+export function useRemoveOriginal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sendJson<ArchivedOriginals>('DELETE', `/api/agent/originals/${encodeURIComponent(id)}`),
+    onSuccess: (originals) => {
+      queryClient.setQueryData(['originals'], originals);
+      void queryClient.invalidateQueries({ queryKey: ['agent'] });
     },
   });
 }

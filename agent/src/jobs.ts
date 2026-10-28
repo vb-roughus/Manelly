@@ -332,6 +332,8 @@ export async function createJobQueue(options: JobQueueOptions) {
       if (busy) throw new AgentError(409, 'Für diese Datei läuft schon eine Umwandlung.');
 
       const api = pathApiFor(request.source);
+      // Shown with the job, to get a feel for how long a conversion of this size takes.
+      const sourceBytes = await stat(request.source).then((info) => info.size, () => null);
       const job: ConversionJob = {
         id: randomUUID(),
         title: request.title || api.basename(request.source),
@@ -352,6 +354,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         interruptions: 0,
         paused: false,
         work: plan.work ?? null,
+        sourceBytes,
       };
       entries.unshift({ job, request, plan });
       await save();

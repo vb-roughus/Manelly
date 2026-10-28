@@ -9,7 +9,7 @@ import { SchedulePanel } from '../components/SchedulePanel';
 import { OriginalsPanel } from '../components/OriginalsPanel';
 import { WorkFolderPanel } from '../components/WorkFolderPanel';
 import { useAgent, useAgentNetwork, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
-import { formatAgo } from '../lib/format';
+import { formatAgo, formatBytes, formatEta, joinParts } from '../lib/format';
 import { roleLabel } from '../lib/networkRoles';
 
 export function ConversionsPage() {
@@ -106,7 +106,14 @@ function JobCard({ job }: { job: ConversionJob }) {
         <div className="min-w-0">
           <h2 className="font-semibold">{job.title}</h2>
           <p className="text-xs text-ink-3">
-            {MODE_LABELS[job.mode]} · {job.scheduled ? 'eingeplant' : 'gestartet'} {formatAgo(Date.parse(job.createdAt), Date.now())}
+            {joinParts([
+              MODE_LABELS[job.mode],
+              `${job.scheduled ? 'eingeplant' : 'gestartet'} ${formatAgo(Date.parse(job.createdAt), Date.now())}`,
+              job.sourceBytes ? formatBytes(job.sourceBytes) : null,
+              job.state === 'done' && job.startedAt && job.finishedAt
+                ? `Dauer ${formatEta((Date.parse(job.finishedAt) - Date.parse(job.startedAt)) / 1000)}`
+                : null,
+            ])}
           </p>
         </div>
         <div className="flex items-center gap-2">

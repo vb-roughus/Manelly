@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { useAgentSettings, useConversions } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { usePersistentFlag } from '../hooks/usePersistentFlag';
-import { formatAgo } from '../lib/format';
+import { formatAgo, formatBytes, joinParts } from '../lib/format';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge } from './ConversionStatus';
 
 // Finished conversions stay on the dashboard for a while, so their outcome is not missed.
@@ -84,7 +84,11 @@ function ConversionTile({ job, now }: { job: ConversionJob; now: number }) {
         {job.state === 'failed' && <p className="line-clamp-2 text-critical">{job.error ?? 'Fehlgeschlagen.'}</p>}
         {job.warning && <p className="mt-1 line-clamp-2 text-xs text-warning">{job.warning}</p>}
       </div>
-      {job.finishedAt && <p className="mt-2 text-xs text-ink-3">Beendet {formatAgo(Date.parse(job.finishedAt), now)}</p>}
+      {(job.finishedAt || job.sourceBytes) && (
+        <p className="mt-2 text-xs text-ink-3">
+          {joinParts([job.finishedAt && `Beendet ${formatAgo(Date.parse(job.finishedAt), now)}`, job.sourceBytes ? formatBytes(job.sourceBytes) : null])}
+        </p>
+      )}
     </article>
   );
 }

@@ -370,6 +370,8 @@ export interface MediaVersion {
   dvProfile: number | null;
   videoCodec: string | null;
   audio: AudioTrack[];
+  /** File size in bytes; null when Jellyfin does not know it, missing in an index built before. */
+  bytes?: number | null;
 }
 
 export type AudioFilterMode = 'has' | 'lacks';
@@ -686,6 +688,8 @@ export interface ConversionJob {
   paused?: boolean;
   /** The work folder it converts in; null when it converts where the files are. Missing before agent 0.17.0. */
   work?: string | null;
+  /** Size of the original when the job was added; null when unknown. Missing before agent 0.20.0. */
+  sourceBytes?: number | null;
 }
 
 /** "HH:MM" in the time zone of the agent (the Jellyfin server); may span midnight. */

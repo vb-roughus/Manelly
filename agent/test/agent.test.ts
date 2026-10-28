@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -245,6 +245,8 @@ describe('agent', () => {
     const job = await waitFor(((await response.json()) as ConversionJob).id, finished);
 
     expect(job).toMatchObject({ state: 'done', title: 'Film', progress: 1, output: path.join(media, 'Film (2000) - DV P8.mkv'), error: null });
+    // The size of the original, measured when the job was added.
+    expect(job.sourceBytes).toBe((await stat(source)).size);
     expect(await readFile(job.output, 'utf8')).toBe('original');
     expect((await readdir(media)).sort()).toEqual(['Film (2000) - DV P8.mkv', 'Film (2000).mkv']);
     // The frame rate from ffprobe keeps the timing; everything but the video comes from the original.

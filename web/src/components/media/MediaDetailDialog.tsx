@@ -4,7 +4,7 @@ import { Check, ExternalLink, Star, WandSparkles, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useMediaDetail, useServerStatus } from '../../hooks/queries';
 import { itemImageUrl } from '../../lib/api';
-import { channelsLabel, codecLabel, joinParts } from '../../lib/format';
+import { channelsLabel, codecLabel, formatBytes, joinParts } from '../../lib/format';
 import { AUDIO_FORMAT_LABELS, AUDIO_FORMAT_SHORT, DYNAMIC_RANGE_LABELS, audioLanguageName, hasAudioCondition, type MediaFilters } from '../../lib/media';
 import { ErrorPanel } from '../ErrorPanel';
 import { ConvertDialog } from './ConvertDialog';
@@ -151,6 +151,7 @@ function VersionTracks({ version, showName, onConvert }: { version: MediaVersion
     codecLabel(version.videoCodec),
     isDolbyVisionProfile7(version) ? DYNAMIC_RANGE_LABELS.DV7 : version.dynamicRange && DYNAMIC_RANGE_LABELS[version.dynamicRange],
     version.container?.toUpperCase(),
+    version.bytes ? formatBytes(version.bytes) : null,
   ]);
   return (
     <section>

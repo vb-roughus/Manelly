@@ -324,7 +324,7 @@ describe('agent', () => {
 
   it('reports sizes and free space only for the paths it is given', async () => {
     const response = await call('/api/check', { method: 'POST', body: JSON.stringify({ source, directories: [media] }) });
-    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }], work: { directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMBps: 50, storageMBps: 200 } } });
+    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }], work: { directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } } });
   });
 
 });
@@ -492,7 +492,7 @@ describe('pause', () => {
 describe('work folder', () => {
   it('takes only a folder that is there and takes files', async () => {
     const work = path.join(root, 'work');
-    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMBps: 50, storageMBps: 200 } });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } });
     const refused = async (directory: unknown) => {
       const response = await put('/api/work', { directory });
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
@@ -502,7 +502,7 @@ describe('work folder', () => {
     await mkdir(work);
     const saved = await put('/api/work', { directory: ` ${work} ` });
     expect(saved.status).toBe(200);
-    expect(await saved.json()).toEqual<WorkFolderStatus>({ directory: work, freeBytes: free, error: null, copyLimit: { mode: 'off', limitMBps: 50, storageMBps: 200 } });
+    expect(await saved.json()).toEqual<WorkFolderStatus>({ directory: work, freeBytes: free, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } });
     // The write test leaves nothing behind.
     expect(await readdir(work)).toEqual([]);
     expect(((await (await call('/api/status')).json()) as AgentStatus).work?.directory).toBe(work);
@@ -520,18 +520,23 @@ describe('work folder', () => {
       const response = await put('/api/work/copy-limit', body);
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
     };
-    expect(await refused({ mode: 'sometimes', limitMBps: 50, storageMBps: 200 })).toEqual([400, 'Unbekannte Art der Begrenzung.']);
-    expect(await refused({ mode: 'always', limitMBps: 0, storageMBps: 200 })).toEqual([400, 'Die Werte müssen zwischen 1 und 5000 MB/s liegen.']);
-    expect(await refused({ mode: 'streaming', limitMBps: 50 })).toEqual([400, 'Die Werte müssen zwischen 1 und 5000 MB/s liegen.']);
-    const saved = await put('/api/work/copy-limit', { mode: 'always', limitMBps: 1, storageMBps: 200 });
-    expect(((await saved.json()) as WorkFolderStatus).copyLimit).toEqual({ mode: 'always', limitMBps: 1, storageMBps: 200 });
+    const range = 'Die Werte müssen zwischen 1 und 100000 Mbit/s liegen.';
+    expect(await refused({ mode: 'sometimes', limitMbps: 400, storageMbps: 1600 })).toEqual([400, 'Unbekannte Art der Begrenzung.']);
+    expect(await refused({ mode: 'always', limitMbps: 0, storageMbps: 1600 })).toEqual([400, range]);
+    expect(await refused({ mode: 'always', limitMbps: 400, storageMbps: 100_001 })).toEqual([400, range]);
+    expect(await refused({ mode: 'streaming', limitMbps: 400 })).toEqual([400, range]);
+    // From a Manelly before agent 0.23.0, in MB/s.
+    const legacy = await put('/api/work/copy-limit', { mode: 'streaming', limitMBps: 50, storageMBps: 220 });
+    expect(((await legacy.json()) as WorkFolderStatus).copyLimit).toEqual({ mode: 'streaming', limitMbps: 419, storageMbps: 1845 });
+    const saved = await put('/api/work/copy-limit', { mode: 'always', limitMbps: 8, storageMbps: 1850 });
+    expect(((await saved.json()) as WorkFolderStatus).copyLimit).toEqual({ mode: 'always', limitMbps: 8, storageMbps: 1850 });
 
-    // 1.5 MB at 1 MB/s: the copy into the work folder takes about one and a half seconds, and the job says why.
+    // 1.5 MB at 8 Mbit/s (1 000 000 bytes a second): the copy into the work folder takes about one and a half seconds, and the job says why.
     await writeFile(source, Buffer.alloc(1.5 * 1024 * 1024));
     const started = Date.now();
     const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, work: true })).json()) as ConversionJob;
     const copying = await waitFor(created.id, (job) => job.step === 'fetch');
-    expect(copying.copyThrottle).toEqual({ bytesPerSecond: 1024 * 1024, streams: null, streamsBitsPerSecond: null });
+    expect(copying.copyThrottle).toEqual({ bytesPerSecond: 1_000_000, streams: null, streamsBitsPerSecond: null });
     const done = await waitFor(created.id, finished);
     expect(done.state).toBe('done');
     expect(done.copyThrottle).toBeNull();

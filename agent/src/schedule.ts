@@ -87,15 +87,22 @@ export function parseHistorySettings(input: unknown): HistorySettings {
   return { enabled, retentionDays: retentionDays! };
 }
 
-export const DEFAULT_COPY_LIMIT: CopyLimit = { mode: 'off', limitMBps: 50, storageMBps: 200 };
+export const DEFAULT_COPY_LIMIT: CopyLimit = { mode: 'off', limitMbps: 400, storageMbps: 1600 };
 
-const isRate = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 5000;
+/** Up to 100 Gbit/s. */
+const MAX_MBPS = 100_000;
+const isRate = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= MAX_MBPS;
+
+/** MB/s (1024 × 1024 bytes) as stored before 0.23.0 and sent by older Manelly → Mbit/s; not a number stays as it is. */
+const fromMBps = (value: unknown) => (typeof value === 'number' ? Math.min(MAX_MBPS, Math.max(1, Math.round((value * 1024 * 1024 * 8) / 1_000_000))) : value);
 
 export function parseCopyLimit(input: unknown): CopyLimit {
-  const { mode, limitMBps, storageMBps } = (input ?? {}) as Partial<CopyLimit>;
+  const { mode, ...rates } = (input ?? {}) as Partial<CopyLimit> & { limitMBps?: unknown; storageMBps?: unknown };
   if (mode !== 'off' && mode !== 'always' && mode !== 'streaming') throw new AgentError(400, 'Unbekannte Art der Begrenzung.');
-  if (!isRate(limitMBps) || !isRate(storageMBps)) throw new AgentError(400, 'Die Werte müssen zwischen 1 und 5000 MB/s liegen.');
-  return { mode, limitMBps, storageMBps };
+  const limitMbps = rates.limitMbps ?? fromMBps(rates.limitMBps);
+  const storageMbps = rates.storageMbps ?? fromMBps(rates.storageMBps);
+  if (!isRate(limitMbps) || !isRate(storageMbps)) throw new AgentError(400, `Die Werte müssen zwischen 1 und ${MAX_MBPS} Mbit/s liegen.`);
+  return { mode, limitMbps, storageMbps };
 }
 
 const isSelection = (value: unknown): value is NetworkSelection =>

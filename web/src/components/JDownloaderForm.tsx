@@ -5,6 +5,7 @@ import { LoaderCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { useAgent, useJDownloader, useSaveJDownloaderSettings } from '../hooks/queries';
 import { Code, Field, inputClass, Message } from './ConnectionForm';
+import { kibToMbit, mbitField, mbitToKib } from '../lib/format';
 
 /** JDownloader on the Jellyfin server: whether Manelly shows it, where the agent reaches it, and what happens while somebody streams. */
 export function JDownloaderForm() {
@@ -52,9 +53,9 @@ function Fields({ status }: { status: JDownloaderStatus }) {
   const [enabled, setEnabled] = useState(status.settings.enabled);
   const [url, setUrl] = useState(status.settings.url);
   const [mode, setMode] = useState(status.settings.throttle.mode);
-  const [limitMB, setLimitMB] = useState(String(Math.round((status.settings.throttle.limitKBps / 1024) * 10) / 10));
+  const [limitMbit, setLimitMbit] = useState(mbitField(kibToMbit(status.settings.throttle.limitKBps)));
 
-  const limitKBps = Math.round(Number(limitMB.replace(',', '.')) * 1024);
+  const limitKBps = mbitToKib(Number(limitMbit.replace(',', '.')));
   const limitInvalid = mode === 'limit' && !(limitKBps >= 1);
 
   function submit(event: FormEvent) {
@@ -96,12 +97,12 @@ function Fields({ status }: { status: JDownloaderStatus }) {
                         auf
                         <input
                           inputMode="decimal"
-                          value={limitMB}
-                          onChange={(event) => setLimitMB(event.target.value)}
-                          aria-label="Tempo-Limit in MB/s"
+                          value={limitMbit}
+                          onChange={(event) => setLimitMbit(event.target.value)}
+                          aria-label="Tempo-Limit in Mbit/s"
                           className="w-20 rounded-lg border border-line bg-card px-2 py-1 text-sm tabular-nums outline-none focus:border-accent focus:ring-3 focus:ring-accent/20"
                         />
-                        MB/s
+                        Mbit/s
                       </span>
                     )}
                   </span>

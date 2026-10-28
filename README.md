@@ -141,11 +141,12 @@ Arbeitsordner, Kopieren begrenzen).
   etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
   macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** wandelt wie bisher dort um, wo die Datei
   liegt
-- **Kopieren begrenzen** (ab Agent 0.21.0): Unter **Umwandlungen → Einstellungen** beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
+- **Kopieren begrenzen** (ab Agent 0.21.0, in Mbit/s ab Agent 0.23.0): Unter **Umwandlungen → Einstellungen** beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
   darf, damit auf dem Speicher genug für Streams bleibt. **Automatisch während Streams**: einmal eintragen, was der
-  Speicher insgesamt schafft (z. B. 220 MB/s; zu sehen bei einer Umwandlung unter «Auslastung der Storage-Schnittstelle»,
+  Speicher insgesamt schafft (z. B. 1850 Mbit/s; zu sehen bei einer Umwandlung unter «Auslastung der Storage-Schnittstelle»,
   «Zusammen»). Solange jemand streamt, kopiert der Agent höchstens mit diesem Wert − Bitrate der laufenden Streams
-  (geschätzt aus ihren Dateien) − 20 Mbit/s Reserve, mindestens aber mit 1 MB/s; ohne Streams mit voller Geschwindigkeit.
+  (geschätzt aus ihren Dateien) − 20 Mbit/s Reserve, mindestens aber mit 8 Mbit/s; ohne Streams mit voller Geschwindigkeit.
+  Ein Limit, das ein älterer Agent in MB/s gespeichert hat, rechnet der Agent beim Update in Mbit/s um.
   Er fragt Jellyfin dafür alle 15 Sekunden, und nur während er kopiert; weiss er nichts über Streams, rechnet er mit einem
   UHD-Stream. **Immer**: ein festes Limit. Die Umwandlungskarte zeigt, wenn und warum gerade gebremst wird. Die
   Umwandlungsschritte im Arbeitsordner selbst und «Direkt am Speicherort» sind nicht begrenzt
@@ -177,7 +178,7 @@ Arbeitsordner, Kopieren begrenzen).
   Storage-Schnittstelle** und der Ausgabe des Werkzeugs bei Fehlern; danach meldet der Agent die neue Datei an Jellyfin,
   damit sie gleich erscheint. Eine Umwandlung kodiert das Bild nicht neu, sie kopiert vor allem – CPU und GPU haben
   wenig zu tun, das Tempo bestimmt der Weg zum Speicher. Darum zeigt die Karte Lesen, Schreiben und beides zusammen
-  (in MB/s) der Schnittstelle(n) mit der Rolle **Storage** (ab Agent 0.19.0, siehe [Rollen](#agent-auf-dem-jellyfin-server-windows)),
+  (in Mbit/s) der Schnittstelle(n) mit der Rolle **Storage** (ab Agent 0.19.0, siehe [Rollen](#agent-auf-dem-jellyfin-server-windows)),
   die Auslastung gemessen am Link und den Verlauf der letzten 10 Minuten
 - Für Zeitplan und Meldung gibt Manelly dem Agent die Jellyfin-Adresse und den API-Schlüssel (gespeichert in
   `agent\data\settings.json` auf dem Jellyfin-Server)
@@ -201,7 +202,8 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     Fortschritt, Tempo, Restzeit, Status und ob sie entpackt ist; «Fertige ausblenden» zeigt nur die Dateien, die noch
     nicht fertig sind (die Wahl gilt auch für die nächsten Pakete). Die fertigen Pakete klappen ebenfalls auf.
     **Starten, Stoppen, Pausieren, Fortsetzen** und das **Tempo-Limit** von JDownloader
-    überschreiben (gilt sofort, auch während des Bremsens beim Streamen)
+    überschreiben (gilt sofort, auch während des Bremsens beim Streamen). Tempo und Limits zeigt Manelly in Mbit/s, wie
+    alle Datenraten
   - **Link Grabber:** was JDownloader gesammelt hat, nach Paketen, mit dem Status jedes Links (online, offline,
     unbekannt) und ob er noch sammelt. Pakete und – im aufgeklappten Paket – einzelne Links **per Häkchen auswählen**
     (z. B. ein Paket ohne seinen Offline-Teil) und mit «Auswahl in die Downloads» übernehmen; ein Paket mit seinem
@@ -215,7 +217,7 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     Hoster sofort nach den aktuellen Werten fragen
 - Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite
 - **Bremsen, solange jemand streamt** (in den JDownloader-Einstellungen): Beginnt ein Stream, begrenzt der Agent
-  JDownloader auf ein Tempo (z. B. 2 MB/s) oder pausiert ihn. Fünf Minuten nach dem letzten Stream stellt er ihn wieder
+  JDownloader auf ein Tempo (z. B. 16 Mbit/s) oder pausiert ihn. Fünf Minuten nach dem letzten Stream stellt er ihn wieder
   so ein wie vorher – auch nach einem Neustart des Servers. Was du in der Zwischenzeit von Hand änderst, bleibt; ein von
   Hand gesetztes Tempo-Limit ist auch das, was danach wieder gilt
 - Einrichtung: In JDownloader unter **Einstellungen → Erweiterte Einstellungen** nach «Deprecated» suchen und die

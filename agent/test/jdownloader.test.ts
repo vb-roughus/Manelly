@@ -210,7 +210,7 @@ describe('JDownloader', () => {
     jd.streams = 2;
     await jdownloader.check();
     expect(jd).toMatchObject({ limitEnabled: true, limit: 2048 * 1024 });
-    expect((await jdownloader.status()).throttling).toEqual({ active: true, reason: 'Auf 2 MB/s gedrosselt, weil jemand streamt.' });
+    expect((await jdownloader.status()).throttling).toEqual({ active: true, reason: 'Auf 17 Mbit/s gedrosselt, weil jemand streamt.' });
 
     // Set by hand meanwhile: that is what comes back afterwards.
     await jdownloader.setLimit(true, 10 * 1024 * 1024);

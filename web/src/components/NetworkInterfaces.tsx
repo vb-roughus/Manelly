@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import type { AgentNetworkStatus, MonitoredInterface, NetworkRatePoint } from '@manelly/shared';
 import { TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
-import { formatBitrate, formatSpeed } from '../lib/format';
+import { formatBitrate } from '../lib/format';
 import { roleLabel } from '../lib/networkRoles';
 import { HistoryChart, type ChartSeries } from './HistoryChart';
 
@@ -38,30 +38,27 @@ export function NetworkInterfaces({ data, agentConfigured }: { data: AgentNetwor
   );
 }
 
-/** How a tile names and measures the two directions: as network traffic, or – towards the storage – as reading and writing. */
+/** How a tile names the two directions: as network traffic, or – towards the storage – as reading and writing. */
 interface TileView {
   tx: { label: string; hint: string };
   rx: { label: string; hint: string };
-  format: (bps: number) => string;
 }
 
 const NETWORK_VIEW: TileView = {
   tx: { label: 'Senden', hint: 'Vom Server weg – darin stecken die Streams' },
   rx: { label: 'Empfangen', hint: 'Zum Server hin' },
-  format: formatBitrate,
 };
 
 const STORAGE_VIEW: TileView = {
   tx: { label: 'Schreiben', hint: 'Vom Server auf den Speicher (Senden)' },
   rx: { label: 'Lesen', hint: 'Vom Speicher zum Server (Empfangen)' },
-  format: (bps) => formatSpeed(bps / 8),
 };
 
-/** One monitored interface; `storage` shows it as the way to the storage, in bytes per second. */
+/** One monitored interface; `storage` shows it as the way to the storage: reading, writing and both together. */
 export function InterfaceTile({ nic, intervalMs, storage = false, note }: { nic: MonitoredInterface; intervalMs: number; storage?: boolean; note?: ReactNode }) {
   const view = storage ? STORAGE_VIEW : NETWORK_VIEW;
   const measuring = nic.rxBps === null || nic.txBps === null;
-  const rate = (bps: number | null) => (bps === null ? '–' : view.format(bps));
+  const rate = (bps: number | null) => (bps === null ? '–' : formatBitrate(bps));
   return (
     <article className="h-full rounded-xl border border-line p-4">
       <div className="flex items-start justify-between gap-3">
@@ -163,5 +160,5 @@ const rateSeries = (view: TileView): Array<ChartSeries<NetworkRatePoint>> => [
 /** Both directions over the last ten minutes, on one scale. */
 function RateChart({ history, intervalMs, view }: { history: NetworkRatePoint[]; intervalMs: number; view: TileView }) {
   const top = niceMax(Math.max(0, ...history.map((entry) => Math.max(entry.rxBps, entry.txBps))));
-  return <HistoryChart points={history} series={rateSeries(view)} top={top} format={view.format} intervalMs={intervalMs} />;
+  return <HistoryChart points={history} series={rateSeries(view)} top={top} format={formatBitrate} intervalMs={intervalMs} />;
 }

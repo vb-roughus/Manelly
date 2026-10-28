@@ -2,13 +2,14 @@ import type { CopyThrottle } from '@manelly/shared';
 import { createJellyfinApi, type JfSession } from './jellyfin.js';
 import type { SettingsStore } from './schedule.js';
 
-const MB = 1024 * 1024;
 /** Kept free on top of the streams, in bits per second. */
 export const STREAM_RESERVE_BPS = 20_000_000;
 /** A stream whose file tells no bitrate counts like a UHD remux. */
 const UNKNOWN_STREAM_BPS = 80_000_000;
-/** Copying never stops completely; it just gets slow. */
-const MIN_COPY_BYTES = MB;
+/** Copying never stops completely; it just gets slow (8 Mbit/s). */
+const MIN_COPY_BYTES = 1_000_000;
+/** Mbit/s → bytes per second. */
+const MBIT_BYTES = 1_000_000 / 8;
 
 /** What a stream reads from the storage: the bitrate of its whole file, all tracks. */
 export function sourceBitrate(session: JfSession): number {
@@ -48,9 +49,9 @@ export function createCopyLimiter({ settings, fetch: fetchImpl = fetch, now = Da
   return {
     /** null: copy at full speed. */
     current(): CopyThrottle | null {
-      const { mode, limitMBps, storageMBps } = settings.get().copyLimit;
+      const { mode, limitMbps, storageMbps } = settings.get().copyLimit;
       if (mode === 'off') return null;
-      if (mode === 'always') return { bytesPerSecond: limitMBps * MB, streams: null, streamsBitsPerSecond: null };
+      if (mode === 'always') return { bytesPerSecond: limitMbps * MBIT_BYTES, streams: null, streamsBitsPerSecond: null };
       if (!looking && now() - checkedAt >= checkMs) {
         checkedAt = now();
         looking = look().finally(() => {
@@ -58,7 +59,7 @@ export function createCopyLimiter({ settings, fetch: fetchImpl = fetch, now = Da
         });
       }
       if (streams.count === 0) return null;
-      const left = storageMBps * MB - (streams.bitsPerSecond + STREAM_RESERVE_BPS) / 8;
+      const left = storageMbps * MBIT_BYTES - (streams.bitsPerSecond + STREAM_RESERVE_BPS) / 8;
       return { bytesPerSecond: Math.max(MIN_COPY_BYTES, Math.round(left)), streams: streams.count, streamsBitsPerSecond: streams.bitsPerSecond };
     },
 

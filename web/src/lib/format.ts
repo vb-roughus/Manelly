@@ -31,12 +31,11 @@ export function formatBytes(bytes: number): string {
   return `${number(bytes / 1024, 0)} KB`;
 }
 
-/** Download speed in bytes per second → "2.4 MB/s", "850 KB/s". */
-export function formatSpeed(bytesPerSecond: number): string {
-  if (bytesPerSecond >= 1024 ** 3) return `${number(bytesPerSecond / 1024 ** 3, 1)} GB/s`;
-  if (bytesPerSecond >= 1024 ** 2) return `${number(bytesPerSecond / 1024 ** 2, bytesPerSecond >= 100 * 1024 ** 2 ? 0 : 1)} MB/s`;
-  return `${number(bytesPerSecond / 1024, 0)} KB/s`;
-}
+/** JDownloader counts its speed limit in KiB/s; Manelly shows and takes it in Mbit/s. */
+export const kibToMbit = (kib: number) => (kib * 1024 * 8) / 1_000_000;
+export const mbitToKib = (mbit: number) => Math.round((mbit * 1_000_000) / 8 / 1024);
+/** An Mbit/s value for an input field: at most one decimal. */
+export const mbitField = (mbit: number) => String(Math.round(mbit * 10) / 10);
 
 /** Seconds still to go → "45 s", "12 min", "1 h 5 min". */
 export function formatEta(seconds: number): string {

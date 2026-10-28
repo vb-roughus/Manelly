@@ -203,6 +203,31 @@ async function probe(ctx: ConversionContext, input: string): Promise<Probe> {
   }
 }
 
+/** Below this share of the original's length, a muxed file is incomplete. */
+const MIN_DURATION_SHARE = 0.99;
+
+/** How long a file plays, from its header; null when ffprobe cannot tell. */
+async function playingTimeMs(ctx: ConversionContext, ffprobe: string, file: string): Promise<number | null> {
+  let json = '';
+  try {
+    await runTool({
+      tool: ffprobe,
+      label: 'ffprobe',
+      args: ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', file],
+      signal: ctx.signal,
+      control: ctx.control,
+      onLine: (line) => (json += line),
+    });
+    const seconds = Number((JSON.parse(json) as { format?: { duration?: string } }).format?.duration);
+    return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : null;
+  } catch (error) {
+    if (error instanceof AgentError && error.status === 499) throw error;
+    return null;
+  }
+}
+
+const minutes = (ms: number) => `${Math.round(ms / 60_000)} min`;
+
 /** 23.976 → "24000/1001", 25 → "25/1". */
 export function frameRateFromNumber(rate: number | null): string | null {
   if (!rate || rate <= 0) return null;
@@ -328,6 +353,9 @@ async function copyResumable(from: string, to: string, step: 'fetch' | 'store', 
     reader.destroy();
     writer.destroy();
   }
+  // Never pass on a copy that lacks something, whatever happened on the way.
+  const size = (await stat(partial)).size;
+  if (size !== total) throw new AgentError(500, `Die Kopie nach ${to} ist unvollständig (${formatBytes(size)} von ${formatBytes(total)}).`);
   await rename(partial, to);
 }
 
@@ -458,6 +486,16 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
           },
         }),
       );
+      // mkvmerge ends with 1 for warnings – on Windows also when something killed it. Complete, the new file plays as long as the original.
+      if (tools.ffprobe.path && info.durationMs) {
+        const muxedMs = await playingTimeMs(ctx, tools.ffprobe.path, muxed);
+        if (muxedMs === null || muxedMs < info.durationMs * MIN_DURATION_SHARE) {
+          throw new AgentError(
+            500,
+            `Die zusammengesetzte Datei ist unvollständig (${muxedMs === null ? 'ohne lesbare Länge' : minutes(muxedMs)} statt ${minutes(info.durationMs)}). Das Original bleibt, wie es ist.`,
+          );
+        }
+      }
       await writeCheckpoint(checkpointFile, { done: 'mux', info });
       await unlink(converted);
       // The copy of the original is not needed any more – unless it is kept as the backup.

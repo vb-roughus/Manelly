@@ -261,12 +261,18 @@ export function createAgentServer(options: AgentServerOptions) {
       return;
     }
     if (route === 'POST /api/restart') {
-      const { update } = await readJson<Partial<AgentRestartRequest>>(request);
+      const { update, force } = await readJson<Partial<AgentRestartRequest>>(request);
       if (!(await options.process()).restartable) {
         throw new AgentError(409, 'Der Agent läuft ohne scripts\\run-agent.ps1 und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.');
       }
+      // A restart pauses a running conversion; it continues afterwards, but only when asked to.
+      const busy = queue.running();
+      if (busy && force !== true) {
+        const progress = busy.progress === null ? '' : ` (${Math.round(busy.progress * 100)} %)`;
+        throw new AgentError(409, `Gerade läuft die Umwandlung «${busy.title}»${progress}. Ein Neustart würde sie unterbrechen – warte, bis sie fertig ist, oder bestätige den Neustart.`);
+      }
       // Looks for a newer version first and keeps answering meanwhile; restarts only when there was one.
-      if (update === true && options.updater) return send(response, 202, { restarting: false, update: options.updater.start() });
+      if (update === true && options.updater) return send(response, 202, { restarting: false, update: options.updater.start({ force: force === true }) });
       send(response, 202, { restarting: true });
       response.once('finish', () => options.onExit(update === true ? 'update' : 'restart'));
       return;

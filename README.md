@@ -164,6 +164,9 @@ Arbeitsordner, Kopieren begrenzen).
   bleibt auch über einen Neustart des Agents pausiert
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
+- **Nie «Fertig» mit einer unvollständigen Datei** (ab Agent 0.22.0): Nach dem Zusammensetzen prüft der Agent, ob die neue
+  Datei so lange läuft wie das Original, und nach jedem Kopieren, ob die Kopie gleich gross ist. Stimmt etwas nicht,
+  schlägt die Umwandlung mit einer Meldung fehl und das Original bleibt, wie es ist
 - **Umwandlungen → Übersicht** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Umwandlung – so
   lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt mit dem aktuellen Tempo des laufenden Schritts in Mbit/s
   (ab Agent 0.21.0; gemessen daran, wie schnell die Datei wächst, die der Schritt schreibt), Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
@@ -353,6 +356,9 @@ dem Jellyfin läuft:
   Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
+- Neu starten und Aktualisieren fragen nach, wenn gerade eine Umwandlung läuft (ab Agent 0.22.0 auch der Agent selbst):
+  Ein Neustart unterbricht sie; danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Startet eine Umwandlung erst, während
+  ein Update baut, wartet der Neustart, bis sie fertig ist
 - Update: in Manelly unter **Server → Agent** «Aktualisieren & neu starten» (ab Agent 0.9.0). Ab Agent 0.11.0 sucht
   der Agent zuerst eine neuere Version und startet nur neu, wenn es eine gibt; `git pull`, falls nötig `npm ci`, und den
   Build erledigt er, während er weiterläuft, und meldet dabei jeden Schritt. Neu starten lässt ihn danach

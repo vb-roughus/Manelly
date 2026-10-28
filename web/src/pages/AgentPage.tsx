@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AgentOverview, AgentStatus } from '@manelly/shared';
-import { Activity, CloudDownload, LoaderCircle, Plug, Power, RotateCw } from 'lucide-react';
+import type { AgentOverview, AgentStatus, ConversionJob } from '@manelly/shared';
+import { Activity, CloudDownload, LoaderCircle, Plug, Power, RotateCw, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { AgentForm } from '../components/AgentForm';
 import { NetworkDrives } from '../components/NetworkDrives';
 import { Code, Message } from '../components/ConnectionForm';
+import { STEP_LABELS } from '../components/ConversionStatus';
 import { AGENT, RestartProgress, RestartResult } from '../components/Restart';
 import { SettingsSection } from '../components/SettingsSection';
-import { useAgent, useAgentSettings, useRestartAgent, useStopAgent } from '../hooks/queries';
+import { useAgent, useAgentSettings, useConversions, useRestartAgent, useStopAgent } from '../hooks/queries';
 import { agentRestart, useAgentRestart } from '../hooks/useAgentRestart';
 import { agentRestartSummary, updatesWhileRunning } from '../lib/agentRestart';
 import { formatSpan } from '../lib/timeline';
@@ -88,10 +89,17 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
   const [confirming, setConfirming] = useState(false);
   // What was running when it was stopped; afterwards the agent no longer answers.
   const [stopped, setStopped] = useState<AgentStatus | null>(null);
+  // The restart (false) or update (true) that waits for a «trotzdem», because a conversion runs.
+  const [asking, setAsking] = useState<boolean | null>(null);
   const status = overview.status;
+  // A paused conversion stays paused over a restart; only a running one is interrupted.
+  const busy = useConversions(Boolean(status)).data?.find((job) => job.state === 'running' && !job.paused) ?? null;
 
-  function startRestart(update: boolean) {
-    if (status) restart.mutate({ update, before: status });
+  function startRestart(update: boolean, force = false) {
+    if (!status) return;
+    if (busy && !force) return setAsking(update);
+    setAsking(null);
+    restart.mutate({ update, force, before: status });
   }
 
   if (stopped) return <Stopped status={stopped} />;
@@ -151,7 +159,27 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
         </p>
       )}
 
-      {process?.restartable && !confirming && (
+      {process?.restartable && !confirming && asking !== null && busy && (
+        <div className="space-y-3 rounded-xl bg-warning/10 p-4 ring-1 ring-warning/30 ring-inset">
+          <p className="flex gap-2 text-sm">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+            <span>
+              <b className="font-semibold">Gerade läuft eine Umwandlung:</b> {runningJob(busy)}. {asking ? 'Das Update startet den Agent neu und unterbricht' : 'Ein Neustart unterbricht'}{' '}
+              sie. Danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Am besten wartest du, bis sie fertig ist.
+            </span>
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" disabled={restart.isPending} onClick={() => startRestart(asking, true)} className={actionButton}>
+              {asking ? <CloudDownload className="size-4" aria-hidden /> : <RotateCw className="size-4" aria-hidden />}
+              {asking ? 'Trotzdem aktualisieren' : 'Trotzdem neu starten'}
+            </button>
+            <button type="button" onClick={() => setAsking(null)} className="text-sm text-ink-2 hover:text-ink">
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
+      {process?.restartable && !confirming && !(asking !== null && busy) && (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={restart.isPending} onClick={() => startRestart(false)} className={actionButton}>
@@ -173,7 +201,7 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
                 nicht, läuft die bisherige Version weiter.
               </>
             )}{' '}
-            Eine laufende Umwandlung hält beim Neustart kurz an und macht danach weiter.
+            Läuft gerade eine Umwandlung, fragt Manelly vorher nach.
           </p>
           {restart.isError && <p className="text-sm text-critical">{restart.error.message}</p>}
         </div>
@@ -189,8 +217,8 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
         confirming ? (
           <div className="space-y-3 rounded-xl bg-critical/8 p-4 ring-1 ring-critical/25 ring-inset">
             <p className="text-sm">
-              <b className="font-semibold">Agent beenden?</b> Eine laufende Umwandlung hält an und macht beim nächsten Start weiter. Bis dahin ruhen Aufzeichnung,
-              Messungen und das Bremsen von JDownloader.
+              <b className="font-semibold">Agent beenden?</b> {busy ? <>Gerade läuft eine Umwandlung: {runningJob(busy)}. Sie hält an</> : 'Eine laufende Umwandlung hält an'} und
+              macht beim nächsten Start weiter. Bis dahin ruhen Aufzeichnung, Messungen und das Bremsen von JDownloader.
             </p>
             {stop.isError && <p className="text-sm text-critical">{stop.error.message}</p>}
             <div className="flex flex-wrap items-center gap-3">
@@ -230,6 +258,13 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
       )}
     </div>
   );
+}
+
+/** «Pitch Black (2000)» – Ergebnis zurückkopieren, 70 % */
+function runningJob(job: ConversionJob): string {
+  const step = job.step ? ` – ${STEP_LABELS[job.step]}` : '';
+  const progress = job.progress === null ? '' : `, ${Math.round(job.progress * 100)} %`;
+  return `«${job.title}»${step}${progress}`;
 }
 
 const actionButton =

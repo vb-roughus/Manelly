@@ -49,7 +49,7 @@ export function DashboardConversions() {
             <ChevronDown className={clsx('size-4 text-ink-3 transition', !open && '-rotate-90')} aria-hidden />
           </button>
         </h2>
-        <Link to="/conversions" className="text-sm font-medium text-accent hover:underline">
+        <Link to="/conversions/overview" className="text-sm font-medium text-accent hover:underline">
           Alle Umwandlungen
         </Link>
       </div>

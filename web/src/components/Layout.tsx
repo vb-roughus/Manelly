@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import {
+  Archive,
   ChevronDown,
   Cpu,
   Download,
   LayoutDashboard,
   Library,
+  ListChecks,
   Monitor,
   Moon,
   PanelLeftClose,
@@ -13,6 +15,7 @@ import {
   Server,
   ServerCog,
   Settings,
+  SlidersHorizontal,
   Stethoscope,
   Sun,
   WandSparkles,
@@ -42,7 +45,16 @@ interface NavGroup {
 const NAV: Array<NavItem | NavGroup> = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/media', label: 'Medien', icon: Library },
-  { to: '/conversions', label: 'Umwandlungen', icon: WandSparkles },
+  {
+    id: 'conversions',
+    label: 'Umwandlungen',
+    icon: WandSparkles,
+    children: [
+      { to: '/conversions/overview', label: 'Übersicht', icon: ListChecks },
+      { to: '/conversions/backups', label: 'Backups', icon: Archive },
+      { to: '/conversions/settings', label: 'Einstellungen', icon: SlidersHorizontal },
+    ],
+  },
   {
     id: 'server',
     label: 'Server',

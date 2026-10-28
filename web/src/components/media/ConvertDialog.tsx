@@ -93,7 +93,7 @@ function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps
             Danach erfährt Jellyfin von der neuen Datei.
           </Note>
           <div className="flex flex-wrap gap-2">
-            <Link to="/conversions" onClick={onClose} className={primaryButton}>
+            <Link to="/conversions/overview" onClick={onClose} className={primaryButton}>
               Zu den Umwandlungen
             </Link>
             <button type="button" onClick={onClose} className={secondaryButton}>
@@ -207,7 +207,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
             ? 'Neue Datei im selben Ordner. Jellyfin zeigt beide als Versionen desselben Films.'
             : mode === 'replace'
               ? staged
-                ? 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original bleibt im Arbeitsordner statt auf dem Speicher, bis du es unter Umwandlungen löschst.'
+                ? 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original bleibt im Arbeitsordner statt auf dem Speicher, bis du es unter Umwandlungen → Backups löschst.'
                 : 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original wird verschoben, nicht gelöscht – Jellyfin ignoriert den Backup-Ordner.'
               : 'In einen Ordner einer Jellyfin-Bibliothek, z. B. eine eigene UHD-Bibliothek.'
         }
@@ -269,7 +269,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
               ]}
               description={
                 !hasSchedule
-                  ? 'Noch kein Zeitplan – einstellen unter Umwandlungen.'
+                  ? 'Noch kein Zeitplan – einstellen unter Umwandlungen → Einstellungen.'
                   : scheduled
                     ? `Startet ${describeSchedule(schedule)} – auch nach einem Neustart des Servers.`
                     : 'Startet gleich (oder nach der laufenden Umwandlung) und läuft auch weiter, wenn jemand streamt.'

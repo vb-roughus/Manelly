@@ -15,6 +15,8 @@ function fakeJellyfin() {
   const jf = {
     task: { Id: TASK_ID, Key: 'RefreshLibrary', Name: 'Medienbibliothek scannen', State: 'Idle', CurrentProgressPercentage: null, LastExecutionResult: EARLIER } as JfTaskInfo,
     hasTask: true,
+    /** Jellyfin's RefreshStatus and RefreshProgress of the library «Filme». */
+    movies: { RefreshStatus: 'Idle', RefreshProgress: null as number | null },
     calls: [] as string[],
   };
   const fetch: typeof globalThis.fetch = async (input, init) => {
@@ -31,9 +33,13 @@ function fakeJellyfin() {
     }
     if (url.pathname === '/Library/VirtualFolders') {
       return Response.json([
-        { Name: 'Filme', ItemId: 'a', CollectionType: 'movies', Locations: ['D:\\Filme', '\\\\nas\\Filme'] },
+        { Name: 'Filme', ItemId: 'a', CollectionType: 'movies', Locations: ['D:\\Filme', '\\\\nas\\Filme'], ...jf.movies },
         { Name: 'Gemischt', ItemId: 'b' },
       ]);
+    }
+    if (url.pathname === '/Items/a/Refresh') {
+      jf.calls[jf.calls.length - 1] += `?${url.searchParams}`;
+      return new Response(null, { status: 204 });
     }
     return new Response(null, { status: 404 });
   };
@@ -61,8 +67,8 @@ describe('library scan', () => {
       progress: null,
       lastRun: { startedAt: EARLIER.StartTimeUtc, endedAt: EARLIER.EndTimeUtc, result: 'completed', error: null },
       libraries: [
-        { name: 'Filme', type: 'movies', locations: ['D:\\Filme', '\\\\nas\\Filme'] },
-        { name: 'Gemischt', type: null, locations: [] },
+        { id: 'a', name: 'Filme', type: 'movies', locations: ['D:\\Filme', '\\\\nas\\Filme'], scanning: false, progress: null },
+        { id: 'b', name: 'Gemischt', type: null, locations: [], scanning: false, progress: null },
       ],
     });
   });
@@ -126,6 +132,37 @@ describe('library scan', () => {
     scanner.stop();
   });
 
+  it('scans a single library, follows it and reads the media again once it is idle', async () => {
+    const { jf, store, scanner } = setup();
+    const started = await scanner.startLibrary('a');
+    // Asked for, not yet reported by Jellyfin: it counts as scanning from the start; the others and the full scan do not.
+    expect(started).toMatchObject({ state: 'idle', libraries: [{ id: 'a', scanning: true, progress: null }, { id: 'b', scanning: false }] });
+    expect(jf.calls).toEqual(['POST /Items/a/Refresh?Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default&ReplaceAllMetadata=false&ReplaceAllImages=false']);
+
+    jf.movies = { RefreshStatus: 'Active', RefreshProgress: 37.5 };
+    expect((await scanner.status()).libraries[0]).toMatchObject({ scanning: true, progress: 37.5 });
+    // Asked again while it runs: nothing new is started.
+    await scanner.startLibrary('a');
+    expect(jf.calls).toHaveLength(1);
+    expect(store.refreshes).toBe(0);
+
+    jf.movies = { RefreshStatus: 'Idle', RefreshProgress: null };
+    await until(() => store.refreshes === 1);
+    expect((await scanner.status()).libraries[0]).toMatchObject({ scanning: false, progress: null });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(store.refreshes).toBe(1);
+
+    await expect(scanner.startLibrary('gibts-nicht')).rejects.toThrow('Diese Mediathek gibt es in Jellyfin nicht (mehr).');
+    scanner.stop();
+  });
+
+  it('notices a single library scanned before it was ever seen scanning', async () => {
+    const { store, scanner } = setup();
+    await scanner.startLibrary('a');
+    await until(() => store.refreshes === 1);
+    scanner.stop();
+  });
+
   it('explains a Jellyfin without the scan task', async () => {
     const { jf, scanner } = setup();
     jf.hasTask = false;
@@ -142,10 +179,15 @@ describe('library scan', () => {
     });
     const app = await buildApp({ config: { staticDir: null }, connection });
     expect((await app.inject('/api/media/scan')).json<LibraryScanStatus>().state).toBe('idle');
-    expect((await app.inject({ method: 'POST', url: '/api/media/scan' })).json<LibraryScanStatus>().state).toBe('running');
+    const all = await app.inject({ method: 'POST', url: '/api/media/scan' });
+    expect(all.json<LibraryScanStatus>().state, all.body).toBe('running');
     jf.task = { ...jf.task, State: 'Running' };
     expect((await app.inject({ method: 'DELETE', url: '/api/media/scan' })).json<LibraryScanStatus>().state).toBe('cancelling');
-    expect(jf.calls).toEqual([`POST /ScheduledTasks/Running/${TASK_ID}`, `DELETE /ScheduledTasks/Running/${TASK_ID}`]);
+    const single = await app.inject({ method: 'POST', url: '/api/media/scan', payload: { libraryId: 'a' } });
+    expect(single.json<LibraryScanStatus>().libraries[0]?.scanning).toBe(true);
+    expect((await app.inject({ method: 'POST', url: '/api/media/scan', payload: { libraryId: 'zz' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/media/scan', payload: { libraryId: '' } })).statusCode).toBe(400);
+    expect(jf.calls.map((call) => call.split('?')[0])).toEqual([`POST /ScheduledTasks/Running/${TASK_ID}`, `DELETE /ScheduledTasks/Running/${TASK_ID}`, 'POST /Items/a/Refresh']);
     await app.close();
   });
 });

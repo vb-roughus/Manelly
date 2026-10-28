@@ -15,6 +15,17 @@ const RESULTS: Record<string, NonNullable<LibraryScanStatus['lastRun']>['result'
   Aborted: 'aborted',
 };
 
+/** Jellyfin scans this library right now, or will in a moment. */
+const scanning = (library: JfVirtualFolder) => library.RefreshStatus === 'Active' || library.RefreshStatus === 'Queued';
+
+/** A single library Manelly asked Jellyfin to scan; once it is idle again, the media are read again. */
+interface LibraryWatch {
+  client: JellyfinClient;
+  /** Jellyfin reported it scanning at least once. */
+  ran: boolean;
+  since: number;
+}
+
 /** A scan Manelly waits for, to read the libraries again once it ended. */
 interface Watch {
   client: JellyfinClient;
@@ -42,6 +53,7 @@ export interface LibraryScannerOptions {
 export function createLibraryScanner(connection: JellyfinConnection, store: Pick<MediaIndexStore, 'refresh'>, options: LibraryScannerOptions = {}) {
   const { pollMs = 5000, startTimeoutMs = 60_000, now = Date.now, log } = options;
   let watch: Watch | null = null;
+  const libraryWatches = new Map<string, LibraryWatch>();
   let timer: NodeJS.Timeout | null = null;
 
   async function findTask(client: JellyfinClient): Promise<JfTaskInfo & { Id: string }> {
@@ -75,14 +87,39 @@ export function createLibraryScanner(connection: JellyfinConnection, store: Pick
     }
   }
 
+  /** Takes in what Jellyfin says about the libraries: ends the watch of each one that is idle again. */
+  function observeLibraries(client: JellyfinClient, libraries: JfVirtualFolder[]) {
+    let ended = false;
+    for (const [id, libraryWatch] of libraryWatches) {
+      const library = libraries.find((candidate) => candidate.ItemId === id);
+      if (libraryWatch.client !== client || !library) {
+        libraryWatches.delete(id);
+      } else if (scanning(library)) {
+        libraryWatch.ran = true;
+      } else if (libraryWatch.ran || now() - libraryWatch.since >= pollMs) {
+        // Idle again – or done so quickly that it was never seen scanning.
+        libraryWatches.delete(id);
+        log?.info(`Mediathek «${library.Name ?? id}» in Jellyfin gescannt – Medien werden neu eingelesen`);
+        ended = true;
+      }
+    }
+    if (ended) store.refresh();
+    schedule();
+  }
+
   function schedule() {
-    if (timer || !watch) return;
+    if (timer || (!watch && libraryWatches.size === 0)) return;
     timer = setTimeout(() => void tick(), pollMs);
     timer.unref();
   }
 
   async function tick() {
     timer = null;
+    const client = connection.client;
+    if (libraryWatches.size > 0 && client) {
+      const libraries = await client.getLibraries().catch(() => null);
+      if (libraries) observeLibraries(client, libraries);
+    }
     const current = watch;
     if (!current) return;
     // Another Jellyfin now: its scans are not this one.
@@ -106,13 +143,26 @@ export function createLibraryScanner(connection: JellyfinConnection, store: Pick
       lastRun: result?.EndTimeUtc
         ? { startedAt: result.StartTimeUtc ?? null, endedAt: result.EndTimeUtc, result: RESULTS[result.Status ?? ''] ?? 'failed', error: result.ErrorMessage || null }
         : null,
-      libraries: libraries.map((library) => ({ name: library.Name ?? 'Unbenannt', type: library.CollectionType ?? null, locations: library.Locations ?? [] })),
+      libraries: libraries.map((library) => {
+        const id = library.ItemId ?? null;
+        const asked = id !== null && libraryWatches.get(id)?.client === client && !libraryWatches.get(id)!.ran;
+        const busy = scanning(library) || asked;
+        return {
+          id,
+          name: library.Name ?? 'Unbenannt',
+          type: library.CollectionType ?? null,
+          locations: library.Locations ?? [],
+          scanning: busy,
+          progress: busy && typeof library.RefreshProgress === 'number' ? Math.min(100, Math.max(0, library.RefreshProgress)) : null,
+        };
+      }),
     };
   }
 
   async function status(client: JellyfinClient): Promise<LibraryScanStatus> {
     const [task, libraries] = await Promise.all([findTask(client), client.getLibraries()]);
     observe(client, task);
+    observeLibraries(client, libraries);
     return toStatus(client, task, libraries);
   }
 
@@ -131,7 +181,23 @@ export function createLibraryScanner(connection: JellyfinConnection, store: Pick
       return status(client);
     },
 
-    /** Stops a running scan; what it found so far stays in Jellyfin. */
+    /**
+     * Scans one library – much faster than all of them when the others are big, e.g. series with many folders.
+     * Jellyfin cannot stop such a scan; a scan that already runs is left to go on.
+     */
+    async startLibrary(id: string): Promise<LibraryScanStatus> {
+      const client = requireClient(connection.client);
+      const library = (await client.getLibraries()).find((candidate) => candidate.ItemId === id);
+      if (!library) throw new AppError('NOT_FOUND', 'Diese Mediathek gibt es in Jellyfin nicht (mehr).');
+      if (!scanning(library)) {
+        await client.refreshLibrary(id);
+        libraryWatches.set(id, { client, ran: false, since: now() });
+        log?.info(`Mediathek «${library.Name ?? id}» wird in Jellyfin gescannt`);
+      }
+      return status(client);
+    },
+
+    /** Stops a running scan of all libraries; what it found so far stays in Jellyfin. */
     async cancel(): Promise<LibraryScanStatus> {
       const client = requireClient(connection.client);
       const task = await findTask(client);

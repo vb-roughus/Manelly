@@ -162,6 +162,10 @@ export interface JfVirtualFolder {
   Locations?: string[];
   /** movies, tvshows, music, mixed, ...; missing for older mixed libraries. */
   CollectionType?: string | null;
+  /** While Jellyfin scans it: percent done. */
+  RefreshProgress?: number | null;
+  /** Idle, Queued or Active. */
+  RefreshStatus?: string | null;
 }
 
 export interface JfPlayerState {

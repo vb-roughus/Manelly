@@ -85,10 +85,13 @@ am Codec-Profil der Tonspur (z. B. «Dolby TrueHD + Dolby Atmos»). Wurde eine D
 gescannt, fehlt das Profil eventuell. Dann bei den betroffenen Titeln in Jellyfin «Metadaten aktualisieren» mit «Alle
 Metadaten ersetzen» ausführen (Achtung: überschreibt manuell geänderte Metadaten) und danach in Manelly «Neu einlesen».
 
-**Mediatheken scannen:** Neben «Neu einlesen» startet «Mediatheken scannen» den Scan aller Mediatheken in Jellyfin
-(dieselbe Aufgabe «Medienbibliothek scannen» wie in Jellyfins Dashboard): Jellyfin sucht in den Ordnern nach neuen,
-geänderten und gelöschten Dateien, Manelly zeigt den Fortschritt. Ist der Scan fertig – auch einer, der in Jellyfin
-selbst gestartet wurde –, liest Manelly die Medien sofort neu ein, sodass neue Titel gleich auftauchen.
+**Mediatheken scannen:** Neben «Neu einlesen» öffnet «Mediatheken scannen» ein Menü: **Alle Mediatheken** startet den
+Scan aller Mediatheken in Jellyfin (dieselbe Aufgabe «Medienbibliothek scannen» wie in Jellyfins Dashboard), ein Klick
+auf eine einzelne Mediathek scannt **nur diese** – viel schneller, wenn andere gross sind, etwa Serien mit vielen
+Ordnern. Jellyfin sucht in den Ordnern nach neuen, geänderten und gelöschten Dateien, Manelly zeigt den Fortschritt im
+Knopf. Ist der Scan fertig – auch einer aller Mediatheken, der in Jellyfin selbst gestartet wurde –, liest Manelly die
+Medien sofort neu ein, sodass neue Titel gleich auftauchen. Den Scan einer einzelnen Mediathek kann Jellyfin nicht
+abbrechen.
 
 ### Server
 
@@ -96,8 +99,9 @@ Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** 
 
 - **Allgemein – Manelly selbst:** Stand (Git-Commit), Rechner, Prozess-ID, Startzeit und das letzte Update; Manelly
   **neu starten** oder **aktualisieren und neu starten** – siehe [Manelly aktualisieren](#manelly-aktualisieren)
-- **Allgemein – Mediatheken:** die Mediatheken von Jellyfin mit ihren Ordnern, wann der letzte Scan lief und wie er
-  ausging; den Scan aller Mediatheken **starten** und **abbrechen**, mit Fortschritt in Prozent
+- **Allgemein – Mediatheken:** die Mediatheken von Jellyfin mit ihren Ordnern, wann der letzte Scan aller Mediatheken
+  lief und wie er ausging; den Scan aller Mediatheken **starten** und **abbrechen**, mit Fortschritt in Prozent; mit
+  «Scannen» bei einer Mediathek nur diese scannen, mit eigenem Fortschritt
 - **Allgemein – Hardware-Beschleunigung prüfen:** Einstellungen von Jellyfin im Überblick (Beschleunigung, Hardware-Kodierung,
   Hardware-Dekodierung, HEVC 10 bit, Tone-Mapping, FFmpeg) mit Hinweisen, was nicht passt – z. B. HEVC nicht für die
   Hardware-Dekodierung eingeschaltet (Jellyfins Standard) oder eine Beschleunigung, die es auf dem System nicht gibt

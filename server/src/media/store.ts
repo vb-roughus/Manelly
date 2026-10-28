@@ -28,11 +28,12 @@ export function createMediaIndexStore(connection: JellyfinConnection, options: M
 
   let index: MediaIndex | null = null;
   let indexClient: JellyfinClient | null = null;
-  let building: { client: JellyfinClient; loaded: number; total: number } | null = null;
+  /** `again`: asked to rebuild while this build ran, which may have missed what changed since it began. */
+  let building: { client: JellyfinClient; loaded: number; total: number; again: boolean } | null = null;
   let failure: { client: JellyfinClient; message: string; at: number } | null = null;
 
   function start(client: JellyfinClient) {
-    const job = { client, loaded: 0, total: 0 };
+    const job = { client, loaded: 0, total: 0, again: false };
     building = job;
     log?.info('Medien-Index wird aufgebaut …');
     build(client, (loaded, total) => {
@@ -53,7 +54,9 @@ export function createMediaIndexStore(connection: JellyfinConnection, options: M
         log?.warn(`Medien-Index fehlgeschlagen: ${failure.message}`);
       },
     ).finally(() => {
-      if (building === job) building = null;
+      if (building !== job) return;
+      building = null;
+      if (job.again && connection.client === client) start(client);
     });
   }
 
@@ -64,7 +67,10 @@ export function createMediaIndexStore(connection: JellyfinConnection, options: M
       index = null;
       indexClient = null;
     }
-    if (building?.client === client) return;
+    if (building?.client === client) {
+      if (force) building.again = true;
+      return;
+    }
     const recentFailure = failure?.client === client && now() - failure.at < retryAfterMs;
     const stale = !index || now() - index.builtAt > maxAgeMs;
     if (force || (stale && !recentFailure)) start(client);

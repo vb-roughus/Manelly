@@ -132,6 +132,14 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
   macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** wandelt wie bisher dort um, wo die Datei
   liegt
+- **Kopieren begrenzen** (ab Agent 0.21.0): Beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
+  darf, damit auf dem Speicher genug für Streams bleibt. **Automatisch während Streams**: einmal eintragen, was der
+  Speicher insgesamt schafft (z. B. 220 MB/s; zu sehen bei einer Umwandlung unter «Auslastung der Storage-Schnittstelle»,
+  «Zusammen»). Solange jemand streamt, kopiert der Agent höchstens mit diesem Wert − Bitrate der laufenden Streams
+  (geschätzt aus ihren Dateien) − 20 Mbit/s Reserve, mindestens aber mit 1 MB/s; ohne Streams mit voller Geschwindigkeit.
+  Er fragt Jellyfin dafür alle 15 Sekunden, und nur während er kopiert; weiss er nichts über Streams, rechnet er mit einem
+  UHD-Stream. **Immer**: ein festes Limit. Die Umwandlungskarte zeigt, wenn und warum gerade gebremst wird. Die
+  Umwandlungsschritte im Arbeitsordner selbst und «Direkt am Speicherort» sind nicht begrenzt
 - **Originale im Arbeitsordner** (ab Agent 0.18.0): Bei **«Original ersetzen»** im Arbeitsordner kommt das Original nicht in
   `.manelly-backup` auf dem Speicher, sondern bleibt als die Kopie, die schon im Arbeitsordner liegt, in dessen Unterordner
   `Originale`. Auf dem Speicher wird es erst ganz am Schluss gegen die umgewandelte Datei getauscht – bis dahin spielt
@@ -152,7 +160,8 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
 - Seite **Umwandlungen** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Umwandlung – so
-  lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt, Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
+  lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt mit dem aktuellen Tempo des laufenden Schritts in MB/s
+  (ab Agent 0.21.0; gemessen daran, wie schnell die Datei wächst, die der Schritt schreibt), Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
   Storage-Schnittstelle** und der Ausgabe des Werkzeugs bei Fehlern; danach meldet der Agent die neue Datei an Jellyfin,
   damit sie gleich erscheint. Eine Umwandlung kodiert das Bild nicht neu, sie kopiert vor allem – CPU und GPU haben
   wenig zu tun, das Tempo bestimmt der Weg zum Speicher. Darum zeigt die Karte Lesen, Schreiben und beides zusammen

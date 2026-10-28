@@ -10,6 +10,7 @@ import type {
   AgentStatus,
   ArchivedOriginals,
   ConversionJob,
+  CopyLimit,
   ConversionRequest,
   ConversionSchedule,
   DriveCredentialRequest,
@@ -84,6 +85,8 @@ export interface AgentClient {
   removeOriginal(id: string): Promise<ArchivedOriginals>;
   /** From agent 0.17.0: where conversions copy the original to and convert; null switches it off. */
   setWorkFolder(directory: string | null): Promise<WorkFolderStatus>;
+  /** How fast conversions copy to and from the work folder (agent from 0.21.0). */
+  setCopyLimit(limit: CopyLimit): Promise<WorkFolderStatus>;
   /** From agent 0.16.0: the login for the shares of a server; the agent keeps it, Manelly does not. */
   setDriveCredential(request: DriveCredentialRequest): Promise<NetworkDrives>;
   removeDriveCredential(server: string): Promise<NetworkDrives>;
@@ -162,6 +165,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),
     clearHistory: () => call('DELETE', '/api/history', undefined, 20_000),
     setWorkFolder: (directory) => call('PUT', '/api/work', { directory }),
+    setCopyLimit: (limit) => call('PUT', '/api/work/copy-limit', limit),
     // Checks every file it lists; a slow disk may take a moment.
     originals: () => call('GET', '/api/originals', undefined, 20_000),
     removeOriginal: (id) => call('DELETE', `/api/originals/${encodeURIComponent(id)}`, undefined, 60_000),

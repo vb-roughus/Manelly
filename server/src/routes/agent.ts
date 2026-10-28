@@ -10,6 +10,7 @@ import type {
   AgentStatus,
   ArchivedOriginals,
   ConversionJob,
+  CopyLimit,
   ConversionOptions,
   ConversionSchedule,
   DriveCredentialRequest,
@@ -295,6 +296,37 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     async (request): Promise<WorkFolderStatus> => {
       const work = await requireAgent(agent).setWorkFolder(request.body.directory);
       request.log.info(work.directory ? `Arbeitsordner für Umwandlungen: ${work.directory}` : 'Arbeitsordner für Umwandlungen ausgeschaltet');
+      return work;
+    },
+  );
+
+  // Leaves the storage enough for streams while conversions copy to and from the work folder.
+  app.put<{ Body: CopyLimit }>(
+    '/work/copy-limit',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['mode', 'limitMBps', 'storageMBps'],
+          properties: {
+            mode: { type: 'string', enum: ['off', 'streaming', 'always'] },
+            limitMBps: { type: 'integer', minimum: 1, maximum: 5000 },
+            storageMBps: { type: 'integer', minimum: 1, maximum: 5000 },
+          },
+        },
+      },
+    },
+    async (request): Promise<WorkFolderStatus> => {
+      const work = await requireAgent(agent).setCopyLimit(request.body);
+      const { mode, limitMBps, storageMBps } = request.body;
+      request.log.info(
+        mode === 'off'
+          ? 'Kopieren in den Arbeitsordner unbegrenzt'
+          : mode === 'always'
+            ? `Kopieren in den Arbeitsordner begrenzt auf ${limitMBps} MB/s`
+            : `Kopieren in den Arbeitsordner während Streams begrenzt: ${storageMBps} MB/s abzüglich Streams und Reserve`,
+      );
       return work;
     },
   );

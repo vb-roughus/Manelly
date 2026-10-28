@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, HistoryResponse, HistorySettings, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, HistoryResponse, HistorySettings, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule, WorkFolderStatus } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -160,6 +160,9 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         agent.work = body.directory;
         return Response.json({ directory: agent.work, freeBytes: agent.work ? 900_000_000_000 : null, error: null });
       }
+      if (url.pathname === '/api/work/copy-limit' && init?.method === 'PUT') {
+        return Response.json({ directory: agent.work, freeBytes: agent.work ? 900_000_000_000 : null, error: null, copyLimit: body });
+      }
       if (url.pathname === '/api/jobs' && init?.method === 'POST') {
         sent.jobs.push(body);
         const job = { id: `job${jobs.length + 1}`, title: body.title, source: body.source, mode: body.output.mode, output: 'D:\\Filme\\Pitch Black (2000)\\Pitch Black (2000) - DV P8.mkv', backup: null, state: 'queued' } as ConversionJob;
@@ -254,6 +257,15 @@ describe('agent connection', () => {
     expect(world.sent.jobs[0]).toMatchObject({ output: { mode: 'replace' }, work: true });
     expect((await app.inject({ method: 'PUT', url: '/api/agent/work', payload: { directory: null } })).json().directory).toBeNull();
     expect((await app.inject({ method: 'PUT', url: '/api/agent/work', payload: {} })).statusCode).toBe(400);
+
+    // The limit for copying there.
+    const limit = (payload: Record<string, unknown>) => app.inject({ method: 'PUT', url: '/api/agent/work/copy-limit', payload });
+    const automatic = { mode: 'streaming', limitMBps: 60, storageMBps: 220 };
+    expect((await limit(automatic)).json<WorkFolderStatus>().copyLimit).toEqual(automatic);
+    expect((await limit({ ...automatic, mode: 'sometimes' })).statusCode).toBe(400);
+    expect((await limit({ ...automatic, limitMBps: 0 })).statusCode).toBe(400);
+    expect((await limit({ ...automatic, storageMBps: 2.5 })).statusCode).toBe(400);
+    expect((await limit({ mode: 'always', limitMBps: 60 })).statusCode).toBe(400);
   });
 
   it('starts a conversion with the path from Jellyfin and only into library folders', async () => {

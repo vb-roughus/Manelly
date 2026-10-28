@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { ConversionJob } from '@manelly/shared';
+import type { ConversionJob, CopyThrottle } from '@manelly/shared';
 import { Ban, Clock, Pause, Play, RotateCcw, Trash2, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge, STEP_LABELS } from '../components/ConversionStatus';
@@ -9,7 +9,7 @@ import { SchedulePanel } from '../components/SchedulePanel';
 import { OriginalsPanel } from '../components/OriginalsPanel';
 import { WorkFolderPanel } from '../components/WorkFolderPanel';
 import { useAgent, useAgentNetwork, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
-import { formatAgo, formatBytes, formatEta, joinParts } from '../lib/format';
+import { formatAgo, formatBitrate, formatBytes, formatEta, formatSpeed, joinParts } from '../lib/format';
 import { roleLabel } from '../lib/networkRoles';
 
 export function ConversionsPage() {
@@ -150,6 +150,7 @@ function JobCard({ job }: { job: ConversionJob }) {
       {job.state === 'running' && (
         <div className="mt-3">
           <ConversionProgress job={job} />
+          {job.copyThrottle && <p className="mt-1 text-xs text-ink-3">{throttleReason(job.copyThrottle)}</p>}
         </div>
       )}
       {job.state === 'running' && job.paused && (
@@ -211,6 +212,14 @@ function JobCard({ job }: { job: ConversionJob }) {
       )}
     </article>
   );
+}
+
+/** Why the copy runs slower than it could – only while it does. */
+function throttleReason({ bytesPerSecond, streams, streamsBitsPerSecond }: CopyThrottle): string {
+  const limit = `Kopiert mit höchstens ${formatSpeed(bytesPerSecond)}`;
+  if (streams === null) return `${limit}, wie beim Arbeitsordner eingestellt.`;
+  const who = streams === 1 ? '1 Stream braucht' : `${streams} Streams brauchen`;
+  return `${limit}: ${who} gerade etwa ${formatBitrate(streamsBitsPerSecond ?? 0)}, dazu 20 Mbit/s Reserve.`;
 }
 
 /**

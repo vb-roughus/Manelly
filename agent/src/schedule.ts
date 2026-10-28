@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, HistorySettings, JDownloaderSettings, NetworkRole } from '@manelly/shared';
+import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, CopyLimit, HistorySettings, JDownloaderSettings, NetworkRole } from '@manelly/shared';
 import type { NetworkCredential } from './drives.js';
 import { AgentError } from './errors.js';
 import { createJellyfinApi } from './jellyfin.js';
@@ -36,6 +36,8 @@ export interface AgentSettings {
   networkCredentials: NetworkCredential[];
   /** Where conversions copy the original to and convert, e.g. on a local disk; null converts where the files are. */
   work: string | null;
+  /** How fast they copy to and from there. */
+  copyLimit: CopyLimit;
 }
 
 const SETTINGS_FILE = 'settings.json';
@@ -85,6 +87,17 @@ export function parseHistorySettings(input: unknown): HistorySettings {
   return { enabled, retentionDays: retentionDays! };
 }
 
+export const DEFAULT_COPY_LIMIT: CopyLimit = { mode: 'off', limitMBps: 50, storageMBps: 200 };
+
+const isRate = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 5000;
+
+export function parseCopyLimit(input: unknown): CopyLimit {
+  const { mode, limitMBps, storageMBps } = (input ?? {}) as Partial<CopyLimit>;
+  if (mode !== 'off' && mode !== 'always' && mode !== 'streaming') throw new AgentError(400, 'Unbekannte Art der Begrenzung.');
+  if (!isRate(limitMBps) || !isRate(storageMBps)) throw new AgentError(400, 'Die Werte müssen zwischen 1 und 5000 MB/s liegen.');
+  return { mode, limitMBps, storageMBps };
+}
+
 const isSelection = (value: unknown): value is NetworkSelection =>
   typeof (value as NetworkSelection)?.id === 'string' && typeof (value as NetworkSelection).name === 'string';
 
@@ -108,6 +121,7 @@ export async function createSettingsStore(dataDir: string) {
     history: DEFAULT_HISTORY,
     networkCredentials: [],
     work: null,
+    copyLimit: DEFAULT_COPY_LIMIT,
   };
   try {
     const stored = JSON.parse(await readFile(file, 'utf8')) as Partial<AgentSettings>;
@@ -120,6 +134,7 @@ export async function createSettingsStore(dataDir: string) {
       history: stored.history ? parseHistorySettings(stored.history) : DEFAULT_HISTORY,
       networkCredentials: Array.isArray(stored.networkCredentials) ? stored.networkCredentials.filter(isCredential) : [],
       work: typeof stored.work === 'string' && stored.work ? stored.work : null,
+      copyLimit: stored.copyLimit ? parseCopyLimit(stored.copyLimit) : DEFAULT_COPY_LIMIT,
     };
   } catch {
     // Missing or damaged: Manelly sends both again.
@@ -143,6 +158,7 @@ export async function createSettingsStore(dataDir: string) {
     setHistory: (history: HistorySettings) => save({ ...current, history }),
     setNetworkCredentials: (networkCredentials: NetworkCredential[]) => save({ ...current, networkCredentials }),
     setWork: (work: string | null) => save({ ...current, work }),
+    setCopyLimit: (copyLimit: CopyLimit) => save({ ...current, copyLimit }),
   };
 }
 

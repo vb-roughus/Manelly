@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGate, DEFAULT_HISTORY, DEFAULT_JDOWNLOADER, inWindow, type AgentSettings } from '../src/schedule.js';
+import { createGate, DEFAULT_COPY_LIMIT, DEFAULT_HISTORY, DEFAULT_JDOWNLOADER, inWindow, type AgentSettings } from '../src/schedule.js';
 
 const at = (hours: number, minutes = 0) => new Date(2026, 9, 26, hours, minutes);
 
@@ -16,7 +16,7 @@ describe('gate', () => {
   it('waits a few minutes after the last stream before it opens', async () => {
     let streams = 1;
     let clock = at(2);
-    const settings: AgentSettings = { schedule: { window: null, idleOnly: true }, jellyfin: { url: 'http://jellyfin:8096', apiKey: 'key' }, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null, history: DEFAULT_HISTORY, networkCredentials: [], work: null };
+    const settings: AgentSettings = { schedule: { window: null, idleOnly: true }, jellyfin: { url: 'http://jellyfin:8096', apiKey: 'key' }, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null, history: DEFAULT_HISTORY, networkCredentials: [], work: null, copyLimit: DEFAULT_COPY_LIMIT };
     const gate = createGate({
       settings: () => settings,
       fetch: async () => Response.json(Array.from({ length: streams }, () => ({ NowPlayingItem: {} }))),
@@ -31,7 +31,7 @@ describe('gate', () => {
   });
 
   it('needs no Jellyfin without the idle rule', async () => {
-    const settings: AgentSettings = { schedule: { window: { start: '01:00', end: '05:00' }, idleOnly: false }, jellyfin: null, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null, history: DEFAULT_HISTORY, networkCredentials: [], work: null };
+    const settings: AgentSettings = { schedule: { window: { start: '01:00', end: '05:00' }, idleOnly: false }, jellyfin: null, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null, history: DEFAULT_HISTORY, networkCredentials: [], work: null, copyLimit: DEFAULT_COPY_LIMIT };
     const gate = createGate({ settings: () => settings, fetch: async () => Promise.reject(new Error('no call expected')), now: () => at(3) });
     expect(await gate(false)).toMatchObject({ open: true, streams: null });
   });

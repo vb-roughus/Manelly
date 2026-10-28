@@ -15,6 +15,51 @@ export function defaultPowershell(env: NodeJS.ProcessEnv = process.env): string 
 
 const argsFor = (script: string) => ['-NoProfile', '-NonInteractive', '-NoLogo', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
 
+/**
+ * Started by another program, Windows PowerShell writes progress and errors to stderr as CLIXML ("#< CLIXML …").
+ * These scripts therefore run without progress records and report their own error on stdout as "ERROR: …" – the
+ * innermost message, e.g. what DPAPI says rather than "Exception calling …".
+ */
+export function scriptArgs(script: string): string[] {
+  const wrapped = `$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+try {
+${script}
+} catch {
+  $e = $_.Exception
+  while ($e.InnerException) { $e = $e.InnerException }
+  [Console]::Out.Write("ERROR: $($e.Message)")
+  exit 1
+}`;
+  return ['-NoProfile', '-NonInteractive', '-NoLogo', '-InputFormat', 'Text', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(wrapped, 'utf16le').toString('base64')];
+}
+
+const XML_ENTITIES: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+
+/** The error text in PowerShell's CLIXML; anything else as it is. */
+export function decodeClixml(text: string): string {
+  if (!text.trimStart().startsWith('#< CLIXML')) return text;
+  return [...text.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g)]
+    .map((match) =>
+      match[1]!
+        // Control characters come as _xHHHH_.
+        .replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/&(lt|gt|amp|quot|apos);/g, (_, name: string) => XML_ENTITIES[name]!),
+    )
+    .join('');
+}
+
+/** Why a script from scriptArgs failed, in one line: its own report, else the first line PowerShell wrote to stderr. */
+export function scriptError(stdout: string, stderr: string, code: number | null): string {
+  const reported = stdout.match(/ERROR: ([\s\S]*)$/)?.[1]?.trim();
+  if (reported) return reported;
+  const line = decodeClixml(stderr)
+    .split(/\r?\n/)
+    .map((text) => text.trim())
+    .find(Boolean);
+  return line ?? `PowerShell endete mit ${code}.`;
+}
+
 /** Runs a script to its end and returns what it wrote. */
 export function runPowershell(executable: string, script: string, timeoutMs = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,7 +69,7 @@ export function runPowershell(executable: string, script: string, timeoutMs = 30
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => (out += chunk));
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => (err += chunk));
     child.on('error', (error) => reject(new Error(`PowerShell liess sich nicht starten: ${error.message}`)));
-    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err.trim() || `Exit-Code ${code}`))));
+    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(decodeClixml(err).trim() || `Exit-Code ${code}`))));
   });
 }
 
@@ -52,7 +97,7 @@ export function streamPowershell(executable: string, script: string, onLine: (li
     err = (err + chunk).slice(-4000);
   });
   child.on('error', (error) => !stopped && onError(`PowerShell liess sich nicht starten: ${error.message}`));
-  child.on('close', (code) => !stopped && onError(`Die Messung endete unerwartet (Exit-Code ${code}). ${err.trim().split(/\r?\n/).slice(-3).join(' ')}`.trim()));
+  child.on('close', (code) => !stopped && onError(`Die Messung endete unerwartet (Exit-Code ${code}). ${decodeClixml(err).trim().split(/\r?\n/).slice(-3).join(' ')}`.trim()));
   return () => {
     stopped = true;
     child.kill();

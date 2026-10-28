@@ -12,6 +12,10 @@ HKEY_CURRENT_USER\\Network\\z
     RemotePath    REG_SZ    \\\\nas\\filme
 `;
 
+// What Windows PowerShell writes to stderr when another program starts it, even when all goes well.
+const PROGRESS_CLIXML =
+  '#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>';
+
 /** Windows as the agent sees it without a logon: drives missing until net use (or a login from Manelly) connects them. */
 function fakeWindows(netUse: (letter: string) => { code: number; output: string } = () => ({ code: 0, output: 'Der Befehl wurde erfolgreich ausgeführt.' })) {
   const present = new Set<string>(['C:\\']);
@@ -20,27 +24,32 @@ function fakeWindows(netUse: (letter: string) => { code: number; output: string 
   const inputs: Array<Record<string, string | null>> = [];
   let saved: NetworkCredential[] = [];
   const credentials: CredentialStore = { get: () => saved, set: async (next) => void (saved = next) };
+  const dpapi = { works: true };
   const run: CommandRunner = async (command, args, input) => {
     calls.push([command, ...args].join(' '));
-    if (command === 'reg') return { code: 0, output: REG_OUTPUT };
+    if (command === 'reg') return { code: 0, stdout: REG_OUTPUT, stderr: '' };
     if (command.endsWith('powershell.exe')) {
       const script = Buffer.from(args.at(-1)!, 'base64').toString('utf16le');
       const given = JSON.parse(Buffer.from(input!, 'base64').toString('utf8')) as Record<string, string | null>;
       inputs.push(given);
+      const answer = (stdout: string, code = 0) => ({ code, stdout, stderr: PROGRESS_CLIXML });
+      // The script reports its own errors on stdout.
+      if (!dpapi.works) return answer('ERROR: Der Schlüsselsatz ist nicht vorhanden.', 1);
       // DPAPI stand-in: only this "computer" reads it back.
-      if (script.includes('ProtectedData]::Protect(')) return { code: 0, output: Buffer.from(`dpapi:${given.password}`).toString('base64') };
+      if (script.includes('ProtectedData]::Protect(')) return answer(Buffer.from(`dpapi:${given.password}`).toString('base64'));
       const password = Buffer.from(given.secret!, 'base64').toString('utf8');
-      if (given.username !== 'rolf' || password !== 'dpapi:Grüezi 123') return { code: 0, output: '86' };
+      if (given.username !== 'rolf' || password !== 'dpapi:Grüezi 123') return answer('86');
       present.add(`${given.local ?? given.remote}\\`);
-      return { code: 0, output: '0' };
+      return answer('0');
     }
     const result = netUse(args[1]!);
     if (result.code === 0) present.add(`${args[1]}\\`);
     // net use takes a moment; a second request meanwhile must not start another.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    return result;
+    // Its errors go to stderr.
+    return result.code === 0 ? { code: 0, stdout: result.output, stderr: '' } : { code: result.code, stdout: '', stderr: result.output };
   };
-  return { present, calls, inputs, credentials, saved: () => saved, options: { platform: 'win32' as const, run, exists: async (root: string) => present.has(root), credentials } };
+  return { present, calls, inputs, dpapi, credentials, saved: () => saved, options: { platform: 'win32' as const, run, exists: async (root: string) => present.has(root), credentials } };
 }
 
 describe('network drives', () => {
@@ -120,6 +129,15 @@ describe('network drives', () => {
     expect(await drives.prepare('\\\\backup\\filme\\Film.mkv')).toBeNull();
 
     expect((await drives.removeCredential('\\\\nas')).map((drive) => drive.username)).toEqual([null, null]);
+    expect(world.saved()).toEqual([]);
+  });
+
+  it('says why Windows could not encrypt the password, and keeps nothing then', async () => {
+    const world = fakeWindows();
+    world.dpapi.works = false;
+    await expect(createDrives(world.options).setCredential('\\\\nas', 'rolf', 'Grüezi 123')).rejects.toThrow(
+      'Windows konnte das Passwort nicht verschlüsseln: Der Schlüsselsatz ist nicht vorhanden.',
+    );
     expect(world.saved()).toEqual([]);
   });
 

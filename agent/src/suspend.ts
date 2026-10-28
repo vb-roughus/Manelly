@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { defaultPowershell, scriptArgs, scriptError } from './powershell.js';
 
 export type SuspendAction = 'suspend' | 'resume';
 
@@ -8,7 +8,6 @@ export type Suspender = (pid: number, action: SuspendAction) => Promise<void>;
 
 /** NtSuspendProcess holds every thread of the process, like SIGSTOP; Windows has no signal for it. */
 const windowsScript = (pid: number, action: SuspendAction) => `
-$ErrorActionPreference = 'Stop'
 Add-Type -Namespace Manelly -Name Process -MemberDefinition '
   [DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr handle);
   [DllImport("ntdll.dll")] public static extern int NtResumeProcess(IntPtr handle);'
@@ -18,18 +17,14 @@ if ($status -ne 0) { throw "NTSTATUS $status" }
 `;
 
 function runPowerShell(script: string): Promise<void> {
-  // The autostart may run without the PATH of an interactive session.
-  const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   return new Promise((resolve, reject) => {
-    const child = spawn(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
-      windowsHide: true,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      timeout: 30_000,
-    });
-    let errors = '';
-    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (errors += chunk));
+    const child = spawn(defaultPowershell(), scriptArgs(script), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(errors.trim().split(/\r?\n/)[0] || `PowerShell endete mit ${code}.`))));
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(scriptError(stdout, stderr, code)))));
   });
 }
 

@@ -1,21 +1,22 @@
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
-import path from 'node:path';
 import type { NetworkDrive } from '@manelly/shared';
 import { AgentError } from './errors.js';
+import { defaultPowershell, scriptArgs, scriptError } from './powershell.js';
 
-/** Output and exit code of a command, with what it reads from stdin; injectable for tests. */
-export type CommandRunner = (command: string, args: string[], input?: string) => Promise<{ code: number | null; output: string }>;
+/** Exit code, stdout and stderr of a command, with what it reads from stdin; injectable for tests. */
+export type CommandRunner = (command: string, args: string[], input?: string) => Promise<{ code: number | null; stdout: string; stderr: string }>;
 
 const runCommand: CommandRunner = (command, args, input) =>
   new Promise((resolve) => {
     // Without input, stdin is closed: net use must not wait for a password nobody can type.
     const child = spawn(command, args, { windowsHide: true, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], timeout: 30_000 });
-    let output = '';
-    child.stdout?.setEncoding('utf8').on('data', (chunk: string) => (output += chunk));
-    child.stderr?.setEncoding('utf8').on('data', (chunk: string) => (output += chunk));
-    child.on('error', (error) => resolve({ code: null, output: error.message }));
-    child.on('close', (code) => resolve({ code, output }));
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
+    child.stderr?.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
+    child.on('error', (error) => resolve({ code: null, stdout, stderr: error.message }));
+    child.on('close', (code) => resolve({ code, stdout, stderr }));
     if (input !== undefined) child.stdin?.end(input);
   });
 
@@ -93,9 +94,12 @@ export function describeNetError(output: string): { reason: string; needsLogin: 
 export const CREDENTIALS_HINT = 'In Manelly unter Server → Agent bei den Netzlaufwerken Benutzername und Passwort für das NAS hinterlegen.';
 
 // The scripts get everything through stdin, as base64 of UTF-8 JSON: nothing secret on a command line, and umlauts
-// in passwords survive whatever code page the console has.
-const READ_INPUT = `$ErrorActionPreference = 'Stop'
-$in = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd().Trim())) | ConvertFrom-Json
+// in passwords survive whatever code page the console has. Piped input usually arrives as $input; read the stream
+// itself when it does not.
+const READ_INPUT = `$raw = (@($input) -join '').Trim()
+if (-not $raw) { $raw = [Console]::In.ReadToEnd().Trim() }
+if (-not $raw) { throw 'Der Agent hat keine Daten übergeben.' }
+$in = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw)) | ConvertFrom-Json
 Add-Type -AssemblyName System.Security`;
 
 /** Encrypts with DPAPI for this computer: any account here may decrypt it – also the autostart without logon. */
@@ -117,8 +121,7 @@ $resource.LocalName = $in.local
 $resource.RemoteName = $in.remote
 [Console]::Out.Write([Manelly.Net]::WNetAddConnection2($resource, $password, $in.username, 0))`;
 
-// The autostart may run without the PATH of an interactive session.
-const POWERSHELL = path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const POWERSHELL = defaultPowershell();
 
 /**
  * Network drives on Windows. Started without a logon (the autostart), the agent does not see the drive letters the
@@ -143,8 +146,8 @@ export function createDrives(options: {
   let listed: { at: number; drives: Promise<NetworkDrive[]> } | null = null;
 
   async function mappings() {
-    const { code, output } = await run('reg', ['query', 'HKCU\\Network', '/s']);
-    return code === 0 ? parseMappings(output) : [];
+    const { code, stdout } = await run('reg', ['query', 'HKCU\\Network', '/s']);
+    return code === 0 ? parseMappings(stdout) : [];
   }
 
   const loginFor = (remote: string) => {
@@ -154,7 +157,7 @@ export function createDrives(options: {
 
   async function powershell(script: string, input: object) {
     const encoded = Buffer.from(JSON.stringify(input), 'utf8').toString('base64');
-    return run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], encoded);
+    return run(POWERSHELL, scriptArgs(script), encoded);
   }
 
   /** Connects a share to a letter, or without one (local null); resolves to why it failed, or null. */
@@ -162,17 +165,17 @@ export function createDrives(options: {
     const login = loginFor(remote);
     let failure: { reason: string; needsLogin: boolean } | null;
     if (login) {
-      const { code, output } = await powershell(CONNECT_SCRIPT, { local, remote, username: login.username, secret: login.secret });
-      const result = code === 0 && /^\d+$/.test(output.trim()) ? Number(output.trim()) : null;
+      const { code, stdout, stderr } = await powershell(CONNECT_SCRIPT, { local, remote, username: login.username, secret: login.secret });
+      const result = code === 0 && /^\d+$/.test(stdout.trim()) ? Number(stdout.trim()) : null;
       failure =
         result === 0
           ? null
           : result !== null
             ? describeNetCode(result)
-            : { reason: `Windows meldet: ${output.trim().split(/\r?\n/)[0] || `PowerShell endete mit ${code}`}`, needsLogin: false };
+            : { reason: `Windows meldet: ${scriptError(stdout, stderr, code)}`, needsLogin: false };
     } else {
-      const { code, output } = await run('net', ['use', ...(local ? [local] : []), remote, '/persistent:no']);
-      failure = code === 0 ? null : describeNetError(output);
+      const { code, stdout, stderr } = await run('net', ['use', ...(local ? [local] : []), remote, '/persistent:no']);
+      failure = code === 0 ? null : describeNetError(`${stdout}\n${stderr}`);
     }
     listed = null;
     if (!failure || (local && (await exists(`${local}\\`)))) return null;
@@ -279,10 +282,10 @@ export function createDrives(options: {
      */
     async setCredential(server: string, username: string, password: string): Promise<NetworkDrive[]> {
       requireWindows();
-      const { code, output } = await powershell(PROTECT_SCRIPT, { password });
-      const secret = output.trim();
+      const { code, stdout, stderr } = await powershell(PROTECT_SCRIPT, { password });
+      const secret = stdout.trim();
       if (code !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(secret)) {
-        throw new AgentError(500, `Windows konnte das Passwort nicht verschlüsseln: ${secret.split(/\r?\n/)[0] || `PowerShell endete mit ${code}`}`);
+        throw new AgentError(500, `Windows konnte das Passwort nicht verschlüsseln: ${scriptError(stdout, stderr, code)}`);
       }
       await credentials.set([...credentials.get().filter((credential) => !sameServer(credential.server, server)), { server, username, secret }]);
       log(`Anmeldedaten für ${server} (${username}) von Manelly erhalten.`);

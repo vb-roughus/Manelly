@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type {
+  LibraryScanRequest,
   LibraryScanStatus,
   MediaDetail,
   MediaDiagnosisResponse,
@@ -65,7 +66,17 @@ export async function mediaRoutes(app: FastifyInstance, opts: { connection: Jell
 
   // Jellyfin's scan of its libraries; once it ended, the index is read again.
   app.get('/scan', async (): Promise<LibraryScanStatus> => scanner.status());
-  app.post('/scan', async (): Promise<LibraryScanStatus> => scanner.start());
+  // Without a body, or without a library, all libraries are scanned.
+  app.post<{ Body: LibraryScanRequest }>(
+    '/scan',
+    {
+      preValidation: async (request) => {
+        request.body ??= {};
+      },
+      schema: { body: { type: 'object', additionalProperties: false, properties: { libraryId: { type: 'string', minLength: 1, maxLength: 64 } } } },
+    },
+    async (request): Promise<LibraryScanStatus> => (request.body.libraryId ? scanner.startLibrary(request.body.libraryId) : scanner.start()),
+  );
   app.delete('/scan', async (): Promise<LibraryScanStatus> => scanner.cancel());
 
   app.get('/facets', async (): Promise<MediaFacetsResponse> => {

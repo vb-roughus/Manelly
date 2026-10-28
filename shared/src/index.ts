@@ -468,15 +468,34 @@ export interface MediaIndexStatus {
   skipped: SkippedTitle[];
 }
 
-/** Jellyfin's scan of all libraries for new and changed files (its task «Medienbibliothek scannen»); /api/media/scan. */
+/**
+ * Jellyfin's scan for new and changed files: of all libraries (its task «Medienbibliothek scannen»), or of single ones;
+ * /api/media/scan.
+ */
 export interface LibraryScanStatus {
-  /** Running also right after Manelly asked for it, until Jellyfin reports the task. */
+  /** The scan of all libraries; running also right after Manelly asked for it, until Jellyfin reports the task. */
   state: 'idle' | 'running' | 'cancelling';
   /** Percent while it runs, when Jellyfin says. */
   progress: number | null;
-  /** The last scan that ended, as Jellyfin reports it. */
+  /** The last scan of all libraries that ended, as Jellyfin reports it. */
   lastRun: { startedAt: string | null; endedAt: string | null; result: 'completed' | 'failed' | 'cancelled' | 'aborted'; error: string | null } | null;
-  libraries: Array<{ name: string; type: string | null; locations: string[] }>;
+  libraries: LibraryScanEntry[];
+}
+
+export interface LibraryScanEntry {
+  /** Jellyfin's id of the library, for scanning it alone; null when Jellyfin gives none. */
+  id: string | null;
+  name: string;
+  type: string | null;
+  locations: string[];
+  /** Jellyfin scans it right now (or was just asked to); percent when it says. */
+  scanning: boolean;
+  progress: number | null;
+}
+
+/** POST /api/media/scan: one library, or all of them without an id. */
+export interface LibraryScanRequest {
+  libraryId?: string;
 }
 
 export interface SkippedTitle {

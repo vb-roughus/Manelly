@@ -91,6 +91,23 @@ describe('media index store', () => {
     expect(runs).toHaveLength(2); // already building
   });
 
+  it('builds once more when asked to while a build runs, e.g. after a second library scan ended', async () => {
+    const { store, runs } = await setup();
+    store.get();
+    store.refresh();
+    store.refresh();
+    expect(runs).toHaveLength(1);
+
+    runs[0]!.resolve(emptyIndex('early'));
+    await flush();
+    expect(runs).toHaveLength(2);
+    expect(store.get()?.facets.genres[0]?.value).toBe('early');
+    runs[1]!.resolve(emptyIndex('late'));
+    await flush();
+    expect(runs).toHaveLength(2);
+    expect(store.get()?.facets.genres[0]?.value).toBe('late');
+  });
+
   it('drops the index when the connection changes and ignores late results', async () => {
     const { connection, store, runs } = await setup();
     store.get();

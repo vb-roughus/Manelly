@@ -23,6 +23,7 @@ import type {
   JDownloaderAction,
   JDownloaderSettings,
   JDownloaderStatus,
+  LibraryScanRequest,
   LibraryScanStatus,
   LinkGrabberContainerAnswer,
   LinkGrabberMoveRequest,
@@ -172,29 +173,34 @@ export function useRefreshMedia() {
   });
 }
 
-/** Jellyfin's scan of all its libraries: often while it runs, `idlePollMs` otherwise (to see scans started in Jellyfin). */
+/** Something is scanned: all libraries, or single ones. */
+const scanBusy = (status: LibraryScanStatus | undefined) => Boolean(status && (status.state !== 'idle' || status.libraries.some((library) => library.scanning)));
+
+/** Jellyfin's scan of its libraries: often while one runs, `idlePollMs` otherwise (to see scans started in Jellyfin). */
 export function useLibraryScan(enabled: boolean, idlePollMs: number | false = false) {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ['library-scan'],
     queryFn: ({ signal }) => fetchJson<LibraryScanStatus>('/api/media/scan', signal),
-    refetchInterval: (q) => (q.state.data && q.state.data.state !== 'idle' ? 2_000 : idlePollMs),
+    refetchInterval: (q) => (scanBusy(q.state.data) ? 2_000 : idlePollMs),
     enabled,
   });
   // Once a scan ended, the server reads the media again: show that.
-  const state = query.data?.state;
-  const previous = useRef(state);
+  const busy = query.data ? scanBusy(query.data) : undefined;
+  const previous = useRef(busy);
   useEffect(() => {
-    if (previous.current && previous.current !== 'idle' && state === 'idle') void queryClient.invalidateQueries({ queryKey: ['media'] });
-    previous.current = state;
-  }, [state, queryClient]);
+    if (previous.current && busy === false) void queryClient.invalidateQueries({ queryKey: ['media'] });
+    previous.current = busy;
+  }, [busy, queryClient]);
   return query;
 }
 
+/** `cancel` stops the scan of all libraries; otherwise one library (`libraryId`) or all of them are scanned. */
 export function useLibraryScanAction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (action: 'start' | 'cancel') => sendJson<LibraryScanStatus>(action === 'start' ? 'POST' : 'DELETE', '/api/media/scan'),
+    mutationFn: (action: 'cancel' | LibraryScanRequest) =>
+      action === 'cancel' ? sendJson<LibraryScanStatus>('DELETE', '/api/media/scan') : sendJson<LibraryScanStatus>('POST', '/api/media/scan', action),
     onSuccess: (status) => queryClient.setQueryData(['library-scan'], status),
   });
 }

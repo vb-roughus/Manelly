@@ -24,6 +24,7 @@ import type {
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
   NetworkDrives,
+  NetworkInterfacesRequest,
   SaveAgentSettingsRequest,
   StartConversionRequest,
   WorkFolderRequest,
@@ -171,7 +172,7 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
 
   app.get('/network/interfaces', async (): Promise<AgentNetworkList> => requireAgent(agent).networkInterfaces());
 
-  app.put<{ Body: { interfaces: string[] } }>(
+  app.put<{ Body: NetworkInterfacesRequest }>(
     '/network/interfaces',
     {
       schema: {
@@ -179,13 +180,22 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
           type: 'object',
           additionalProperties: false,
           required: ['interfaces'],
-          properties: { interfaces: { type: 'array', maxItems: 16, items: { type: 'string', minLength: 1, maxLength: 256 } } },
+          properties: {
+            interfaces: { type: 'array', maxItems: 16, items: { type: 'string', minLength: 1, maxLength: 256 } },
+            roles: {
+              type: 'object',
+              maxProperties: 16,
+              additionalProperties: { type: 'array', maxItems: 3, uniqueItems: true, items: { type: 'string', enum: ['streaming', 'management', 'storage'] } },
+            },
+          },
         },
       },
     },
     async (request): Promise<AgentNetworkList> => {
-      const list = await requireAgent(agent).setNetworkInterfaces(request.body.interfaces);
-      const names = list.interfaces.filter((nic) => list.selected.includes(nic.id)).map((nic) => nic.name);
+      const list = await requireAgent(agent).setNetworkInterfaces(request.body);
+      const names = list.interfaces
+        .filter((nic) => list.selected.includes(nic.id))
+        .map((nic) => (list.roles?.[nic.id]?.length ? `${nic.name} (${list.roles[nic.id]!.join(', ')})` : nic.name));
       request.log.info(`Überwachte Netzwerkschnittstellen: ${names.join(', ') || 'keine'}`);
       return list;
     },

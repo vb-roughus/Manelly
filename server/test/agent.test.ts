@@ -52,7 +52,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
   };
   const jobs: ConversionJob[] = [];
   // Agents from 0.2.0 on report their schedule and what Jellyfin they know.
-  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus, network: [] as string[], work: null as string | null, originals: [
+  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus, network: [] as string[], roles: {} as Record<string, string[]>, work: null as string | null, originals: [
     { id: 'o1', title: 'Pitch Black (2000)', source: 'D:\\Filme\\Pitch Black (2000)\\Pitch Black (2000).mkv', path: 'F:\\Manelly\\Originale\\Pitch Black (2000).mkv', bytes: 40e9, archivedAt: '2026-08-01T10:00:00Z' },
   ] };
 
@@ -88,8 +88,11 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         return Response.json(agent.schedule);
       }
       if (url.pathname === '/api/network/interfaces') {
-        if (init?.method === 'PUT') agent.network = body.interfaces;
-        return Response.json({ interfaces: [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: [] }], selected: agent.network });
+        if (init?.method === 'PUT') {
+          agent.network = body.interfaces;
+          agent.roles = body.roles ?? {};
+        }
+        return Response.json({ interfaces: [{ id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', type: 'Ethernet', up: true, speedBps: 1e9, addresses: [] }], selected: agent.network, roles: agent.roles });
       }
       if (url.pathname.startsWith('/api/jdownloader/accounts')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
@@ -353,8 +356,10 @@ describe('agent connection', () => {
     expect((await app.inject('/api/agent/network/interfaces')).json<AgentNetworkList>().interfaces[0]?.name).toBe('Ethernet');
     const tooMany = await app.inject({ method: 'PUT', url: '/api/agent/network/interfaces', payload: { interfaces: Array.from({ length: 17 }, (_, i) => `{${i}}`) } });
     expect(tooMany.statusCode).toBe(400);
-    const saved = await app.inject({ method: 'PUT', url: '/api/agent/network/interfaces', payload: { interfaces: ['{A1}'] } });
-    expect(saved.json<AgentNetworkList>().selected).toEqual(['{A1}']);
+    const badRole = await app.inject({ method: 'PUT', url: '/api/agent/network/interfaces', payload: { interfaces: ['{A1}'], roles: { '{A1}': ['backup'] } } });
+    expect(badRole.statusCode).toBe(400);
+    const saved = await app.inject({ method: 'PUT', url: '/api/agent/network/interfaces', payload: { interfaces: ['{A1}'], roles: { '{A1}': ['storage', 'streaming'] } } });
+    expect(saved.json<AgentNetworkList>()).toMatchObject({ selected: ['{A1}'], roles: { '{A1}': ['storage', 'streaming'] } });
     expect(world.agent.network).toEqual(['{A1}']);
     expect((await app.inject('/api/agent/network')).json<AgentNetworkStatus>().interfaces[0]).toMatchObject({ id: '{A1}', txBps: 4e7 });
   });

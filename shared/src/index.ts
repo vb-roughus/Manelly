@@ -748,11 +748,26 @@ export interface AgentNetworkInterface {
   addresses: string[];
 }
 
+/**
+ * What a monitored interface is for: towards the players, for administration, towards the storage with the films.
+ * Not every server has an interface for each, so one interface can have several roles.
+ */
+export type NetworkRole = 'streaming' | 'management' | 'storage';
+
 /** GET /api/network/interfaces on the agent. */
 export interface AgentNetworkList {
   interfaces: AgentNetworkInterface[];
   /** Ids of the monitored interfaces. */
   selected: string[];
+  /** Roles of the monitored interfaces by id; missing on agents before 0.19.0. */
+  roles?: Record<string, NetworkRole[]>;
+}
+
+/** PUT /api/network/interfaces on the agent: which interfaces to monitor, and their roles. */
+export interface NetworkInterfacesRequest {
+  interfaces: string[];
+  /** By interface id; ids that are not monitored are ignored. */
+  roles?: Record<string, NetworkRole[]>;
 }
 
 export interface NetworkRatePoint {
@@ -766,6 +781,8 @@ export interface MonitoredInterface {
   id: string;
   name: string;
   description: string | null;
+  /** Missing on agents before 0.19.0. */
+  roles?: NetworkRole[];
   up: boolean;
   speedBps: number | null;
   /** Bits per second; null until two samples are in. */

@@ -26,6 +26,7 @@ import type {
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
   NetworkDrives,
+  NetworkInterfacesRequest,
   WorkFolderStatus,
 } from '@manelly/shared';
 import { AppError } from '../errors.js';
@@ -54,7 +55,7 @@ export interface AgentClient {
   /** Lets the agent see streams and report new files to Jellyfin. */
   setJellyfin(access: AgentJellyfinAccess): Promise<void>;
   networkInterfaces(): Promise<AgentNetworkList>;
-  setNetworkInterfaces(ids: string[]): Promise<AgentNetworkList>;
+  setNetworkInterfaces(request: NetworkInterfacesRequest): Promise<AgentNetworkList>;
   /** Rates of the monitored interfaces; asking keeps the agent measuring. */
   network(): Promise<AgentNetworkStatus>;
   /** CPU and GPU of the Jellyfin server; asking keeps the agent measuring. */
@@ -143,7 +144,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     setJellyfin: (access) => call('PUT', '/api/jellyfin', access),
     // Listing the interfaces starts a PowerShell on Windows, which can take a few seconds.
     networkInterfaces: () => call('GET', '/api/network/interfaces', undefined, 30_000),
-    setNetworkInterfaces: (ids) => call('PUT', '/api/network/interfaces', { interfaces: ids }, 30_000),
+    setNetworkInterfaces: (request) => call('PUT', '/api/network/interfaces', request, 30_000),
     network: () => call('GET', '/api/network'),
     resources: () => call('GET', '/api/resources'),
     // The agent asks JDownloader several things in a row; each may take up to 5 s.

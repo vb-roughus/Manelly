@@ -47,7 +47,7 @@ Live-Übersicht der laufenden Streams:
   aktuellem Treiber, auf Linux nur für AMD und ohne Anteil pro Prozess
 - Ein Klick auf die Kachel **Bandbreite** klappt die Details auf: die aktuelle Bitrate jedes Streams (gesamt und davon
   nach extern) und darunter das **Netzwerk des Jellyfin-Servers** (mit Agent): Senden und Empfangen der unter
-  Einstellungen gewählten Schnittstellen, Auslastung gemessen an der Link-Geschwindigkeit (ab 70 % gelb, ab 90 % rot) und
+  Einstellungen gewählten Schnittstellen mit ihren Rollen, Auslastung gemessen an der Link-Geschwindigkeit (ab 70 % gelb, ab 90 % rot) und
   der Verlauf der letzten 10 Minuten. Der Agent misst nur die gewählten Schnittstellen und nur, solange das Dashboard
   offen ist (danach noch 10 Minuten) – so ist der Verlauf beim Aufklappen schon da
 
@@ -151,9 +151,12 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   bleibt auch über einen Neustart des Agents pausiert
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
-- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung des Servers** (dieselbe Anzeige
-  wie im Dashboard, mit dem Anteil der Umwandlung zuerst) und der Ausgabe des Werkzeugs bei Fehlern; danach meldet
-  der Agent die neue Datei an Jellyfin, damit sie gleich erscheint
+- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
+  Storage-Schnittstelle** und der Ausgabe des Werkzeugs bei Fehlern; danach meldet der Agent die neue Datei an Jellyfin,
+  damit sie gleich erscheint. Eine Umwandlung kodiert das Bild nicht neu, sie kopiert vor allem – CPU und GPU haben
+  wenig zu tun, das Tempo bestimmt der Weg zum Speicher. Darum zeigt die Karte Lesen, Schreiben und beides zusammen
+  (in MB/s) der Schnittstelle(n) mit der Rolle **Storage** (ab Agent 0.19.0, siehe [Rollen](#agent-auf-dem-jellyfin-server-windows)),
+  die Auslastung gemessen am Link und den Verlauf der letzten 10 Minuten
 - Für Zeitplan und Meldung gibt Manelly dem Agent die Jellyfin-Adresse und den API-Schlüssel (gespeichert in
   `agent\data\settings.json` auf dem Jellyfin-Server)
 - Manelly nennt dem Agent jede Datei, jeden Zielordner (aus Jellyfin) und den Arbeitsordner – der Agent durchsucht keine
@@ -327,8 +330,10 @@ dem Jellyfin läuft:
   gefunden wird; `-Install` trägt Werkzeuge ein, die nur über den PATH gefunden werden) und `roots` – eine Liste von Ordnern, auf die der Agent sich beschränken soll (leer: jeder Ordner, den
   Manelly nennt). Nach Änderungen den Agent neu starten.
 - Netzwerk: Unter **Einstellungen → Netzwerk des Jellyfin-Servers** die Schnittstellen wählen, die das Dashboard zeigen
-  soll. Auf Windows liest der Agent dafür die Zähler von Windows über PowerShell (ein Prozess, solange gemessen wird), auf
-  Linux aus `/sys/class/net`.
+  soll, und ihnen **Rollen** geben (ab Agent 0.19.0): **Streaming** (zu den Abspielgeräten), **Management** (Verwaltung,
+  z. B. Manelly) und **Storage** (zum Speicher mit den Filmen, z. B. dem NAS – diese zeigt Manelly bei den Umwandlungen).
+  Hat der Server nicht für alles eine eigene Schnittstelle, bekommt eine Schnittstelle mehrere Rollen. Auf Windows liest
+  der Agent die Zähler von Windows über PowerShell (ein Prozess, solange gemessen wird), auf Linux aus `/sys/class/net`.
 - Aufzeichnung: `agent\data\history`, eine Datei pro Tag und Art (Messwerte, Streams). Löschen geht auch auf der Seite
   Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der

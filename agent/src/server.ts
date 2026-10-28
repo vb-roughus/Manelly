@@ -19,6 +19,7 @@ import type {
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
   NetworkDrives,
+  NetworkRole,
   WorkFolderRequest,
   WorkFolderStatus,
 } from '@manelly/shared';
@@ -33,7 +34,7 @@ import type { JobQueue } from './jobs.js';
 import type { Originals } from './originals.js';
 import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
-import { parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
+import { NETWORK_ROLES, parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type NetworkSelection, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 import type { Updater } from './updater.js';
 import { isWithin, pathApiFor, type PathAccess } from './paths.js';
@@ -112,7 +113,8 @@ export function createAgentServer(options: AgentServerOptions) {
     const interfaces = await network.list().catch((error: Error) => {
       throw new AgentError(503, error.message);
     });
-    return { interfaces, selected: settings.get().network.map((entry) => entry.id) };
+    const selected = settings.get().network;
+    return { interfaces, selected: selected.map((entry) => entry.id), roles: Object.fromEntries(selected.map((entry) => [entry.id, entry.roles])) };
   }
 
   function schedule(): AgentScheduleStatus {
@@ -351,15 +353,23 @@ export function createAgentServer(options: AgentServerOptions) {
     }
     if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
     if (route === 'PUT /api/network/interfaces') {
-      const body = await readJson<{ interfaces?: unknown }>(request);
+      const body = await readJson<{ interfaces?: unknown; roles?: unknown }>(request);
       const ids = Array.isArray(body.interfaces) ? [...new Set(body.interfaces.filter((id): id is string => typeof id === 'string'))] : null;
       if (!ids || ids.length > MAX_MONITORED) throw new AgentError(400, `Eine Liste von höchstens ${MAX_MONITORED} Schnittstellen erwartet.`);
+      // Without roles (Manelly before agent 0.19.0) the interfaces keep theirs.
+      const kept = Object.fromEntries(settings.get().network.map((entry) => [entry.id, entry.roles]));
+      const roles = body.roles ?? kept;
+      if (typeof roles !== 'object' || Array.isArray(roles)) throw new AgentError(400, 'Die Rollen werden je Schnittstelle erwartet.');
       // Only interfaces this machine has; their names are kept for the display.
       const available = ids.length ? await network.list() : [];
-      const selection = ids.map((id) => {
+      const selection = ids.map((id): NetworkSelection => {
         const nic = available.find((candidate) => candidate.id === id);
         if (!nic) throw new AgentError(400, 'Diese Netzwerkschnittstelle gibt es auf dem Server nicht (mehr).');
-        return { id: nic.id, name: nic.name, description: nic.description };
+        const wanted = (roles as Record<string, unknown>)[id] ?? [];
+        if (!Array.isArray(wanted) || wanted.some((role) => !NETWORK_ROLES.includes(role as NetworkRole))) {
+          throw new AgentError(400, `Unbekannte Rolle für ${nic.name}; möglich sind ${NETWORK_ROLES.join(', ')}.`);
+        }
+        return { id: nic.id, name: nic.name, description: nic.description, roles: NETWORK_ROLES.filter((role) => wanted.includes(role)) };
       });
       await settings.setNetwork(selection);
       network.restart();

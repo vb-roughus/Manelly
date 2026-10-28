@@ -39,7 +39,7 @@ export function SettingsPage() {
           id="network"
           icon={Network}
           title="Netzwerk des Jellyfin-Servers"
-          description="Welche Schnittstellen das Dashboard zeigt. Der Agent misst nur diese, und nur solange Manelly sie anzeigt oder aufzeichnet."
+          description="Welche Schnittstellen das Dashboard zeigt und wofür sie da sind. Der Agent misst nur diese, und nur solange Manelly sie anzeigt oder aufzeichnet."
         >
           <NetworkInterfacesForm />
         </SettingsSection>

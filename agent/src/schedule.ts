@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, HistorySettings, JDownloaderSettings } from '@manelly/shared';
+import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, HistorySettings, JDownloaderSettings, NetworkRole } from '@manelly/shared';
 import type { NetworkCredential } from './drives.js';
 import { AgentError } from './errors.js';
 import { createJellyfinApi } from './jellyfin.js';
@@ -10,7 +10,10 @@ export interface NetworkSelection {
   id: string;
   name: string;
   description: string | null;
+  roles: NetworkRole[];
 }
+
+export const NETWORK_ROLES: readonly NetworkRole[] = ['streaming', 'management', 'storage'];
 
 /** What the agent changed on JDownloader while somebody streamed, to put it back afterwards – also after a restart. */
 export interface JDownloaderHold {
@@ -85,6 +88,12 @@ export function parseHistorySettings(input: unknown): HistorySettings {
 const isSelection = (value: unknown): value is NetworkSelection =>
   typeof (value as NetworkSelection)?.id === 'string' && typeof (value as NetworkSelection).name === 'string';
 
+/** Stored before 0.19.0 without roles. */
+const withRoles = (entry: NetworkSelection): NetworkSelection => ({
+  ...entry,
+  roles: Array.isArray(entry.roles) ? NETWORK_ROLES.filter((role) => entry.roles.includes(role)) : [],
+});
+
 const isCredential = (value: unknown): value is NetworkCredential =>
   ['server', 'username', 'secret'].every((key) => typeof (value as Record<string, unknown>)?.[key] === 'string');
 
@@ -105,7 +114,7 @@ export async function createSettingsStore(dataDir: string) {
     current = {
       schedule: stored.schedule ? parseSchedule(stored.schedule) : DEFAULT_SCHEDULE,
       jellyfin: stored.jellyfin ? parseJellyfinAccess(stored.jellyfin) : null,
-      network: Array.isArray(stored.network) ? stored.network.filter(isSelection) : [],
+      network: Array.isArray(stored.network) ? stored.network.filter(isSelection).map(withRoles) : [],
       jdownloader: stored.jdownloader ? parseJDownloaderSettings(stored.jdownloader) : DEFAULT_JDOWNLOADER,
       jdownloaderHold: stored.jdownloaderHold && (stored.jdownloaderHold.mode === 'limit' || stored.jdownloaderHold.mode === 'pause') ? stored.jdownloaderHold : null,
       history: stored.history ? parseHistorySettings(stored.history) : DEFAULT_HISTORY,

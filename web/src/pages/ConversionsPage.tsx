@@ -4,12 +4,13 @@ import type { ConversionJob } from '@manelly/shared';
 import { Ban, Clock, Pause, Play, RotateCcw, Trash2, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge, STEP_LABELS } from '../components/ConversionStatus';
-import { ResourceUsage } from '../components/ResourceUsage';
+import { InterfaceTile } from '../components/NetworkInterfaces';
 import { SchedulePanel } from '../components/SchedulePanel';
 import { OriginalsPanel } from '../components/OriginalsPanel';
 import { WorkFolderPanel } from '../components/WorkFolderPanel';
-import { useAgent, useAgentResources, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
+import { useAgent, useAgentNetwork, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
 import { formatAgo } from '../lib/format';
+import { roleLabel } from '../lib/networkRoles';
 
 export function ConversionsPage() {
   useEffect(() => {
@@ -151,7 +152,7 @@ function JobCard({ job }: { job: ConversionJob }) {
           warten so lange.
         </p>
       )}
-      {job.state === 'running' && <ServerLoad />}
+      {job.state === 'running' && <StorageLoad />}
       {job.state === 'queued' && (
         <p className="mt-3 flex gap-2 text-sm text-ink-2">
           <Clock className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -205,24 +206,60 @@ function JobCard({ job }: { job: ConversionJob }) {
   );
 }
 
-/** CPU and GPU of the Jellyfin server, with the share of this conversion; the agent measures only while it is open. */
-function ServerLoad() {
+/**
+ * How busy the way to the storage is – a conversion mostly copies, so that is what limits it rather than CPU or GPU.
+ * The agent measures only while it is open.
+ */
+function StorageLoad() {
   const [open, setOpen] = useState(false);
   return (
     <details className="mt-3 text-xs" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="cursor-pointer text-ink-2">Auslastung des Servers</summary>
+      <summary className="cursor-pointer text-ink-2">Auslastung der Storage-Schnittstelle</summary>
       {open && (
         <div className="mt-3 rounded-lg bg-card-2/50 p-3 text-sm ring-1 ring-line">
-          <ServerLoadDetails />
+          <StorageLoadDetails />
         </div>
       )}
     </details>
   );
 }
 
-function ServerLoadDetails() {
-  const resources = useAgentResources(true);
-  return <ResourceUsage data={resources.data} error={resources.error} focus="conversion" />;
+function StorageLoadDetails() {
+  const network = useAgentNetwork(true);
+  if (network.error) return <p className="text-critical">{network.error.message}</p>;
+  if (!network.data) return <div aria-busy className="h-24 animate-pulse rounded-lg bg-card-2" />;
+  const storage = network.data.interfaces.filter((nic) => nic.roles?.includes('storage'));
+  if (storage.length === 0) {
+    return (
+      <p className="text-ink-2">
+        Gib in den{' '}
+        <Link to="/settings#network" className="font-medium text-accent hover:underline">
+          Einstellungen
+        </Link>{' '}
+        der Netzwerkschnittstelle zum Speicher (z. B. NAS) die Rolle «Storage», um hier zu sehen, wie ausgelastet sie ist.
+      </p>
+    );
+  }
+  return (
+    <>
+      {network.data.error && <p className="mb-3 text-critical">{network.data.error}</p>}
+      <ul className="grid gap-3 md:grid-cols-2">
+        {storage.map((nic) => {
+          const shared = (nic.roles ?? []).filter((role) => role !== 'storage');
+          return (
+            <li key={nic.id}>
+              <InterfaceTile
+                nic={nic}
+                intervalMs={network.data.intervalMs}
+                storage
+                note={shared.length > 0 && `Dient auch für ${shared.map(roleLabel).join(' und ')} – Lesen und Schreiben enthalten auch diesen Verkehr.`}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
 }
 
 function Panel({ tone, children }: { tone?: 'critical'; children: ReactNode }) {

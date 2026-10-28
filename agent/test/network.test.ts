@@ -97,7 +97,7 @@ if (!script.includes('GetIPStatistics')) {
 });
 
 describe('monitor', () => {
-  const selection = [{ id: 'eth0', name: 'Ethernet', description: 'Intel I219-V' }];
+  const selection = [{ id: 'eth0', name: 'Ethernet', description: 'Intel I219-V', roles: ['storage' as const] }];
 
   /** A source whose samples the test hands in. */
   function manualSource() {
@@ -121,7 +121,7 @@ describe('monitor', () => {
     expect(state.starts).toBe(0);
 
     // The first look starts measuring; rates need two samples.
-    expect(monitor.status().interfaces).toEqual([{ id: 'eth0', name: 'Ethernet', description: 'Intel I219-V', up: true, speedBps: null, rxBps: null, txBps: null, history: [] }]);
+    expect(monitor.status().interfaces).toEqual([{ id: 'eth0', name: 'Ethernet', description: 'Intel I219-V', roles: ['storage'], up: true, speedBps: null, rxBps: null, txBps: null, history: [] }]);
     expect(state.starts).toBe(1);
     state.emit({ t: 10_000, nics: [{ id: 'eth0', rx: 0, tx: 0, up: true, speed: 1e9 }] });
     clock = 12_000;

@@ -64,7 +64,7 @@ Filme und Serien durchsuchen und filtern:
 - Schnellwahl **«Deutsch in Dolby Atmos»** und **«Ohne deutsche Tonspur»**; jeder Tonspur-Filter lässt sich auch umkehren
   («fehlt»)
 - Serien zeigen, in wie vielen Folgen die gesuchte Spur vorhanden ist; optional nur Serien, bei denen alle Folgen passen
-- Detailansicht mit allen Tonspuren jeder Version bzw. jeder Folge und Link zum Titel in Jellyfin
+- Detailansicht mit allen Tonspuren und der Dateigrösse jeder Version bzw. den Tonspuren jeder Folge und Link zum Titel in Jellyfin
 - **Treffer in eine Sammlung übernehmen:** alle Titel der aktuellen Suche zu einer bestehenden Jellyfin-Sammlung
   hinzufügen oder eine neue anlegen. Manelly zeigt vorher, wie viele schon drin sind, und fügt nur die fehlenden hinzu
 - Tonspur- und Video-Filter sind einklappbar und zeigen eingeklappt eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
@@ -151,7 +151,8 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   bleibt auch über einen Neustart des Agents pausiert
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
-- Seite **Umwandlungen** mit Fortschritt, Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
+- Seite **Umwandlungen** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Umwandlung – so
+  lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt, Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
   Storage-Schnittstelle** und der Ausgabe des Werkzeugs bei Fehlern; danach meldet der Agent die neue Datei an Jellyfin,
   damit sie gleich erscheint. Eine Umwandlung kodiert das Bild nicht neu, sie kopiert vor allem – CPU und GPU haben
   wenig zu tun, das Tempo bestimmt der Weg zum Speicher. Darum zeigt die Karte Lesen, Schreiben und beides zusammen

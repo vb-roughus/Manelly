@@ -145,6 +145,7 @@ export function toVersions(item: JfBaseItem): MediaVersion[] {
       dvProfile: video?.DvProfile ?? null,
       videoCodec: video?.Codec ?? null,
       audio: streams.filter((stream) => stream.Type === 'Audio').map(toAudioTrack),
+      bytes: 'Size' in source && source.Size ? source.Size : null,
     };
   });
 }

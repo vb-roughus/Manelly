@@ -109,7 +109,7 @@ const MOVIES: JfBaseItem[] = [
   {
     ...movie('m5', 'Two Versions', []),
     MediaSources: [
-      { Name: '1080p', MediaStreams: [video1080, audio('ger', 'ac3')] },
+      { Name: '1080p', Size: 12_400_000_000, MediaStreams: [video1080, audio('ger', 'ac3')] },
       { Name: '2160p', MediaStreams: [video4k, audio('ger', 'truehd', ATMOS_TRUEHD, 8)] },
     ],
   },
@@ -256,6 +256,8 @@ describe('media search', async () => {
   it('sorts and pages', () => {
     expect(names({ type: 'Movie', sort: 'year', order: 'desc', limit: 2 })).toEqual(['German TrueHD Atmos', 'Mixed Tracks']);
     expect(searchMedia(index, { type: 'Movie', offset: 4 })).toMatchObject({ total: 5, items: [{ name: 'Two Versions' }] });
+    // File sizes, where Jellyfin knows them.
+    expect(index.byId.get('m5')?.versions.map((version) => version.bytes)).toEqual([12_400_000_000, null]);
   });
 });
 

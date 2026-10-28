@@ -7,6 +7,8 @@ export const SOURCE_EXTENSIONS = new Set(['.mkv', '.mp4', '.m4v', '.ts', '.m2ts'
 /** Folders Jellyfin skips while scanning (dot folders, plus a .ignore file inside). */
 export const BACKUP_FOLDER = '.manelly-backup';
 export const TEMP_FOLDER_PREFIX = '.manelly-tmp-';
+/** In the work folder: the originals that conversions replaced, until they are deleted in Manelly. */
+export const ARCHIVE_FOLDER = 'Originale';
 
 export type PathApi = typeof path.posix;
 
@@ -101,6 +103,19 @@ function stem(file: string, api: PathApi): string {
   return api.basename(file, api.extname(file));
 }
 
+/** "Film.2026-10-25T18-30-00.mkv": another name for a file whose name is taken already. */
+function stamped(file: string, api: PathApi): string {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+  return api.join(api.dirname(file), `${stem(file, api)}.${stamp}${api.extname(file)}`);
+}
+
+/** Where a replaced original goes in the work folder: under its own name, or with a time stamp when that is taken. */
+export async function archivePath(work: string, source: string): Promise<string> {
+  const api = pathApiFor(work);
+  const path = api.join(work, ARCHIVE_FOLDER, pathApiFor(source).basename(source));
+  return (await kindOf(path)) ? stamped(path, api) : path;
+}
+
 export function defaultFileName(source: string, mode: ConversionRequest['output']['mode']): string {
   const api = pathApiFor(source);
   return mode === 'alongside' ? `${stem(source, api)} - DV P8.mkv` : `${stem(source, api)}.mkv`;
@@ -152,11 +167,8 @@ export async function planOutput(
     }
   } else if (output.mode === 'replace') {
     backup = api.join(directory, BACKUP_FOLDER, api.basename(source));
-    if (await kindOf(backup)) {
-      // Keep earlier backups: "Film.mkv" → "Film.2026-10-25T18-30-00.mkv".
-      const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      backup = api.join(directory, BACKUP_FOLDER, `${stem(source, api)}.${stamp}${api.extname(source)}`);
-    }
+    // Keep earlier backups: "Film.mkv" → "Film.2026-10-25T18-30-00.mkv".
+    if (await kindOf(backup)) backup = stamped(backup, api);
   } else if (output.mode !== 'alongside') {
     throw new AgentError(400, 'Unbekannter Speicherort.');
   }
@@ -175,6 +187,8 @@ export async function planOutput(
     if (!workFolder) throw new AgentError(400, 'Für den Agent ist kein Arbeitsordner eingerichtet – in Manelly unter Umwandlungen eintragen.');
     await requireKind('Der Ordner', workFolder, 'directory', access);
     work = workFolder;
+    // Replaced in the work folder, the original stays there instead of in a backup folder on the storage.
+    if (output.mode === 'replace') backup = await archivePath(work, source);
   }
   return { directory, output: target, backup, createDirectory, work };
 }

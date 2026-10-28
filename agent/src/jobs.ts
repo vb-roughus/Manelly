@@ -7,6 +7,7 @@ import { suspendProcess, type Suspender } from './suspend.js';
 import { AgentError } from './errors.js';
 import { pathApiFor, planOutput, type OutputPlan, type PathAccess } from './paths.js';
 import type { GateCheck } from './schedule.js';
+import type { Originals } from './originals.js';
 import { toolsReady, type Tools } from './tools.js';
 
 interface StoredJob {
@@ -38,6 +39,8 @@ export interface JobQueueOptions {
   retryMs?: number;
   /** The work folder set in Manelly, for jobs that convert there. */
   workFolder?: () => string | null;
+  /** Remembers the originals that conversions in the work folder replaced and kept there. */
+  originals?: Pick<Originals, 'add'>;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -269,6 +272,12 @@ export async function createJobQueue(options: JobQueueOptions) {
       });
       Object.assign(job, { state: 'done', step: null, progress: 1, output: result.output, backup: result.backup, warning: result.warning, finishedAt: now().toISOString() });
       log(`Umwandlung fertig: ${result.output}`);
+      if (result.archived && result.backup) {
+        const bytes = await stat(result.backup).then((info) => info.size, () => null);
+        await options.originals
+          ?.add({ title: job.title, source: job.source, path: result.backup, bytes })
+          .catch((error: unknown) => log(`Original ${result.backup} nicht in der Liste: ${(error as Error).message}`));
+      }
       if (notify) job.jellyfinNotified = await notify(job).catch(() => false);
     } catch (error) {
       if (controller.signal.reason === PAUSE) {

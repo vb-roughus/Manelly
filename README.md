@@ -118,7 +118,7 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 
 - In den Medien mit dem Filter **«Dolby Vision P7»** die Kandidaten finden, Titel öffnen, **«In Profil 8.1 umwandeln»**
 - Speicherort wählen: **neben dem Original** (Jellyfin zeigt beide als Versionen), **Original ersetzen** (das Original
-  wandert in einen Backup-Ordner `.manelly-backup`, den Jellyfin ignoriert) oder **ein anderer Ordner** einer
+  wandert in einen Backup-Ordner `.manelly-backup`, den Jellyfin ignoriert; mit Arbeitsordner siehe unten) oder **ein anderer Ordner** einer
   Jellyfin-Bibliothek (z. B. eine UHD-Bibliothek), mit Unterordner und Dateiname. Speicherort, «Wo umwandeln» und «Wann»
   sind Auswahllisten; vorgewählt ist, was bei der letzten Umwandlung in diesem Browser gewählt war (soweit es passt)
 - Der Agent löst die Videospur heraus (ffmpeg), wandelt die Dolby-Vision-Daten um (`dovi_tool -m 2 convert --discard`) und
@@ -132,6 +132,13 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
   macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** wandelt wie bisher dort um, wo die Datei
   liegt
+- **Originale im Arbeitsordner** (ab Agent 0.18.0): Bei **«Original ersetzen»** im Arbeitsordner kommt das Original nicht in
+  `.manelly-backup` auf dem Speicher, sondern bleibt als die Kopie, die schon im Arbeitsordner liegt, in dessen Unterordner
+  `Originale`. Auf dem Speicher wird es erst ganz am Schluss gegen die umgewandelte Datei getauscht – bis dahin spielt
+  Jellyfin es normal ab. Hat sich das Original während der Umwandlung verändert, bleibt es, wie es ist. Die Seite
+  **Umwandlungen** listet diese Originale mit Herkunft, Grösse und Alter: länger als 30 Tage aufbewahrt **gelb**, länger
+  als 90 Tage **rot**. Passt das Ergebnis, dort **«Löschen»** (mit Rückfrage). Der Agent löscht nur Originale, die er
+  selbst dort abgelegt hat. «Neben dem Original» und «Anderer Ordner» lassen das Original auf dem Speicher
 - **Sofort** oder **nach Zeitplan**: Auf der Seite **Umwandlungen** ein Zeitfenster (z. B. 01:00–07:00, Uhrzeit des
   Jellyfin-Servers) und/oder «nur wenn niemand streamt» einstellen. Geplante Umwandlungen startet der Agent selbst, auch
   wenn Manelly nicht läuft. Beginnt ein Stream, pausiert die Umwandlung und macht später beim zuletzt fertigen Schritt

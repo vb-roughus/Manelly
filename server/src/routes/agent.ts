@@ -8,6 +8,7 @@ import type {
   AgentScheduleStatus,
   AgentSettingsView,
   AgentStatus,
+  ArchivedOriginals,
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
@@ -257,6 +258,20 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
       },
     },
     async (request): Promise<JDownloaderStatus> => requireAgent(agent).setJDownloaderLimit(request.body.enabled, request.body.kbps),
+  );
+
+  // The originals that conversions in the work folder replaced; deleting one is for good.
+  app.get('/originals', async (): Promise<ArchivedOriginals> => requireAgent(agent).originals());
+  app.delete<{ Params: { id: string } }>(
+    '/originals/:id',
+    { schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^[\\w-]{1,64}$' } } } } },
+    async (request): Promise<ArchivedOriginals> => {
+      const client = requireAgent(agent);
+      const gone = (await client.originals()).originals.find((original) => original.id === request.params.id);
+      const rest = await client.removeOriginal(request.params.id);
+      request.log.info(`Original gelöscht: ${gone?.path ?? request.params.id}`);
+      return rest;
+    },
   );
 
   // The agent checks that the folder is there and takes files; Manelly only names it.

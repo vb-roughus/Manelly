@@ -6,7 +6,7 @@ import { constants as osConstants, setPriority } from 'node:os';
 import { finished } from 'node:stream/promises';
 import type { ConversionRequest, ConversionStep } from '@manelly/shared';
 import { AgentError } from './errors.js';
-import { pathApiFor, TEMP_FOLDER_PREFIX, type OutputPlan } from './paths.js';
+import { archivePath, pathApiFor, TEMP_FOLDER_PREFIX, type OutputPlan } from './paths.js';
 import type { Tools } from './tools.js';
 
 export interface ConversionContext {
@@ -34,6 +34,8 @@ export interface ConversionResult {
   output: string;
   backup: string | null;
   warning: string | null;
+  /** The backup is the original, kept in the work folder: Manelly lists it there. */
+  archived?: boolean;
 }
 
 // Share of the whole job per step, roughly by how much data each step moves.
@@ -282,6 +284,8 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
   }
 
   const work = workFolderFor(plan, ctx.jobId);
+  // Replaced in the work folder, the original's copy there becomes its backup; the storage keeps only the result.
+  const archiving = work !== null && request.output.mode === 'replace';
   // At the target: the temporary files, or – with a work folder – the copy of the result, next to where it ends up.
   const landing = tempFolderFor(request.source, plan, ctx.jobId);
   const temp = work ?? landing;
@@ -387,8 +391,8 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
       });
       await writeCheckpoint(checkpointFile, { done: 'mux', info });
       await unlink(converted);
-      // The copy of the original is not needed any more; the work folder only holds the result now.
-      if (work) await unlink(input);
+      // The copy of the original is not needed any more – unless it is kept as the backup.
+      if (work && !archiving) await unlink(input);
     }
 
     let result = muxed;
@@ -400,7 +404,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
     }
 
     ctx.onProgress('finalize', 0);
-    const done = await finalize(result, request, plan);
+    const done = archiving ? await finalizeArchiving(result, input, request, plan, ctx.jobId) : await finalize(result, request, plan);
     await rm(landing, { recursive: true, force: true });
     if (work) await rm(work, { recursive: true, force: true });
     return { ...done, warning: done.warning ?? (info.frameRate ? null : 'Die Bildrate war unbekannt; mkvmerge hat sie aus dem Video übernommen.') };
@@ -431,6 +435,58 @@ async function moveNew(from: string, to: string): Promise<void> {
   await rename(from, to);
 }
 
+/**
+ * The original could not be moved away – typically a file Jellyfin is streaming right now (Windows locks it). Keeps
+ * the work instead of throwing it away: the result goes next to the original.
+ */
+async function besideOriginal(result: string, request: ConversionRequest, error: unknown): Promise<ConversionResult> {
+  const api = pathApiFor(request.source);
+  const name = api.basename(request.source, api.extname(request.source));
+  let fallback = api.join(api.dirname(request.source), `${name} - DV P8.mkv`);
+  for (let n = 2; await exists(fallback); n++) fallback = api.join(api.dirname(request.source), `${name} - DV P8 (${n}).mkv`);
+  await rename(result, fallback);
+  return {
+    output: fallback,
+    backup: null,
+    warning: `Das Original liess sich nicht verschieben (${(error as NodeJS.ErrnoException).code ?? 'Fehler'} – wird es gerade abgespielt?). Die umgewandelte Datei liegt daneben.`,
+  };
+}
+
+/**
+ * Replaces the original with the result and keeps the original – its copy in the work folder, made at the start –
+ * in the folder "Originale" there. Only now does the original leave the storage, so Jellyfin has it until the result
+ * takes its place.
+ */
+async function finalizeArchiving(result: string, copy: string, request: ConversionRequest, plan: OutputPlan, jobId: string): Promise<ConversionResult> {
+  const api = pathApiFor(request.source);
+  // The copy is the original as it was at the start; one that changed since is left alone.
+  const [original, copied] = await Promise.all([stat(request.source), stat(copy)]);
+  if (original.size !== copied.size) {
+    throw new AgentError(409, `${request.source} hat sich während der Umwandlung verändert – das Original bleibt, wie es ist.`);
+  }
+  const archived = await archivePath(plan.work!, request.source);
+  await mkdir(pathApiFor(archived).dirname(archived), { recursive: true });
+  await rename(copy, archived);
+  // Parked first, on the same volume: back in a moment if the result cannot take its place.
+  const parked = api.join(tempFolderFor(request.source, plan, jobId), `original${api.extname(request.source)}`);
+  try {
+    await rename(request.source, parked);
+  } catch (error) {
+    // The original stays where it is, so its copy is not needed as a backup.
+    await rename(archived, copy).catch(() => {});
+    return besideOriginal(result, request, error);
+  }
+  try {
+    await moveNew(result, plan.output);
+  } catch (error) {
+    await rename(parked, request.source).catch(() => {});
+    await rename(archived, copy).catch(() => {});
+    throw new AgentError(500, `Die umgewandelte Datei liess sich nicht an ihren Platz verschieben: ${(error as Error).message}`);
+  }
+  await unlink(parked);
+  return { output: plan.output, backup: archived, warning: null, archived: true };
+}
+
 async function finalize(muxed: string, request: ConversionRequest, plan: OutputPlan): Promise<ConversionResult> {
   const api = pathApiFor(request.source);
   if (!plan.backup) {
@@ -444,16 +500,7 @@ async function finalize(muxed: string, request: ConversionRequest, plan: OutputP
   try {
     await moveNew(request.source, plan.backup);
   } catch (error) {
-    // Typically a file Jellyfin is streaming right now (Windows locks it). Keep the work instead of throwing it away.
-    const name = api.basename(request.source, api.extname(request.source));
-    let fallback = api.join(api.dirname(request.source), `${name} - DV P8.mkv`);
-    for (let n = 2; await exists(fallback); n++) fallback = api.join(api.dirname(request.source), `${name} - DV P8 (${n}).mkv`);
-    await rename(muxed, fallback);
-    return {
-      output: fallback,
-      backup: null,
-      warning: `Das Original liess sich nicht verschieben (${(error as NodeJS.ErrnoException).code ?? 'Fehler'} – wird es gerade abgespielt?). Die umgewandelte Datei liegt daneben.`,
-    };
+    return besideOriginal(muxed, request, error);
   }
   try {
     // The original was moved away just now, so its name is free.

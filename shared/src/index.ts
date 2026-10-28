@@ -1253,6 +1253,8 @@ export interface AgentStatus {
   drives?: NetworkDrive[];
   /** The work folder for conversions; missing before agent 0.17.0. */
   work?: WorkFolderStatus;
+  /** Keeps the originals that conversions in the work folder replaced; missing before agent 0.18.0. */
+  originals?: boolean;
   /** Whether the agent records the history; missing on agents before 0.6.0. */
   history?: { enabled: boolean };
   /** Missing on agents before 0.7.0, which cannot be stopped from Manelly either. */
@@ -1282,6 +1284,25 @@ export interface WorkFolderStatus {
   freeBytes: number | null;
   /** Why the agent cannot use it right now, e.g. the disk is gone. */
   error: string | null;
+}
+
+/** An original that a conversion in the work folder replaced: kept there until it is deleted in Manelly. */
+export interface ArchivedOriginal {
+  id: string;
+  title: string;
+  /** Where it was before, on the storage; the converted file is there now. */
+  source: string;
+  /** Where it is now, in the folder "Originale" of the work folder. */
+  path: string;
+  bytes: number | null;
+  archivedAt: string;
+}
+
+/** GET /api/originals on the agent (from 0.18.0), newest first. */
+export interface ArchivedOriginals {
+  originals: ArchivedOriginal[];
+  /** Free space on the disk of the work folder; null without one. */
+  freeBytes: number | null;
 }
 
 /** PUT /api/work on the agent; null switches the work folder off. */
@@ -1322,7 +1343,15 @@ export interface ConversionOptions {
   /** Suggested subfolder for folder mode: the folder the original lives in. */
   subfolder: string;
   /** The agent's work folder, when one is set; converting there needs space there and only the result's at the target. */
-  work: { directory: string; freeBytes: number | null; error: string | null; requiredBytes: number | null; targetBytes: number | null } | null;
+  work: {
+    directory: string;
+    freeBytes: number | null;
+    error: string | null;
+    requiredBytes: number | null;
+    targetBytes: number | null;
+    /** Where the original goes when it is replaced: kept in the work folder, not on the storage. */
+    backup: string;
+  } | null;
 }
 
 export interface StartConversionRequest {

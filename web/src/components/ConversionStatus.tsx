@@ -1,7 +1,7 @@
 import type { ConversionJob, ConversionStep } from '@manelly/shared';
 import { Ban, CalendarClock, CircleCheck, CircleX, Clock, LoaderCircle, Pause } from 'lucide-react';
 import clsx from 'clsx';
-import { formatSpeed, joinParts } from '../lib/format';
+import { formatBitrate, joinParts } from '../lib/format';
 
 export const STEP_LABELS: Record<ConversionStep, string> = {
   fetch: 'Original in den Arbeitsordner kopieren',
@@ -45,7 +45,7 @@ export function StateBadge({ job }: { job: ConversionJob }) {
 /** Current step, how fast it moves the film, and overall progress of a running conversion. */
 export function ConversionProgress({ job }: { job: ConversionJob }) {
   const percent = job.progress !== null ? Math.round(job.progress * 100) : null;
-  const rate = !job.paused && job.bytesPerSecond != null ? formatSpeed(job.bytesPerSecond) : null;
+  const rate = !job.paused && job.bytesPerSecond != null ? formatBitrate(job.bytesPerSecond * 8) : null;
   return (
     <div>
       <div className="flex justify-between gap-2 text-xs text-ink-2">

@@ -1144,6 +1144,20 @@ export interface NetworkDrive {
   connected: boolean;
   /** Why the agent could not connect it, with what helps. */
   error: string | null;
+  /** The login Manelly handed over for its server; missing on agents before 0.16.0, which take none. */
+  username?: string | null;
+}
+
+/** PUT /api/drives/credentials on the agent: the login for the shares of one server, e.g. "\\nas". */
+export interface DriveCredentialRequest {
+  server: string;
+  username: string;
+  password: string;
+}
+
+/** The network drives after a login was handed over or removed. */
+export interface NetworkDrives {
+  drives: NetworkDrive[];
 }
 
 /** POST /api/restart on the agent: start again, after a git pull and a build when update is set. */

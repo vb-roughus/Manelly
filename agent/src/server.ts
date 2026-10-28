@@ -11,14 +11,16 @@ import type {
   AgentScheduleStatus,
   AgentStatus,
   ConversionRequest,
+  DriveCredentialRequest,
   HardwareTestRequest,
   JDownloaderAction,
   LinkGrabberContainerAnswer,
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
-  NetworkDrive,
+  NetworkDrives,
 } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
+import type { Drives } from './drives.js';
 import { AgentError } from './errors.js';
 import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
@@ -38,6 +40,8 @@ const MAX_CONTAINER_BODY_BYTES = Math.ceil(MAX_CONTAINER_BYTES / 3) * 4 + 4096;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const MAX_MONITORED = 16;
 const MAX_MOVED = 5000;
+/** "\\nas", "\\192.168.1.20": a server, without share. */
+const SERVER = /^\\\\[^\\/\s]{1,253}$/;
 
 export interface AgentServerOptions {
   token: string;
@@ -55,8 +59,8 @@ export interface AgentServerOptions {
   updater?: Updater;
   /** Connects the network drive a path from Manelly needs (Windows, started without logon). */
   access?: PathAccess;
-  /** The user's network drives and whether the agent reaches them. */
-  drives?: () => Promise<NetworkDrive[]>;
+  /** The user's network drives, whether the agent reaches them, and the logins Manelly hands over for them. */
+  drives?: Pick<Drives, 'list' | 'setCredential' | 'removeCredential'>;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
@@ -149,7 +153,7 @@ export function createAgentServer(options: AgentServerOptions) {
         jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
-        drives: (await options.drives?.()) ?? [],
+        drives: (await options.drives?.list()) ?? [],
       };
       return send(response, 200, status);
     }
@@ -271,6 +275,22 @@ export function createAgentServer(options: AgentServerOptions) {
       await jdownloaderCall(() => jdownloader.addContainer(type, file));
       const answer: LinkGrabberContainerAnswer = { added: name };
       return send(response, 202, answer);
+    }
+    if (route === 'PUT /api/drives/credentials') {
+      const { server, username, password } = await readJson<Partial<DriveCredentialRequest>>(request);
+      if (typeof server !== 'string' || !SERVER.test(server) || typeof username !== 'string' || !username.trim() || username.length > 256 || typeof password !== 'string' || password.length > 256) {
+        throw new AgentError(400, 'Server (z. B. \\\\nas), Benutzername und Passwort erwartet.');
+      }
+      if (!options.drives) throw new AgentError(400, 'Netzlaufwerke verbindet der Agent nur unter Windows.');
+      const answer: NetworkDrives = { drives: await options.drives.setCredential(server, username.trim(), password) };
+      return send(response, 200, answer);
+    }
+    if (route === 'DELETE /api/drives/credentials') {
+      const server = url.searchParams.get('server') ?? '';
+      if (!SERVER.test(server)) throw new AgentError(400, 'Server (z. B. \\\\nas) erwartet.');
+      if (!options.drives) throw new AgentError(400, 'Netzlaufwerke verbindet der Agent nur unter Windows.');
+      const answer: NetworkDrives = { drives: await options.drives.removeCredential(server) };
+      return send(response, 200, answer);
     }
     if (route === 'GET /api/network/interfaces') return send(response, 200, await networkList());
     if (route === 'PUT /api/network/interfaces') {

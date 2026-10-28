@@ -12,6 +12,7 @@ import type {
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
+  DriveCredentialRequest,
   ManellyStatus,
   HardwareTestResult,
   HistoryResponse,
@@ -35,6 +36,7 @@ import type {
   MediaFacetsResponse,
   MediaIndexStatus,
   MediaSearchResponse,
+  NetworkDrives,
   SaveSettingsRequest,
   SaveSettingsResponse,
   ServerStatus,
@@ -263,6 +265,23 @@ const isActive = (job: ConversionJob) => job.state === 'queued' || job.state ===
 
 /** Polls quickly while something converts, slowly otherwise. */
 /** Ends the agent's process. Asked again a moment later, the agent is gone. */
+/** The login for a NAS goes to the agent, which connects the drives with it (agent from 0.16.0). */
+export function useSetDriveCredential() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: DriveCredentialRequest) => sendJson<NetworkDrives>('PUT', '/api/agent/drives/credentials', request),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['agent'] }),
+  });
+}
+
+export function useRemoveDriveCredential() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (server: string) => sendJson<NetworkDrives>('DELETE', `/api/agent/drives/credentials?${new URLSearchParams({ server })}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['agent'] }),
+  });
+}
+
 export function useStopAgent() {
   const queryClient = useQueryClient();
   return useMutation({

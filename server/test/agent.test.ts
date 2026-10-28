@@ -35,7 +35,9 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
     history: Array<{ method: string; path: string; body: unknown }>;
     shutdowns: number;
     restarts: unknown[];
+    drives: Array<{ method: string; path: string; body: unknown }>;
   } = {
+    drives: [],
     shutdowns: 0,
     restarts: [],
     jdownloader: [],
@@ -98,6 +100,10 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname.startsWith('/api/jdownloader')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
         return Response.json({ settings: body ?? { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } }, reachable: true, error: null, state: 'RUNNING', speedBps: 0, limit: null, packages: [], throttling: { active: false, reason: null } });
+      }
+      if (url.pathname === '/api/drives/credentials') {
+        sent.drives.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
+        return Response.json({ drives: [{ letter: 'Z:', remote: '\\\\nas\\filme', connected: true, error: null, username: body?.username ?? null }] });
       }
       if (url.pathname === '/api/restart' && init?.method === 'POST') {
         sent.restarts.push(body);
@@ -381,6 +387,25 @@ describe('agent connection', () => {
     const tooLarge = { name: 'Zu gross.dlc', content: Buffer.alloc(1024 * 1024 + 3).toString('base64') };
     expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/container', payload: tooLarge })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/linkgrabber/container', payload: { name: 'Dune.dlc' } })).statusCode).toBe(400);
+  });
+
+  it('hands the login for a NAS to the agent and keeps nothing of it', async () => {
+    const { app, world } = await setup();
+    const login = { server: '\\\\nas', username: 'rolf', password: 'Grüezi 123' };
+    const saved = await app.inject({ method: 'PUT', url: '/api/agent/drives/credentials', payload: login });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toEqual({ drives: [{ letter: 'Z:', remote: '\\\\nas\\filme', connected: true, error: null, username: 'rolf' }] });
+    const removed = await app.inject({ method: 'DELETE', url: `/api/agent/drives/credentials?server=${encodeURIComponent('\\\\nas')}` });
+    expect(removed.statusCode).toBe(200);
+    expect(world.sent.drives).toEqual([
+      { method: 'PUT', path: '/api/drives/credentials', body: login },
+      { method: 'DELETE', path: `/api/drives/credentials?server=${encodeURIComponent('\\\\nas')}`, body: undefined },
+    ]);
+    // A share is no server; the agent never gets these.
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/drives/credentials', payload: { ...login, server: '\\\\nas\\filme' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/drives/credentials', payload: { ...login, server: 'nas' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/drives/credentials', payload: { server: '\\\\nas', username: 'rolf' } })).statusCode).toBe(400);
+    expect(world.sent.drives).toHaveLength(2);
   });
 
   it('ends the agent on request, but not an agent too old to end itself', async () => {

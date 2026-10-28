@@ -103,7 +103,8 @@ Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** 
   dekodiert auf dem Server ein paar Sekunden Testbild mit der eingestellten Beschleunigung – so zeigt sich, ob Treiber und
   Grafikeinheit wirklich funktionieren
 - **Agent:** Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten, seine Werkzeuge, Version,
-  Prozess-ID, Startzeit und das letzte Update sehen, ihn **neu starten**, **aktualisieren und neu starten** oder
+  Prozess-ID, Startzeit, die Netzlaufwerke (mit **Anmeldedaten fürs NAS**, siehe Agent-Installation) und das letzte
+  Update sehen, ihn **neu starten**, **aktualisieren und neu starten** oder
   **beenden**. Aktualisieren sucht zuerst eine neuere Version (`git fetch`) und lässt alles, wie es ist, wenn es keine
   gibt; sonst holt es sie mit `git pull`, installiert bei Bedarf die Abhängigkeiten und baut den Agent, **während er
   weiterläuft**, und startet ihn erst danach neu. Jeder Schritt erscheint auf der Seite, auch nach einem Neuladen oder in
@@ -286,19 +287,20 @@ dem Jellyfin läuft:
    nächtlichen Neustart), unsichtbar unter deinem Benutzer. Ohne Administratorrechte startet er erst bei deiner Anmeldung.
    Ohne `-Install` läuft der Agent einfach in diesem Fenster.
 
-   Liegen die Medien auf einem **Netzlaufwerk** (`Z:`) oder einer **Netzwerkfreigabe** (`\\nas\filme`), braucht der
-   Autostart dein Windows-Passwort, weil Windows ohne Anmeldung keine Anmeldedaten fürs Netzwerk hat (die Umwandlung
-   meldet dann «nicht erreichbar» bzw. «Kein Zugriff»). Findet das Skript Netzlaufwerke, fragt es danach; sonst:
+   Liegen die Medien auf einem **Netzlaufwerk** (`Z:`) oder einer **Netzwerkfreigabe** (`\\nas\filme`), hat der
+   Autostart ohne Anmeldung keine Anmeldedaten fürs Netzwerk (die Umwandlung meldet dann «nicht erreichbar» bzw.
+   «Kein Zugriff»), und verbundene Laufwerksbuchstaben gibt es ohne Anmeldung auch nicht. Der Agent verbindet deshalb
+   die Netzlaufwerke, die Windows für dich gespeichert hat, selbst wieder, sobald eine Umwandlung sie braucht (und
+   gleich beim Start). Die Anmeldung dafür gibst du in Manelly unter **Server → Agent** bei den **Netzlaufwerken** an
+   (ab Agent 0.16.0): «Anmeldedaten hinterlegen» beim NAS, Benutzername und Passwort **des NAS** eintragen, «Speichern &
+   verbinden». Manelly reicht beides nur an den Agent weiter und speichert nichts davon; der Agent speichert das
+   Passwort mit Windows DPAPI verschlüsselt (nur auf diesem Rechner lesbar) und verbindet damit die Laufwerke und
+   Freigaben dieses NAS – auch im Autostart ohne Anmeldung. Dort steht auch, welche Laufwerke er erreicht und warum
+   nicht. Das Passwort reist dabei wie der Agent-Schlüssel unverschlüsselt durchs Heimnetz (HTTP).
 
-   ```powershell
-   .\scripts\start-agent.ps1 -Install -StorePassword
-   ```
-
-   Das Passwort speichert Windows in der Aufgabenplanung; nach einer Passwortänderung den Befehl erneut ausführen. Der
-   Agent läuft weiterhin als dein normaler Benutzer, nicht als Administrator. Verbundene Laufwerksbuchstaben gibt es ohne
-   Anmeldung eigentlich nicht – der Agent (ab 0.14.0) verbindet deshalb die Netzlaufwerke, die Windows für dich gespeichert
-   hat, selbst wieder, sobald eine Umwandlung sie braucht (und gleich beim Start). Unter **Server → Agent** steht, welche
-   er erreicht und warum nicht.
+   Früher half `.\scripts\start-agent.ps1 -Install -StorePassword` (Windows-Passwort in der Aufgabenplanung); das
+   klappt nicht überall, weil Windows die gespeicherten Netzwerk-Anmeldedaten einem Autostart nicht immer gibt. Der
+   Agent läuft so oder so als dein normaler Benutzer, nicht als Administrator.
 2. Das Skript zeigt **Adresse** und **Schlüssel** an. Beides in Manelly unter **Server → Agent** eintragen; Manelly
    zeigt dann, welche Werkzeuge gefunden wurden.
 

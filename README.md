@@ -119,7 +119,8 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 - In den Medien mit dem Filter **«Dolby Vision P7»** die Kandidaten finden, Titel öffnen, **«In Profil 8.1 umwandeln»**
 - Speicherort wählen: **neben dem Original** (Jellyfin zeigt beide als Versionen), **Original ersetzen** (das Original
   wandert in einen Backup-Ordner `.manelly-backup`, den Jellyfin ignoriert) oder **ein anderer Ordner** einer
-  Jellyfin-Bibliothek (z. B. eine UHD-Bibliothek), mit Unterordner und Dateiname
+  Jellyfin-Bibliothek (z. B. eine UHD-Bibliothek), mit Unterordner und Dateiname. Speicherort, «Wo umwandeln» und «Wann»
+  sind Auswahllisten; vorgewählt ist, was bei der letzten Umwandlung in diesem Browser gewählt war (soweit es passt)
 - Der Agent löst die Videospur heraus (ffmpeg), wandelt die Dolby-Vision-Daten um (`dovi_tool -m 2 convert --discard`) und
   setzt die Datei mit allen Ton- und Untertitelspuren, Kapiteln und Anhängen neu zusammen (mkvmerge). Das Bild wird nicht
   neu kodiert; der Enhancement Layer fällt weg (bei «FEL»-Dateien geht dessen Zusatzinformation verloren)

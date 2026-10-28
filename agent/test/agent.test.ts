@@ -99,6 +99,20 @@ let clock = new Date(2026, 9, 26, 2, 0);
 const PROCESS = { pid: 4711, startedAt: '2026-10-27T02:00:00.000Z', node: 'v22.12.0', execPath: 'C:\\Program Files\\nodejs\\node.exe', autostart: true, port: 8790 };
 let exits: string[] = [];
 let restartable = false;
+// The network drives of a Windows server, and the logins Manelly hands over for them.
+let driveLogins: string[] = [];
+const fakeDrives = {
+  list: async () => [{ letter: 'Z:', remote: '\\\\nas\\filme', connected: false, error: 'Benutzername oder Passwort falsch.', username: null }],
+  setCredential: async (server: string, username: string, password: string) => {
+    driveLogins.push(`${server} ${username} ${password}`);
+    return [{ letter: 'Z:', remote: '\\\\nas\\filme', connected: true, error: null, username }];
+  },
+  removeCredential: async (server: string) => {
+    driveLogins.push(`- ${server}`);
+    return fakeDrives.list();
+  },
+};
+
 // Agents from 0.11.0 update while running; without an updater the runner updates after the exit.
 let withUpdater = false;
 const updates: string[] = [];
@@ -143,6 +157,7 @@ async function start() {
     get updater() {
       return withUpdater ? fakeUpdater : undefined;
     },
+    drives: fakeDrives,
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -179,6 +194,7 @@ beforeEach(async () => {
   free = Number.MAX_SAFE_INTEGER;
   streams = 0;
   jellyfinCalls = [];
+  driveLogins = [];
   clock = new Date(2026, 9, 26, 2, 0);
   process.env.FAKE_LOG = path.join(root, 'mkvmerge-args.json');
   process.env.FAKE_CALLS = path.join(root, 'calls.txt');
@@ -428,6 +444,31 @@ describe('pause', () => {
     } finally {
       await strict.stop();
     }
+  });
+});
+
+describe('network drive logins', () => {
+  it('takes the login for a server from Manelly and answers with the drives', async () => {
+    expect(((await (await call('/api/status')).json()) as AgentStatus).drives).toEqual([
+      { letter: 'Z:', remote: '\\\\nas\\filme', connected: false, error: 'Benutzername oder Passwort falsch.', username: null },
+    ]);
+    const saved = await put('/api/drives/credentials', { server: '\\\\nas', username: ' rolf ', password: 'Grüezi 123' });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ drives: [{ letter: 'Z:', remote: '\\\\nas\\filme', connected: true, error: null, username: 'rolf' }] });
+    const removed = await call(`/api/drives/credentials?server=${encodeURIComponent('\\\\nas')}`, { method: 'DELETE' });
+    expect(removed.status).toBe(200);
+    expect(driveLogins).toEqual(['\\\\nas rolf Grüezi 123', '- \\\\nas']);
+
+    for (const body of [
+      { server: 'nas', username: 'rolf', password: 'x' },
+      { server: '\\\\nas\\filme', username: 'rolf', password: 'x' },
+      { server: '\\\\nas', username: ' ', password: 'x' },
+      { server: '\\\\nas', username: 'rolf' },
+    ]) {
+      expect((await put('/api/drives/credentials', body)).status).toBe(400);
+    }
+    expect((await call('/api/drives/credentials?server=nas', { method: 'DELETE' })).status).toBe(400);
+    expect(driveLogins).toHaveLength(2);
   });
 });
 

@@ -15,7 +15,7 @@ import { createResourceMonitor, defaultResourceSource } from './resources.js';
 import { createGate, createSettingsStore } from './schedule.js';
 import { createAgentServer } from './server.js';
 import { discoverTools, type Tools } from './tools.js';
-import { createDrives, PASSWORD_HINT } from './drives.js';
+import { createDrives, CREDENTIALS_HINT } from './drives.js';
 import { createUpdater } from './updater.js';
 
 const AGENT_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -52,9 +52,10 @@ async function currentTools(refresh = false): Promise<Tools> {
 const settings = await createSettingsStore(dataDir);
 // The scheduled task passes --autostart; started by hand, the agent runs in a console window.
 const autostart = process.argv.includes('--autostart');
-// Started without a logon, the agent connects the user's network drives (Z:) itself when a path needs one.
-const drives = createDrives({ log, autostart });
-const access = { prepare: drives.prepare, networkHint: autostart ? PASSWORD_HINT : null };
+// Started without a logon, the agent connects the user's network drives (Z:) itself when a path needs one – with
+// the login Manelly handed over for their server.
+const drives = createDrives({ log, credentials: { get: () => settings.get().networkCredentials, set: settings.setNetworkCredentials } });
+const access = { prepare: drives.prepare, networkHint: process.platform === 'win32' ? CREDENTIALS_HINT : null };
 void drives.connectAll();
 const queue = await createJobQueue({
   dataDir,
@@ -117,7 +118,7 @@ const server = createAgentServer({
   process: async () => ({ ...processInfo, update: updater.progress(), lastUpdate: await lastUpdate() }),
   updater,
   access,
-  drives: drives.list,
+  drives,
   onExit: (how) =>
     how === 'stop'
       ? shutdown('Beenden angefordert (Manelly oder Installationsskript)')

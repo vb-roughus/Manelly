@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, HistorySettings, JDownloaderSettings } from '@manelly/shared';
+import type { NetworkCredential } from './drives.js';
 import { AgentError } from './errors.js';
 import { createJellyfinApi } from './jellyfin.js';
 
@@ -28,6 +29,8 @@ export interface AgentSettings {
   jdownloader: JDownloaderSettings;
   jdownloaderHold: JDownloaderHold | null;
   history: HistorySettings;
+  /** Logins for network shares; the passwords encrypted for this computer. */
+  networkCredentials: NetworkCredential[];
 }
 
 const SETTINGS_FILE = 'settings.json';
@@ -80,9 +83,20 @@ export function parseHistorySettings(input: unknown): HistorySettings {
 const isSelection = (value: unknown): value is NetworkSelection =>
   typeof (value as NetworkSelection)?.id === 'string' && typeof (value as NetworkSelection).name === 'string';
 
+const isCredential = (value: unknown): value is NetworkCredential =>
+  ['server', 'username', 'secret'].every((key) => typeof (value as Record<string, unknown>)?.[key] === 'string');
+
 export async function createSettingsStore(dataDir: string) {
   const file = join(dataDir, SETTINGS_FILE);
-  let current: AgentSettings = { schedule: DEFAULT_SCHEDULE, jellyfin: null, network: [], jdownloader: DEFAULT_JDOWNLOADER, jdownloaderHold: null, history: DEFAULT_HISTORY };
+  let current: AgentSettings = {
+    schedule: DEFAULT_SCHEDULE,
+    jellyfin: null,
+    network: [],
+    jdownloader: DEFAULT_JDOWNLOADER,
+    jdownloaderHold: null,
+    history: DEFAULT_HISTORY,
+    networkCredentials: [],
+  };
   try {
     const stored = JSON.parse(await readFile(file, 'utf8')) as Partial<AgentSettings>;
     current = {
@@ -92,6 +106,7 @@ export async function createSettingsStore(dataDir: string) {
       jdownloader: stored.jdownloader ? parseJDownloaderSettings(stored.jdownloader) : DEFAULT_JDOWNLOADER,
       jdownloaderHold: stored.jdownloaderHold && (stored.jdownloaderHold.mode === 'limit' || stored.jdownloaderHold.mode === 'pause') ? stored.jdownloaderHold : null,
       history: stored.history ? parseHistorySettings(stored.history) : DEFAULT_HISTORY,
+      networkCredentials: Array.isArray(stored.networkCredentials) ? stored.networkCredentials.filter(isCredential) : [],
     };
   } catch {
     // Missing or damaged: Manelly sends both again.
@@ -99,7 +114,7 @@ export async function createSettingsStore(dataDir: string) {
 
   async function save(next: AgentSettings) {
     await mkdir(dataDir, { recursive: true });
-    // Holds the Jellyfin API key.
+    // Holds the Jellyfin API key and the logins for the network shares.
     await writeFile(`${file}.tmp`, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
     await rename(`${file}.tmp`, file);
     current = next;
@@ -113,6 +128,7 @@ export async function createSettingsStore(dataDir: string) {
     setJDownloader: (jdownloader: JDownloaderSettings) => save({ ...current, jdownloader }),
     setJDownloaderHold: (jdownloaderHold: JDownloaderHold | null) => save({ ...current, jdownloaderHold }),
     setHistory: (history: HistorySettings) => save({ ...current, history }),
+    setNetworkCredentials: (networkCredentials: NetworkCredential[]) => save({ ...current, networkCredentials }),
   };
 }
 

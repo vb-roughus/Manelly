@@ -11,6 +11,7 @@ import type {
   ConversionJob,
   ConversionRequest,
   ConversionSchedule,
+  DriveCredentialRequest,
   HardwareTestRequest,
   HardwareTestResult,
   HistoryResponse,
@@ -23,6 +24,7 @@ import type {
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
+  NetworkDrives,
 } from '@manelly/shared';
 import { AppError } from '../errors.js';
 
@@ -73,6 +75,9 @@ export interface AgentClient {
   history(from: number, to: number): Promise<HistoryResponse>;
   setHistorySettings(settings: HistorySettings): Promise<HistorySettings>;
   clearHistory(): Promise<void>;
+  /** From agent 0.16.0: the login for the shares of a server; the agent keeps it, Manelly does not. */
+  setDriveCredential(request: DriveCredentialRequest): Promise<NetworkDrives>;
+  removeDriveCredential(server: string): Promise<NetworkDrives>;
   /** Ends the agent's process; it answers first. */
   shutdown(): Promise<void>;
   /** Ends the agent so its runner starts it again, after a git pull and a build when `update` is set. */
@@ -147,6 +152,9 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),
     setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),
     clearHistory: () => call('DELETE', '/api/history', undefined, 20_000),
+    // Connecting the drives with the new login may take a while when the NAS is slow to answer.
+    setDriveCredential: (request) => call('PUT', '/api/drives/credentials', request, 60_000),
+    removeDriveCredential: (server) => call('DELETE', `/api/drives/credentials?${new URLSearchParams({ server })}`),
     shutdown: async () => {
       await call('POST', '/api/shutdown');
     },

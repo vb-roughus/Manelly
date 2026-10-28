@@ -7,8 +7,8 @@
 #                                          it starts with Windows, without anybody logging on. A running
 #                                          agent (also an older version) is ended and replaced.
 #   .\scripts\start-agent.ps1 -Install -StorePassword
-#                                          the same with your Windows password stored in the task, for media
-#                                          on network shares (without it, the agent reaches local drives only)
+#                                          the same with your Windows password stored in the task; for network
+#                                          shares, rather hand the NAS login over in Manelly (Server → Agent)
 #   .\scripts\start-agent.ps1 -Uninstall   remove the autostart and the firewall rule again
 #   .\scripts\start-agent.ps1 -Port 8791   use another port (saved in agent\data\agent.json)
 #
@@ -288,13 +288,11 @@ if ($Install) {
     # With Windows, before anybody logs on – e.g. after a nightly restart.
     $task.Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $runnerArguments -WorkingDirectory $root
     $task.Trigger = New-ScheduledTaskTrigger -AtStartup
-    # Network drives (Z:) need the stored password: without a logon, Windows has no credentials for the network.
-    # The agent connects them itself; this only asks whether it may log on with the password.
+    # Network drives (Z:): without a logon, Windows has no credentials for the network. The agent connects the
+    # drives itself, with the NAS login handed over in Manelly.
     $networkDrives = @(Get-ChildItem 'HKCU:\Network' -ErrorAction SilentlyContinue | ForEach-Object { "$($_.PSChildName.ToUpper()): $((Get-ItemProperty $_.PSPath).RemotePath)" })
     if (-not $StorePassword -and $networkDrives.Count) {
-      Write-Warn "Du hast Netzlaufwerke ($($networkDrives -join ', ')). Ohne Anmeldung erreicht der Agent sie nur mit deinem gespeicherten Windows-Passwort."
-      $answer = Read-Host 'Passwort jetzt für den Autostart speichern? [J/n]'
-      if ($answer -notmatch '^\s*(n|nein|no)\s*$') { $StorePassword = $true }
+      Write-Warn "Du hast Netzlaufwerke ($($networkDrives -join ', ')). Ohne Anmeldung erreicht der Agent sie erst, wenn du in Manelly unter Server → Agent Benutzername und Passwort des NAS hinterlegst."
     }
     if ($StorePassword) {
       $credential = Get-Credential -UserName $user -Message 'Windows-Passwort für den Autostart des Agents (für Medien auf Netzwerkfreigaben)'

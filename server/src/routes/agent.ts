@@ -11,6 +11,7 @@ import type {
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
+  DriveCredentialRequest,
   HistoryResponse,
   HistorySettings,
   JDownloaderAccounts,
@@ -21,6 +22,7 @@ import type {
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
+  NetworkDrives,
   SaveAgentSettingsRequest,
   StartConversionRequest,
 } from '@manelly/shared';
@@ -252,6 +254,37 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
       },
     },
     async (request): Promise<JDownloaderStatus> => requireAgent(agent).setJDownloaderLimit(request.body.enabled, request.body.kbps),
+  );
+
+  // The login for a NAS goes straight to the agent, which keeps it encrypted; Manelly keeps nothing and logs no password.
+  const server = { type: 'string', pattern: '^\\\\\\\\[^\\\\/\\s]{1,253}$' };
+  app.put<{ Body: DriveCredentialRequest }>(
+    '/drives/credentials',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['server', 'username', 'password'],
+          properties: { server, username: { type: 'string', minLength: 1, maxLength: 256 }, password: { type: 'string', maxLength: 256 } },
+        },
+      },
+    },
+    async (request): Promise<NetworkDrives> => {
+      const drives = await requireAgent(agent).setDriveCredential(request.body);
+      request.log.info(`Anmeldedaten für ${request.body.server} (${request.body.username}) an den Agent übergeben`);
+      return drives;
+    },
+  );
+
+  app.delete<{ Querystring: { server: string } }>(
+    '/drives/credentials',
+    { schema: { querystring: { type: 'object', required: ['server'], properties: { server } } } },
+    async (request): Promise<NetworkDrives> => {
+      const drives = await requireAgent(agent).removeDriveCredential(request.query.server);
+      request.log.info(`Anmeldedaten für ${request.query.server} auf dem Agent entfernt`);
+      return drives;
+    },
   );
 
   app.post('/shutdown', async (request, reply) => {

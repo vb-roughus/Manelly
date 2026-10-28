@@ -6,7 +6,7 @@ import { ConversionProgress, isActive, MODE_LABELS, StateBadge, STEP_LABELS } fr
 import { InterfaceTile } from '../components/NetworkInterfaces';
 import { AgentNotices, ConversionsHeader, Panel } from '../components/ConversionPanels';
 import { useAgent, useAgentNetwork, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
-import { formatAgo, formatBitrate, formatBytes, formatEta, formatSpeed, joinParts } from '../lib/format';
+import { formatAgo, formatBitrate, formatBytes, formatEta, joinParts } from '../lib/format';
 import { roleLabel } from '../lib/networkRoles';
 
 /** «Umwandlungen → Übersicht»: the running, waiting and finished conversions. */
@@ -185,7 +185,7 @@ function JobCard({ job }: { job: ConversionJob }) {
 
 /** Why the copy runs slower than it could – only while it does. */
 function throttleReason({ bytesPerSecond, streams, streamsBitsPerSecond }: CopyThrottle): string {
-  const limit = `Kopiert mit höchstens ${formatSpeed(bytesPerSecond)}`;
+  const limit = `Kopiert mit höchstens ${formatBitrate(bytesPerSecond * 8)}`;
   if (streams === null) return `${limit}, wie unter Einstellungen festgelegt.`;
   const who = streams === 1 ? '1 Stream braucht' : `${streams} Streams brauchen`;
   return `${limit}: ${who} gerade etwa ${formatBitrate(streamsBitsPerSecond ?? 0)}, dazu 20 Mbit/s Reserve.`;

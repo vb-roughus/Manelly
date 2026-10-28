@@ -165,7 +165,7 @@ Arbeitsordner, Kopieren begrenzen).
 - Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
   beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
 - **Umwandlungen → Übersicht** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Umwandlung – so
-  lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt mit dem aktuellen Tempo des laufenden Schritts in MB/s
+  lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt mit dem aktuellen Tempo des laufenden Schritts in Mbit/s
   (ab Agent 0.21.0; gemessen daran, wie schnell die Datei wächst, die der Schritt schreibt), Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
   Storage-Schnittstelle** und der Ausgabe des Werkzeugs bei Fehlern; danach meldet der Agent die neue Datei an Jellyfin,
   damit sie gleich erscheint. Eine Umwandlung kodiert das Bild nicht neu, sie kopiert vor allem – CPU und GPU haben

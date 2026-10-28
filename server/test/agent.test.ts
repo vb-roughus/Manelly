@@ -493,7 +493,10 @@ describe('agent connection', () => {
     const { app, world } = await setup(fakeWorld({ agentVersion: '0.9.0' }));
     expect((await app.inject({ method: 'POST', url: '/api/agent/restart', payload: {} })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/api/agent/restart', payload: { update: true } })).statusCode).toBe(202);
-    expect(world.sent.restarts).toEqual([{ update: true }]);
+    // Confirmed while a conversion runs.
+    expect((await app.inject({ method: 'POST', url: '/api/agent/restart', payload: { update: false, force: true } })).statusCode).toBe(202);
+    expect((await app.inject({ method: 'POST', url: '/api/agent/restart', payload: { update: false, force: 'ja' } })).statusCode).toBe(400);
+    expect(world.sent.restarts).toEqual([{ update: true }, { update: false, force: true }]);
   });
 
   it('passes the recording settings and queries to the agent, and hands over Jellyfin to record streams', async () => {

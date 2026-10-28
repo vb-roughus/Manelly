@@ -1199,6 +1199,8 @@ export interface NetworkDrives {
 /** POST /api/restart on the agent: start again, after a git pull and a build when update is set. */
 export interface AgentRestartRequest {
   update: boolean;
+  /** Also while a conversion runs, which then pauses and continues after the restart; agents from 0.22.0 refuse otherwise. */
+  force?: boolean;
 }
 
 /** The answer to a restart or update request, from the agent and from Manelly. */

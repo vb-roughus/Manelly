@@ -19,8 +19,8 @@ export interface UpdaterOptions {
   reportFile: string;
   /** Passed on to the script: build only the agent. */
   target?: 'agent';
-  /** Ends the process so its runner starts the new build. */
-  onRestart: () => void;
+  /** Ends the process so its runner starts the new build; `force` also while a conversion runs. */
+  onRestart: (force: boolean) => void;
   log: (message: string) => void;
   /** How long the restart step shows before the process ends, so Manelly sees it coming. */
   restartDelayMs?: number;
@@ -55,7 +55,7 @@ export function createUpdater({ script, reportFile, target, onRestart, log, rest
     progress: () => progress,
 
     /** Starts the update, or tells the one already under way. */
-    start(): UpdateProgress {
+    start({ force = false }: { force?: boolean } = {}): UpdateProgress {
       if (progress) return progress;
       progress = { step: 'check', steps: ['check'], since: new Date().toISOString(), behind: null, subject: null };
       log(`Update: ${STEP_LABELS.check}`);
@@ -79,7 +79,7 @@ export function createUpdater({ script, reportFile, target, onRestart, log, rest
           log(`Update: ${event.message ?? ''}`);
           if (event.ok && !event.upToDate) {
             enter('restart');
-            setTimeout(onRestart, restartDelayMs);
+            setTimeout(() => onRestart(force), restartDelayMs);
           } else {
             progress = null;
           }

@@ -110,7 +110,13 @@ const updater = createUpdater({
   script: join(AGENT_DIR, '..', 'scripts', 'update.mjs'),
   reportFile: join(dataDir, 'update.json'),
   target: 'agent',
-  onRestart: () => shutdown('Update fertig, Neustart', RESTART_EXIT),
+  // A conversion that started while it built (from the schedule) finishes first, unless the update was forced.
+  onRestart: (force) => {
+    const busy = force ? null : queue.running();
+    if (!busy) return shutdown('Update fertig, Neustart', RESTART_EXIT);
+    log(`Update fertig – Neustart, sobald die Umwandlung ${busy.source} fertig ist.`);
+    void queue.idle().then(() => shutdown('Update fertig, Neustart nach der Umwandlung', RESTART_EXIT));
+  },
   log,
 });
 const server = createAgentServer({

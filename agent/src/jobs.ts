@@ -96,6 +96,8 @@ export async function createJobQueue(options: JobQueueOptions) {
   let checking: Promise<void> | null = null;
   let again = false;
   let stopping = false;
+  // Set while a restart waits for the running job: no other one starts meanwhile.
+  let holding = false;
   let saving = Promise.resolve();
 
   function save() {
@@ -229,7 +231,7 @@ export async function createJobQueue(options: JobQueueOptions) {
   }
 
   async function next() {
-    if (current || stopping) return;
+    if (current || stopping || holding) return;
     const entry = [...entries].reverse().find(({ job }) => job.state === 'queued' && !job.paused && (!job.scheduled || lastGate?.open));
     if (!entry) return;
     const { job } = entry;
@@ -441,6 +443,17 @@ export async function createJobQueue(options: JobQueueOptions) {
     },
 
     /** Pauses the running conversion, so it continues after the next start, and waits for the history to be saved. */
+    /** The job a restart would interrupt: one that runs and is not paused (a paused one stays paused over a restart). */
+    running(): ConversionJob | null {
+      return current && !current.entry.job.paused ? view(current.entry.job) : null;
+    },
+
+    /** Resolves once no job runs any more; until the restart, none starts. */
+    async idle(): Promise<void> {
+      holding = true;
+      while (current && !current.entry.job.paused) await new Promise((resolve) => setTimeout(resolve, 1000));
+    },
+
     async stop(): Promise<void> {
       stopping = true;
       if (timer) clearInterval(timer);

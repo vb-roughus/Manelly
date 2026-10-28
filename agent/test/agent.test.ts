@@ -46,7 +46,9 @@ const FAKES: Record<string, string> = {
     console.log('progress=end');`,
   ffprobe: `
     const dv = process.env.FAKE_NO_DV ? [] : [{ dv_profile: 7 }];
-    console.log(JSON.stringify({ streams: [{ r_frame_rate: '24000/1001', side_data_list: dv }], format: { duration: '4.0' } }));`,
+    const muxed = process.argv[process.argv.length - 1].endsWith('output.mkv');
+    const duration = process.env.FAKE_SHORT_MUX && muxed ? '1.0' : '4.0';
+    console.log(JSON.stringify({ streams: [{ r_frame_rate: '24000/1001', side_data_list: dv }], format: { duration } }));`,
   dovi_tool: `
     const args = process.argv.slice(2);
     if (process.env.FAKE_DOVI_FAIL) { console.error('Error: no RPU found'); process.exit(1); }
@@ -60,6 +62,8 @@ const FAKES: Record<string, string> = {
     const out = args[args.indexOf('-o') + 1];
     fs.writeFileSync(out, fs.readFileSync(args[args.indexOf('--no-video') - 1]));
     console.log('#GUI#progress 50%');
+    // Ended by something else halfway, as Windows does it: exit code 1, which mkvmerge also uses for warnings.
+    if (process.env.FAKE_SHORT_MUX) process.exit(1);
     console.log('#GUI#progress 100%');`,
 };
 
@@ -258,6 +262,20 @@ describe('agent', () => {
     expect(args.slice(-2)).toEqual(['--no-video', source]);
   });
 
+  it('never reports an incomplete muxed file as done', async () => {
+    process.env.FAKE_SHORT_MUX = '1';
+    try {
+      const created = (await (await post('/api/jobs', { source, output: { mode: 'replace' } })).json()) as ConversionJob;
+      const job = await waitFor(created.id, finished);
+      expect(job).toMatchObject({ state: 'failed', error: expect.stringContaining('Die zusammengesetzte Datei ist unvollständig') });
+      // The original stays where and as it was; nothing is left behind.
+      expect(await readFile(source, 'utf8')).toBe('original');
+      expect((await readdir(media)).sort()).toEqual(['Film (2000).mkv']);
+    } finally {
+      delete process.env.FAKE_SHORT_MUX;
+    }
+  });
+
   it('replaces the original and moves it into an ignored backup folder', async () => {
     const created = (await (await call('/api/jobs', { method: 'POST', body: JSON.stringify({ source, output: { mode: 'replace' } }) })).json()) as ConversionJob;
     const job = await waitFor(created.id, finished);
@@ -362,8 +380,9 @@ describe('schedule', () => {
     await queue.check();
     const job = await waitFor(created.id, finished);
     expect(job.state).toBe('done');
-    // The video was extracted only once; dovi_tool ran again (the first run may have been stopped before it got going).
-    expect((await toolCalls()).filter((tool) => tool !== 'dovi_tool')).toEqual(['ffprobe', 'ffmpeg', 'mkvmerge']);
+    // The video was extracted only once; dovi_tool ran again (the first run may have been stopped before it got going);
+    // the last ffprobe checks the muxed file.
+    expect((await toolCalls()).filter((tool) => tool !== 'dovi_tool')).toEqual(['ffprobe', 'ffmpeg', 'mkvmerge', 'ffprobe']);
     expect((await readdir(media)).sort()).toEqual(['Film (2000) - DV P8.mkv', 'Film (2000).mkv']);
   });
 
@@ -709,7 +728,8 @@ describe('restart', () => {
     try {
       for (let attempt = 0; attempt < 200 && restarted.get(created.id).state !== 'done'; attempt++) await new Promise((resolve) => setTimeout(resolve, 25));
       expect(restarted.get(created.id)).toMatchObject({ state: 'done', interruptions: 1 });
-      expect(await toolCalls()).toEqual(['mkvmerge']);
+      // Muxed again from the converted video, and checked: it plays as long as the original.
+      expect(await toolCalls()).toEqual(['mkvmerge', 'ffprobe']);
       expect(await readFile(job.output, 'utf8')).toBe('converted');
       expect(await readdir(media)).not.toContain(`.manelly-tmp-${created.id}`);
     } finally {
@@ -876,5 +896,35 @@ describe('process', () => {
     expect(exits).toEqual(['restart', 'update']);
     withUpdater = false;
     restartable = false;
+  });
+
+  it('asks before a restart interrupts a running conversion, and waits for it when the update needs that', async () => {
+    exits = [];
+    restartable = true;
+    process.env.FAKE_DOVI_SLEEP = '400';
+    try {
+      const created = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, title: 'Film' })).json()) as ConversionJob;
+      await waitFor(created.id, (job) => job.step === 'convert');
+      const refused = await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: true }) });
+      expect(refused.status).toBe(409);
+      expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(/^Gerade läuft die Umwandlung «Film» \(\d+ %\)\. Ein Neustart würde sie unterbrechen/);
+      expect(exits).toEqual([]);
+      expect((await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: false, force: true }) })).status).toBe(202);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(exits).toEqual(['restart']);
+
+      // Waiting for the running job holds back the next one until the restart.
+      const second = path.join(media, 'Zweiter (2001).mkv');
+      await writeFile(second, 'original');
+      const waited = queue.idle().then(() => queue.list().map((job) => [job.title, job.state]));
+      await post('/api/jobs', { source: second, output: { mode: 'alongside' }, title: 'Zweiter' });
+      expect(await waited).toEqual([
+        ['Zweiter', 'queued'],
+        ['Film', 'done'],
+      ]);
+    } finally {
+      delete process.env.FAKE_DOVI_SLEEP;
+      restartable = false;
+    }
   });
 });

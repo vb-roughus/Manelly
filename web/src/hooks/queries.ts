@@ -303,8 +303,8 @@ export function useStopAgent() {
 export function useRestartAgent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ update }: { update: boolean; before: AgentStatus }) =>
-      sendJson<AgentRestartAnswer>('POST', '/api/agent/restart', { update }),
+    mutationFn: ({ update, force }: { update: boolean; force?: boolean; before: AgentStatus }) =>
+      sendJson<AgentRestartAnswer>('POST', '/api/agent/restart', { update, force }),
     onMutate: ({ update, before }) => {
       const whileRunning = update && updatesWhileRunning(before);
       agentRestart.begin(update, before, whileRunning ? firstUpdateStep() : null);

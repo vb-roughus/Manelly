@@ -1,10 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import type { ConversionJob } from '@manelly/shared';
 import { ChevronDown, WandSparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { useAgentSettings, useConversions } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
-import { usePersistentFlag } from '../hooks/usePersistentFlag';
 import { formatAgo, formatBytes, joinParts } from '../lib/format';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge } from './ConversionStatus';
 
@@ -21,7 +21,7 @@ export function DashboardConversions() {
   const { data: jobs } = useConversions(configured);
   const now = useNow(30_000);
 
-  const [open, setOpen] = usePersistentFlag('manelly.dashboard.conversions.open', true);
+  const [open, setOpen] = useState(false);
 
   const shown = (jobs ?? []).filter((job) => isActive(job) || (job.finishedAt && now - Date.parse(job.finishedAt) < RECENT_MS)).slice(0, MAX_SHOWN);
   if (shown.length === 0) return null;

@@ -229,14 +229,13 @@ function TrackTable({ tracks }: { tracks: AudioTrack[] }) {
 
 function Seasons({ seasons, audioFilterActive }: { seasons: SeasonDetail[]; audioFilterActive: boolean }) {
   if (seasons.length === 0) return <p className="text-sm text-ink-2">Keine Folgen mit Dateien gefunden.</p>;
-  const totalEpisodes = seasons.reduce((sum, season) => sum + season.episodes.length, 0);
   return (
     <div className="space-y-2">
       {audioFilterActive && <p className="text-xs text-ink-2">Markiert: Folgen mit einer Tonspur, die zum Filter passt.</p>}
       {seasons.map((season) => {
         const matching = season.episodes.filter((episode) => episode.matches).length;
         return (
-          <details key={season.season ?? 'none'} open={totalEpisodes <= 30} className="group rounded-xl ring-1 ring-line">
+          <details key={season.season ?? 'none'} className="group rounded-xl ring-1 ring-line">
             <summary className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-card-2 px-3 py-2 text-sm font-medium">
               <span>{season.season === null ? 'Ohne Staffel' : season.season === 0 ? 'Specials' : `Staffel ${season.season}`}</span>
               <span className="text-xs font-normal text-ink-2">

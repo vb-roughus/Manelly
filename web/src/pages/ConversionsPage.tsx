@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import { ConversionProgress, isActive, MODE_LABELS, StateBadge, STEP_LABELS } from '../components/ConversionStatus';
 import { ResourceUsage } from '../components/ResourceUsage';
 import { SchedulePanel } from '../components/SchedulePanel';
+import { WorkFolderPanel } from '../components/WorkFolderPanel';
 import { useAgent, useAgentResources, useCancelConversion, useConversions, usePauseConversion, useRemoveConversion, useStartConversionNow } from '../hooks/queries';
 import { formatAgo } from '../lib/format';
 
@@ -53,7 +54,11 @@ export function ConversionsPage() {
 
         {agent.data?.status &&
           (agent.data.status.schedule ? (
-            <SchedulePanel schedule={agent.data.status.schedule} />
+            <>
+              <SchedulePanel schedule={agent.data.status.schedule} />
+              {/* Missing on agents before 0.17.0. */}
+              {agent.data.status.work && <WorkFolderPanel work={agent.data.status.work} />}
+            </>
           ) : (
             <Panel>
               Der Agent auf {agent.data.status.hostname} ist zu alt für Zeitplan und Fortsetzen nach einem Neustart (Version{' '}
@@ -164,6 +169,12 @@ function JobCard({ job }: { job: ConversionJob }) {
         <dd className="font-mono break-all">{job.source}</dd>
         <dt className="text-ink-3">Ziel</dt>
         <dd className="font-mono break-all">{job.output}</dd>
+        {job.work && (
+          <>
+            <dt className="text-ink-3">Umgewandelt in</dt>
+            <dd className="font-mono break-all">{job.work}</dd>
+          </>
+        )}
         {job.backup && (
           <>
             <dt className="text-ink-3">Backup</dt>

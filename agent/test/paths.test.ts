@@ -52,6 +52,7 @@ describe('planning the output', () => {
       output: path.join(path.dirname(source), 'Film (2000) - DV P8.mkv'),
       backup: null,
       createDirectory: false,
+      work: null,
     });
     await expect(planOutput({ source, output: { mode: 'alongside', fileName: 'Film (2000).mkv' } }, [])).rejects.toThrow('anderen Namen');
   });

@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { stat } from 'node:fs/promises';
+import { stat, unlink, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
 import type {
@@ -18,6 +18,8 @@ import type {
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
   NetworkDrives,
+  WorkFolderRequest,
+  WorkFolderStatus,
 } from '@manelly/shared';
 import { defaultFreeBytes } from './convert.js';
 import type { Drives } from './drives.js';
@@ -32,7 +34,7 @@ import type { ResourceMonitor } from './resources.js';
 import { parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 import type { Updater } from './updater.js';
-import type { PathAccess } from './paths.js';
+import { isWithin, pathApiFor, type PathAccess } from './paths.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 /** A container file comes as base64, a third larger than the file. */
@@ -120,6 +122,38 @@ export function createAgentServer(options: AgentServerOptions) {
     };
   }
 
+  /** The work folder as Manelly set it, with its free space – or why it cannot be used right now. */
+  async function workStatus(): Promise<WorkFolderStatus> {
+    const directory = settings.get().work;
+    if (!directory) return { directory: null, freeBytes: null, error: null };
+    await options.access?.prepare(directory);
+    const there = await stat(directory).then((info) => info.isDirectory(), () => false);
+    return there
+      ? { directory, freeBytes: await freeBytes(directory), error: null }
+      : { directory, freeBytes: null, error: `Den Arbeitsordner ${directory} gibt es auf dem Server nicht (mehr).` };
+  }
+
+  /** Only a folder that is there and takes files; nothing is created or searched. */
+  async function checkWorkFolder(input: unknown): Promise<string> {
+    const folder = typeof input === 'string' ? input.trim() : '';
+    if (!folder || folder.length > 400) throw new AgentError(400, 'Einen Ordner erwartet, z. B. E:\\Manelly.');
+    const api = pathApiFor(folder);
+    if (!api.isAbsolute(folder)) throw new AgentError(400, `«${folder}» ist kein absoluter Pfad, z. B. E:\\Manelly.`);
+    if (roots.length > 0 && !roots.some((root) => isWithin(folder, root, api))) throw new AgentError(403, `${folder} liegt ausserhalb der freigegebenen Ordner.`);
+    await options.access?.prepare(folder);
+    if (!(await stat(folder).then((info) => info.isDirectory(), () => false))) {
+      throw new AgentError(404, `Den Ordner ${folder} gibt es auf dem Server nicht – zuerst anlegen.`);
+    }
+    const probe = api.join(folder, '.manelly-write-test');
+    try {
+      await writeFile(probe, '');
+      await unlink(probe);
+    } catch (error) {
+      throw new AgentError(403, `In ${folder} darf der Agent nicht schreiben (${(error as NodeJS.ErrnoException).code ?? 'Fehler'}).`);
+    }
+    return folder;
+  }
+
   /** JDownloader must be switched on in Manelly; its errors are reported as such. */
   async function jdownloaderCall<T>(action: () => Promise<T>): Promise<T> {
     if (!settings.get().jdownloader.enabled) throw new AgentError(409, 'JDownloader ist in Manelly nicht eingeschaltet.');
@@ -154,6 +188,7 @@ export function createAgentServer(options: AgentServerOptions) {
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
         drives: (await options.drives?.list()) ?? [],
+        work: await workStatus(),
       };
       return send(response, 200, status);
     }
@@ -181,7 +216,7 @@ export function createAgentServer(options: AgentServerOptions) {
           freeBytes: typeof path === 'string' ? await freeBytes(path) : null,
         })),
       );
-      const result: AgentCheckResponse = { sourceBytes, directories };
+      const result: AgentCheckResponse = { sourceBytes, directories, work: await workStatus() };
       return send(response, 200, result);
     }
     if (route === 'POST /api/hwtest') {
@@ -275,6 +310,11 @@ export function createAgentServer(options: AgentServerOptions) {
       await jdownloaderCall(() => jdownloader.addContainer(type, file));
       const answer: LinkGrabberContainerAnswer = { added: name };
       return send(response, 202, answer);
+    }
+    if (route === 'PUT /api/work') {
+      const { directory } = await readJson<Partial<WorkFolderRequest>>(request);
+      await settings.setWork(directory === null ? null : await checkWorkFolder(directory));
+      return send(response, 200, await workStatus());
     }
     if (route === 'PUT /api/drives/credentials') {
       const { server, username, password } = await readJson<Partial<DriveCredentialRequest>>(request);

@@ -90,6 +90,11 @@ export interface OutputPlan {
   backup: string | null;
   /** folder mode: the subfolder does not exist yet. */
   createDirectory: boolean;
+  /**
+   * The work folder to convert in: the original is copied there and the result back. Null converts where the files
+   * are; missing in jobs from before agent 0.17.0.
+   */
+  work?: string | null;
 }
 
 function stem(file: string, api: PathApi): string {
@@ -101,8 +106,17 @@ export function defaultFileName(source: string, mode: ConversionRequest['output'
   return mode === 'alongside' ? `${stem(source, api)} - DV P8.mkv` : `${stem(source, api)}.mkv`;
 }
 
-/** Checks a request and works out where everything goes – before any file is touched. */
-export async function planOutput(request: ConversionRequest, roots: string[], platform: NodeJS.Platform = process.platform, access?: PathAccess): Promise<OutputPlan> {
+/**
+ * Checks a request and works out where everything goes – before any file is touched. `workFolder` is the agent's
+ * work folder, for a request that asks to convert there.
+ */
+export async function planOutput(
+  request: ConversionRequest,
+  roots: string[],
+  platform: NodeJS.Platform = process.platform,
+  access?: PathAccess,
+  workFolder: string | null = null,
+): Promise<OutputPlan> {
   const { source, output } = request;
   const api = pathApiFor(source, platform);
   const allowed = (file: string) => roots.length === 0 || roots.some((root) => isWithin(file, root, api));
@@ -155,5 +169,12 @@ export async function planOutput(request: ConversionRequest, roots: string[], pl
   if (!(output.mode === 'replace' && samePath(target, source, api)) && (await kindOf(target))) {
     throw new AgentError(409, `${target} gibt es schon – Manelly überschreibt keine Dateien.`);
   }
-  return { directory, output: target, backup, createDirectory };
+
+  let work: string | null = null;
+  if (request.work === true) {
+    if (!workFolder) throw new AgentError(400, 'Für den Agent ist kein Arbeitsordner eingerichtet – in Manelly unter Umwandlungen eintragen.');
+    await requireKind('Der Ordner', workFolder, 'directory', access);
+    work = workFolder;
+  }
+  return { directory, output: target, backup, createDirectory, work };
 }

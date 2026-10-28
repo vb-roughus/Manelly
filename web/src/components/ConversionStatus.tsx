@@ -3,10 +3,12 @@ import { Ban, CalendarClock, CircleCheck, CircleX, Clock, LoaderCircle, Pause } 
 import clsx from 'clsx';
 
 export const STEP_LABELS: Record<ConversionStep, string> = {
+  fetch: 'Original in den Arbeitsordner kopieren',
   probe: 'Datei prüfen',
   extract: 'Videospur herauslösen',
   convert: 'Dolby Vision umwandeln',
   mux: 'Datei zusammensetzen',
+  store: 'Ergebnis zurückkopieren',
   finalize: 'Datei an ihren Platz verschieben',
 };
 

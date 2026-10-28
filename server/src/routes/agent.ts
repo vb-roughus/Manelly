@@ -25,6 +25,8 @@ import type {
   NetworkDrives,
   SaveAgentSettingsRequest,
   StartConversionRequest,
+  WorkFolderRequest,
+  WorkFolderStatus,
 } from '@manelly/shared';
 import type { AgentClient } from '../agent/client.js';
 import type { AgentConnection } from '../agent/connection.js';
@@ -130,6 +132,7 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
               },
             },
             scheduled: { type: 'boolean' },
+            work: { type: 'boolean' },
           },
         },
       },
@@ -254,6 +257,21 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
       },
     },
     async (request): Promise<JDownloaderStatus> => requireAgent(agent).setJDownloaderLimit(request.body.enabled, request.body.kbps),
+  );
+
+  // The agent checks that the folder is there and takes files; Manelly only names it.
+  app.put<{ Body: WorkFolderRequest }>(
+    '/work',
+    {
+      schema: {
+        body: { type: 'object', additionalProperties: false, required: ['directory'], properties: { directory: { type: ['string', 'null'], maxLength: 400 } } },
+      },
+    },
+    async (request): Promise<WorkFolderStatus> => {
+      const work = await requireAgent(agent).setWorkFolder(request.body.directory);
+      request.log.info(work.directory ? `Arbeitsordner für Umwandlungen: ${work.directory}` : 'Arbeitsordner für Umwandlungen ausgeschaltet');
+      return work;
+    },
   );
 
   // The login for a NAS goes straight to the agent, which keeps it encrypted; Manelly keeps nothing and logs no password.

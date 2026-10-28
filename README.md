@@ -123,6 +123,14 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
 - Der Agent löst die Videospur heraus (ffmpeg), wandelt die Dolby-Vision-Daten um (`dovi_tool -m 2 convert --discard`) und
   setzt die Datei mit allen Ton- und Untertitelspuren, Kapiteln und Anhängen neu zusammen (mkvmerge). Das Bild wird nicht
   neu kodiert; der Enhancement Layer fällt weg (bei «FEL»-Dateien geht dessen Zusatzinformation verloren)
+- **Arbeitsordner** (ab Agent 0.17.0): Auf der Seite **Umwandlungen** einen Ordner auf einer schnellen Platte des
+  Jellyfin-Servers eintragen (z. B. `E:\Manelly` auf einer zusätzlichen SSD; den Ordner zuerst anlegen). Im
+  Umwandlungsdialog ist dann **«Im Arbeitsordner»** vorgewählt: Der Agent kopiert das Original dorthin, wandelt dort um und
+  kopiert das Ergebnis zurück – an den gewählten Speicherort, wie oben. Der Speicher, auf dem die Filme liegen (z. B. das
+  NAS), wird so nur beim Hin- und Zurückkopieren belastet statt während der ganzen Umwandlung. Im Arbeitsordner braucht es
+  etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
+  macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** wandelt wie bisher dort um, wo die Datei
+  liegt
 - **Sofort** oder **nach Zeitplan**: Auf der Seite **Umwandlungen** ein Zeitfenster (z. B. 01:00–07:00, Uhrzeit des
   Jellyfin-Servers) und/oder «nur wenn niemand streamt» einstellen. Geplante Umwandlungen startet der Agent selbst, auch
   wenn Manelly nicht läuft. Beginnt ein Stream, pausiert die Umwandlung und macht später beim zuletzt fertigen Schritt
@@ -140,8 +148,9 @@ Jellyfin-Server wandelt solche Dateien direkt dort um:
   der Agent die neue Datei an Jellyfin, damit sie gleich erscheint
 - Für Zeitplan und Meldung gibt Manelly dem Agent die Jellyfin-Adresse und den API-Schlüssel (gespeichert in
   `agent\data\settings.json` auf dem Jellyfin-Server)
-- Manelly nennt dem Agent jede Datei und jeden Zielordner (aus Jellyfin) – der Agent durchsucht keine Laufwerke, prüft
-  vorher den freien Platz (etwa doppelte Dateigrösse) und überschreibt nie eine Datei
+- Manelly nennt dem Agent jede Datei, jeden Zielordner (aus Jellyfin) und den Arbeitsordner – der Agent durchsucht keine
+  Laufwerke, prüft vorher den freien Platz (direkt etwa doppelte Dateigrösse, mit Arbeitsordner siehe oben) und
+  überschreibt nie eine Datei
 
 Einrichtung: siehe [Agent auf dem Jellyfin-Server](#agent-auf-dem-jellyfin-server-windows).
 

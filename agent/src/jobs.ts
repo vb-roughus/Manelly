@@ -36,6 +36,8 @@ export interface JobQueueOptions {
   access?: PathAccess;
   /** Pause between attempts to reach the files of a job that is to start, e.g. right after Windows started. */
   retryMs?: number;
+  /** The work folder set in Manelly, for jobs that convert there. */
+  workFolder?: () => string | null;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -49,7 +51,7 @@ const OPEN_GATE: GateCheck = { open: true, pause: false, reason: null, streams: 
 export async function createJobQueue(options: JobQueueOptions) {
   const { dataDir, roots, tools, run = runConversion, freeBytes, gate = async () => OPEN_GATE, tickMs = 60_000, notify, now = () => new Date(), log = () => {} } = options;
   const suspend = options.suspend ?? suspendProcess;
-  const { access, retryMs = 30_000 } = options;
+  const { access, retryMs = 30_000, workFolder = () => null } = options;
   const file = join(dataDir, JOBS_FILE);
   let entries: StoredJob[] = [];
   try {
@@ -203,7 +205,10 @@ export async function createJobQueue(options: JobQueueOptions) {
   async function reachable(entry: StoredJob, signal: AbortSignal): Promise<string | null> {
     if (!access) return null;
     for (let attempt = 1; ; attempt++) {
-      const problem = (await access.prepare(entry.request.source)) ?? (await access.prepare(entry.plan.directory));
+      const problem =
+        (await access.prepare(entry.request.source)) ??
+        (await access.prepare(entry.plan.directory)) ??
+        (entry.plan.work ? await access.prepare(entry.plan.work) : null);
       const there = !problem && (await stat(entry.request.source).then(() => true, () => false));
       if (there || attempt >= 4 || signal.aborted) return problem;
       await new Promise<void>((resolve) => {
@@ -241,7 +246,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         freeBytes,
         onProgress: (step, fraction) => {
           job.step = step;
-          job.progress = overallProgress(step, fraction);
+          job.progress = overallProgress(step, fraction, Boolean(entry.plan.work));
         },
         control: {
           proceed: () =>
@@ -312,7 +317,7 @@ export async function createJobQueue(options: JobQueueOptions) {
       if (!toolsReady(await tools())) {
         throw new AgentError(503, 'Es fehlen Werkzeuge (ffmpeg, dovi_tool oder mkvmerge) – siehe Agent-Status in Manelly.');
       }
-      const plan = await planOutput(request, roots, process.platform, access);
+      const plan = await planOutput(request, roots, process.platform, access, workFolder());
       // Two jobs must not write the same file.
       const busy = entries.some(({ job }) => (job.state === 'queued' || job.state === 'running') && (job.output === plan.output || job.source === request.source));
       if (busy) throw new AgentError(409, 'Für diese Datei läuft schon eine Umwandlung.');
@@ -337,6 +342,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         scheduled: request.scheduled === true,
         interruptions: 0,
         paused: false,
+        work: plan.work ?? null,
       };
       entries.unshift({ job, request, plan });
       await save();

@@ -25,6 +25,7 @@ import type {
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
   NetworkDrives,
+  WorkFolderStatus,
 } from '@manelly/shared';
 import { AppError } from '../errors.js';
 
@@ -75,6 +76,8 @@ export interface AgentClient {
   history(from: number, to: number): Promise<HistoryResponse>;
   setHistorySettings(settings: HistorySettings): Promise<HistorySettings>;
   clearHistory(): Promise<void>;
+  /** From agent 0.17.0: where conversions copy the original to and convert; null switches it off. */
+  setWorkFolder(directory: string | null): Promise<WorkFolderStatus>;
   /** From agent 0.16.0: the login for the shares of a server; the agent keeps it, Manelly does not. */
   setDriveCredential(request: DriveCredentialRequest): Promise<NetworkDrives>;
   removeDriveCredential(server: string): Promise<NetworkDrives>;
@@ -152,6 +155,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),
     setHistorySettings: (settings) => call('PUT', '/api/history/settings', settings, 20_000),
     clearHistory: () => call('DELETE', '/api/history', undefined, 20_000),
+    setWorkFolder: (directory) => call('PUT', '/api/work', { directory }),
     // Connecting the drives with the new login may take a while when the NAS is slow to answer.
     setDriveCredential: (request) => call('PUT', '/api/drives/credentials', request, 60_000),
     removeDriveCredential: (server) => call('DELETE', `/api/drives/credentials?${new URLSearchParams({ server })}`),

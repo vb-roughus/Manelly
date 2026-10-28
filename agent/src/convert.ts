@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readFile, rename, rm, rmdir, stat, statfs, unlink, writeFile } from 'node:fs/promises';
 import { constants as osConstants, setPriority } from 'node:os';
+import { finished } from 'node:stream/promises';
 import type { ConversionRequest, ConversionStep } from '@manelly/shared';
 import { AgentError } from './errors.js';
 import { pathApiFor, TEMP_FOLDER_PREFIX, type OutputPlan } from './paths.js';
@@ -35,24 +38,46 @@ export interface ConversionResult {
 
 // Share of the whole job per step, roughly by how much data each step moves.
 const STEP_SPAN: Record<ConversionStep, [number, number]> = {
+  fetch: [0, 0],
   probe: [0, 0.01],
   extract: [0.01, 0.4],
   convert: [0.4, 0.7],
   mux: [0.7, 0.98],
+  store: [0.98, 0.98],
+  finalize: [0.98, 1],
+};
+// In a work folder on a local disk: copying over the network takes about as long as all the steps there together.
+const STAGED_SPAN: Record<ConversionStep, [number, number]> = {
+  fetch: [0, 0.25],
+  probe: [0.25, 0.26],
+  extract: [0.26, 0.42],
+  convert: [0.42, 0.56],
+  mux: [0.56, 0.72],
+  store: [0.72, 0.98],
   finalize: [0.98, 1],
 };
 // Peak usage: the extracted and the converted video stream exist side by side.
 const SPACE_FACTOR = 2.1;
+// In the work folder the copy of the original comes on top; at the target only the result is copied to.
+const WORK_SPACE_FACTOR = 3.1;
+const TARGET_SPACE_FACTOR = 1.05;
+const COPY_CHUNK_BYTES = 8 * 1024 * 1024;
 /** Abort reason for a pause: the temporary files stay, and the next run continues after the last finished step. */
 export const PAUSE = 'manelly:pause';
 
+/** At the target: the temporary files of a conversion there, or the copy of the result from the work folder. */
 export function tempFolderFor(source: string, plan: OutputPlan, jobId: string): string {
   return pathApiFor(source).join(plan.directory, `${TEMP_FOLDER_PREFIX}${jobId}`);
 }
 
-export function overallProgress(step: ConversionStep, fraction: number | null): number | null {
+/** The job's own folder in the work folder; null when it converts where the files are. */
+export function workFolderFor(plan: OutputPlan, jobId: string): string | null {
+  return plan.work ? pathApiFor(plan.work).join(plan.work, `${TEMP_FOLDER_PREFIX}${jobId}`) : null;
+}
+
+export function overallProgress(step: ConversionStep, fraction: number | null, staged = false): number | null {
   if (fraction === null) return null;
-  const [start, end] = STEP_SPAN[step];
+  const [start, end] = (staged ? STAGED_SPAN : STEP_SPAN)[step];
   return start + (end - start) * Math.min(1, Math.max(0, fraction));
 }
 
@@ -136,7 +161,7 @@ interface Probe {
 }
 
 /** Reads only the file header; falls back to what Jellyfin knows. */
-async function probe(ctx: ConversionContext): Promise<Probe> {
+async function probe(ctx: ConversionContext, input: string): Promise<Probe> {
   const hints = ctx.request.hints ?? {};
   const fallback: Probe = { durationMs: hints.durationMs ?? null, frameRate: frameRateFromNumber(hints.frameRate ?? null), hasDolbyVision: null };
   if (!ctx.tools.ffprobe.path) return fallback;
@@ -145,7 +170,7 @@ async function probe(ctx: ConversionContext): Promise<Probe> {
     await runTool({
       tool: ctx.tools.ffprobe.path,
       label: 'ffprobe',
-      args: ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate:stream_side_data=dv_profile:format=duration', '-of', 'json', ctx.request.source],
+      args: ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate:stream_side_data=dv_profile:format=duration', '-of', 'json', input],
       signal: ctx.signal,
       control: ctx.control,
       onLine: (line) => (json += line),
@@ -183,14 +208,19 @@ export function frameRateFromNumber(rate: number | null): string | null {
 
 /** Written to the temporary folder after each finished step, so a pause or a restart does not start over. */
 interface Checkpoint {
-  done: 'extract' | 'convert';
-  info: Probe;
+  done: Stage;
+  /** Known from the probe on; null after the copy into the work folder only. */
+  info: Probe | null;
 }
 
-async function readCheckpoint(file: string, outputs: Record<Checkpoint['done'], string>): Promise<Checkpoint | null> {
+/** The steps that leave a file behind, in their order. */
+const STAGES = ['fetch', 'extract', 'convert', 'mux'] as const;
+type Stage = (typeof STAGES)[number];
+
+async function readCheckpoint(file: string, outputs: Record<Stage, string>): Promise<Checkpoint | null> {
   try {
     const checkpoint = JSON.parse(await readFile(file, 'utf8')) as Checkpoint;
-    if (!(checkpoint.done in outputs) || typeof checkpoint.info !== 'object' || !checkpoint.info) return null;
+    if (!STAGES.includes(checkpoint.done) || typeof checkpoint.info !== 'object') return null;
     return (await exists(outputs[checkpoint.done])) ? checkpoint : null;
   } catch {
     return null;
@@ -202,9 +232,47 @@ async function writeCheckpoint(file: string, checkpoint: Checkpoint): Promise<vo
   await rename(`${file}.tmp`, file);
 }
 
+async function requireSpace(directory: string, required: number, what: string, ctx: ConversionContext): Promise<void> {
+  const free = await (ctx.freeBytes ?? defaultFreeBytes)(directory);
+  if (free !== null && free < required) {
+    throw new AgentError(507, `Zu wenig Speicherplatz ${what} ${directory}: frei ${formatBytes(free)}, nötig etwa ${formatBytes(required)}.`);
+  }
+}
+
+/**
+ * Copies a file in chunks, into "<to>.part" first: shows progress, waits while the job is paused, and continues a
+ * copy that a pause or a restart interrupted. Reads and writes one stream each – the network sees one long transfer.
+ */
+async function copyResumable(from: string, to: string, step: 'fetch' | 'store', ctx: ConversionContext): Promise<void> {
+  const total = (await stat(from)).size;
+  if ((await stat(to).then((info) => info.size, () => null)) === total) return;
+  const partial = `${to}.part`;
+  let copied = await stat(partial).then((info) => info.size, () => 0);
+  if (copied > total) copied = 0;
+  ctx.onProgress(step, total ? copied / total : 1);
+  const reader = createReadStream(from, { start: copied, highWaterMark: COPY_CHUNK_BYTES });
+  const writer = createWriteStream(partial, { flags: copied ? 'a' : 'w' });
+  try {
+    for await (const chunk of reader as AsyncIterable<Buffer>) {
+      await ctx.control?.proceed();
+      if (ctx.signal.aborted) throw new AgentError(499, 'Abgebrochen.');
+      if (!writer.write(chunk)) await once(writer, 'drain');
+      copied += chunk.length;
+      ctx.onProgress(step, total ? copied / total : 1);
+    }
+    writer.end();
+    await finished(writer);
+  } finally {
+    reader.destroy();
+    writer.destroy();
+  }
+  await rename(partial, to);
+}
+
 /**
  * Turns a Dolby Vision profile 7 file into profile 8.1: extract the video, convert the RPU, mux it back with all other tracks.
- * Aborted with PAUSE, it keeps its temporary files and continues there next time.
+ * With a work folder, the original is copied there first and the result copied back at the end; the storage is
+ * busy only while copying. Aborted with PAUSE, it keeps its temporary files and continues there next time.
  */
 export async function runConversion(ctx: ConversionContext): Promise<ConversionResult> {
   const { request, plan, tools, signal } = ctx;
@@ -213,55 +281,68 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
     throw new AgentError(503, 'Es fehlen Werkzeuge (ffmpeg, dovi_tool oder mkvmerge) – siehe Agent-Status in Manelly.');
   }
 
-  const temp = tempFolderFor(request.source, plan, ctx.jobId);
-  const video = api.join(temp, 'video.hevc');
-  const converted = api.join(temp, 'video_p8.hevc');
-  const muxed = api.join(temp, 'output.mkv');
-  const checkpointFile = api.join(temp, 'checkpoint.json');
+  const work = workFolderFor(plan, ctx.jobId);
+  // At the target: the temporary files, or – with a work folder – the copy of the result, next to where it ends up.
+  const landing = tempFolderFor(request.source, plan, ctx.jobId);
+  const temp = work ?? landing;
+  const tempApi = pathApiFor(temp);
+  const input = work ? tempApi.join(work, `source${api.extname(request.source).toLowerCase()}`) : request.source;
+  const video = tempApi.join(temp, 'video.hevc');
+  const converted = tempApi.join(temp, 'video_p8.hevc');
+  const muxed = tempApi.join(temp, 'output.mkv');
+  const checkpointFile = tempApi.join(temp, 'checkpoint.json');
 
   const sourceBytes = (await stat(request.source)).size;
-  const resumed = await readCheckpoint(checkpointFile, { extract: video, convert: converted });
+  const resumed = await readCheckpoint(checkpointFile, { fetch: input, extract: video, convert: converted, mux: muxed });
+  const reached = (stage: Stage) => resumed !== null && STAGES.indexOf(resumed.done) >= STAGES.indexOf(stage);
   if (!resumed) {
     if (plan.createDirectory) await mkdir(plan.directory, { recursive: true });
-    const free = await (ctx.freeBytes ?? defaultFreeBytes)(plan.directory);
-    const required = Math.ceil(sourceBytes * SPACE_FACTOR);
-    if (free !== null && free < required) {
+    try {
+      await requireSpace(plan.directory, Math.ceil(sourceBytes * (work ? TARGET_SPACE_FACTOR : SPACE_FACTOR)), 'in', ctx);
+      if (plan.work) await requireSpace(plan.work, Math.ceil(sourceBytes * WORK_SPACE_FACTOR), 'im Arbeitsordner', ctx);
+    } catch (error) {
       if (plan.createDirectory) await rmdir(plan.directory).catch(() => {});
-      throw new AgentError(507, `Zu wenig Speicherplatz in ${plan.directory}: frei ${formatBytes(free)}, nötig etwa ${formatBytes(required)}.`);
+      throw error;
     }
   }
 
   try {
-    let info: Probe;
-    if (resumed) {
-      info = resumed.info;
-    } else {
-      // Leftovers of a run that did not get far enough for a checkpoint.
-      await rm(temp, { recursive: true, force: true });
-      await mkdir(temp);
+    if (!resumed) {
+      // Leftovers of a run that did not get far enough for a checkpoint; a partial copy is kept and continued.
+      for (const name of ['video.hevc', 'video_p8.hevc', 'output.mkv', 'checkpoint.json']) await rm(tempApi.join(temp, name), { force: true });
+      await mkdir(temp, { recursive: true });
       // Jellyfin skips dot folders anyway; .ignore also covers its real-time monitor.
-      await writeFile(api.join(temp, '.ignore'), '');
+      await writeFile(tempApi.join(temp, '.ignore'), '');
+    }
 
+    if (work && !reached('fetch')) {
+      await copyResumable(request.source, input, 'fetch', ctx);
+      await writeCheckpoint(checkpointFile, { done: 'fetch', info: null });
+    }
+
+    let info = resumed?.info ?? null;
+    if (!reached('extract') || !info) {
       ctx.onProgress('probe', null);
-      info = await probe(ctx);
+      info = await probe(ctx, input);
       if (info.hasDolbyVision === false) throw new AgentError(422, 'Die Datei enthält kein Dolby Vision.');
 
-      ctx.onProgress('extract', info.durationMs ? 0 : null);
+      const duration = info.durationMs;
+      ctx.onProgress('extract', duration ? 0 : null);
       await runTool({
         tool: tools.ffmpeg.path,
         label: 'ffmpeg',
-        args: ['-hide_banner', '-nostdin', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', request.source, '-map', '0:v:0', '-c:v', 'copy', '-bsf:v', 'hevc_mp4toannexb', '-f', 'hevc', video],
+        args: ['-hide_banner', '-nostdin', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', input, '-map', '0:v:0', '-c:v', 'copy', '-bsf:v', 'hevc_mp4toannexb', '-f', 'hevc', video],
         signal,
         control: ctx.control,
         onLine: (line) => {
           const match = line.match(/^out_time_us=(\d+)/);
-          if (match && info.durationMs) ctx.onProgress('extract', Number(match[1]) / 1000 / info.durationMs);
+          if (match && duration) ctx.onProgress('extract', Number(match[1]) / 1000 / duration);
         },
       });
       await writeCheckpoint(checkpointFile, { done: 'extract', info });
     }
 
-    if (resumed?.done !== 'convert') {
+    if (!reached('convert')) {
       ctx.onProgress('convert', 0);
       await rm(converted, { force: true });
       const videoBytes = (await stat(video)).size;
@@ -280,44 +361,60 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
       await unlink(video);
     }
 
-    ctx.onProgress('mux', 0);
-    await rm(muxed, { force: true });
-    await runTool({
-      tool: tools.mkvmerge.path,
-      label: 'mkvmerge',
-      args: [
-        '--gui-mode',
-        '-o',
-        muxed,
-        ...(info.frameRate ? ['--default-duration', `0:${info.frameRate}p`] : []),
-        converted,
-        // Everything but the video from the original: audio, subtitles, chapters, attachments.
-        '--no-video',
-        request.source,
-      ],
-      signal,
-      control: ctx.control,
-      okCodes: [0, 1],
-      onLine: (line) => {
-        const match = line.match(/^#GUI#progress (\d+)%/);
-        if (match) ctx.onProgress('mux', Number(match[1]) / 100);
-      },
-    });
-    await unlink(converted);
+    if (!reached('mux')) {
+      ctx.onProgress('mux', 0);
+      await rm(muxed, { force: true });
+      await runTool({
+        tool: tools.mkvmerge.path,
+        label: 'mkvmerge',
+        args: [
+          '--gui-mode',
+          '-o',
+          muxed,
+          ...(info.frameRate ? ['--default-duration', `0:${info.frameRate}p`] : []),
+          converted,
+          // Everything but the video from the original: audio, subtitles, chapters, attachments.
+          '--no-video',
+          input,
+        ],
+        signal,
+        control: ctx.control,
+        okCodes: [0, 1],
+        onLine: (line) => {
+          const match = line.match(/^#GUI#progress (\d+)%/);
+          if (match) ctx.onProgress('mux', Number(match[1]) / 100);
+        },
+      });
+      await writeCheckpoint(checkpointFile, { done: 'mux', info });
+      await unlink(converted);
+      // The copy of the original is not needed any more; the work folder only holds the result now.
+      if (work) await unlink(input);
+    }
+
+    let result = muxed;
+    if (work) {
+      await mkdir(landing, { recursive: true });
+      await writeFile(api.join(landing, '.ignore'), '');
+      result = api.join(landing, 'output.mkv');
+      await copyResumable(muxed, result, 'store', ctx);
+    }
 
     ctx.onProgress('finalize', 0);
-    const result = await finalize(muxed, request, plan);
-    await rm(temp, { recursive: true, force: true });
-    return { ...result, warning: result.warning ?? (info.frameRate ? null : 'Die Bildrate war unbekannt; mkvmerge hat sie aus dem Video übernommen.') };
+    const done = await finalize(result, request, plan);
+    await rm(landing, { recursive: true, force: true });
+    if (work) await rm(work, { recursive: true, force: true });
+    return { ...done, warning: done.warning ?? (info.frameRate ? null : 'Die Bildrate war unbekannt; mkvmerge hat sie aus dem Video übernommen.') };
   } catch (error) {
     if (!(signal.aborted && signal.reason === PAUSE)) await discardTemp(request.source, plan, ctx.jobId);
     throw error;
   }
 }
 
-/** Removes the temporary files of a conversion, and the folder it created for it if that is empty now. */
+/** Removes the temporary files of a conversion – at the target and in the work folder – and the folder it created for it if that is empty now. */
 export async function discardTemp(source: string, plan: OutputPlan, jobId: string): Promise<void> {
   await rm(tempFolderFor(source, plan, jobId), { recursive: true, force: true }).catch(() => {});
+  const work = workFolderFor(plan, jobId);
+  if (work) await rm(work, { recursive: true, force: true }).catch(() => {});
   if (plan.createDirectory) await rmdir(plan.directory).catch(() => {});
 }
 

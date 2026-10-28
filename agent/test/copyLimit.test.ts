@@ -39,12 +39,12 @@ describe('copy limit', () => {
     await limiter.settled();
     expect(limiter.current()).toBeNull();
 
-    // 1600 Mbit/s less two streams of 80 and 40 Mbit/s and 20 Mbit/s reserve: 1460 Mbit/s = 182.5 MB (decimal) per second.
+    // 85 % of 1600 Mbit/s less two streams of 80 and 40 Mbit/s and 20 Mbit/s reserve: 1220 Mbit/s = 152.5 MB (decimal) per second.
     world.sessions = [playing(78_000_000, 2_000_000), playing(40_000_000)];
     world.clock = 2000;
     limiter.current();
     await limiter.settled();
-    expect(limiter.current()).toEqual({ bytesPerSecond: 182_500_000, streams: 2, streamsBitsPerSecond: 120_000_000 });
+    expect(limiter.current()).toEqual({ bytesPerSecond: 152_500_000, streams: 2, streamsBitsPerSecond: 120_000_000 });
 
     // Jellyfin is asked at most once a second here.
     const calls = world.calls;
@@ -71,8 +71,8 @@ describe('copy limit', () => {
     world.reachable = false;
     limiter.current();
     await limiter.settled();
-    // 1600 − 80 − 20 = 1500 Mbit/s.
-    expect(limiter.current()).toEqual({ bytesPerSecond: 187_500_000, streams: 1, streamsBitsPerSecond: 80_000_000 });
+    // 1360 − 80 − 20 = 1260 Mbit/s.
+    expect(limiter.current()).toEqual({ bytesPerSecond: 157_500_000, streams: 1, streamsBitsPerSecond: 80_000_000 });
 
     const unknown = setup({ mode: 'streaming', limitMbps: 400, storageMbps: 1600 }, null);
     unknown.limiter.current();

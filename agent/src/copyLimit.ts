@@ -4,6 +4,12 @@ import type { SettingsStore } from './schedule.js';
 
 /** Kept free on top of the streams, in bits per second. */
 export const STREAM_RESERVE_BPS = 20_000_000;
+/**
+ * The share of what the storage manages that copy and streams may use together. Close to full load, every small read
+ * of a stream queues behind the copy's big chunks and the stream stutters, although the sum still fits; the measured
+ * maximum also counts network overhead that the copy's file data does not.
+ */
+export const STORAGE_SHARE = 0.85;
 /** A stream whose file tells no bitrate counts like a UHD remux. */
 const UNKNOWN_STREAM_BPS = 80_000_000;
 /** Copying never stops completely; it just gets slow (8 Mbit/s). */
@@ -26,8 +32,8 @@ export interface CopyLimiterOptions {
 }
 
 /**
- * How fast conversions may copy to and from the work folder right now. Automatically, the copy gets what the storage
- * manages minus the running streams and a reserve; Jellyfin is asked only while something copies.
+ * How fast conversions may copy to and from the work folder right now. Automatically, the copy gets 85 % of what the
+ * storage manages minus the running streams and a reserve; Jellyfin is asked only while something copies.
  */
 export function createCopyLimiter({ settings, fetch: fetchImpl = fetch, now = Date.now, checkMs = 15_000 }: CopyLimiterOptions) {
   let streams: { count: number; bitsPerSecond: number } = { count: 0, bitsPerSecond: 0 };
@@ -59,7 +65,7 @@ export function createCopyLimiter({ settings, fetch: fetchImpl = fetch, now = Da
         });
       }
       if (streams.count === 0) return null;
-      const left = storageMbps * MBIT_BYTES - (streams.bitsPerSecond + STREAM_RESERVE_BPS) / 8;
+      const left = storageMbps * STORAGE_SHARE * MBIT_BYTES - (streams.bitsPerSecond + STREAM_RESERVE_BPS) / 8;
       return { bytesPerSecond: Math.max(MIN_COPY_BYTES, Math.round(left)), streams: streams.count, streamsBitsPerSecond: streams.bitsPerSecond };
     },
 

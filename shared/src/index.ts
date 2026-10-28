@@ -638,10 +638,16 @@ export interface ConversionRequest {
   hints?: { durationMs?: number | null; frameRate?: number | null };
   /** Wait for the agent's schedule (time window, nobody streaming) instead of starting right away. */
   scheduled?: boolean;
+  /**
+   * Convert in the agent's work folder (agent from 0.17.0): copy the original there, convert there, copy the result
+   * back to `output`. The storage is busy only while copying.
+   */
+  work?: boolean;
 }
 
 export type ConversionJobState = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
-export type ConversionStep = 'probe' | 'extract' | 'convert' | 'mux' | 'finalize';
+/** fetch and store: copying into and out of the work folder. */
+export type ConversionStep = 'fetch' | 'probe' | 'extract' | 'convert' | 'mux' | 'store' | 'finalize';
 
 export interface ConversionJob {
   id: string;
@@ -678,6 +684,8 @@ export interface ConversionJob {
    * Missing before agent 0.12.0, which cannot pause.
    */
   paused?: boolean;
+  /** The work folder it converts in; null when it converts where the files are. Missing before agent 0.17.0. */
+  work?: string | null;
 }
 
 /** "HH:MM" in the time zone of the agent (the Jellyfin server); may span midnight. */
@@ -1243,6 +1251,8 @@ export interface AgentStatus {
   jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
+  /** The work folder for conversions; missing before agent 0.17.0. */
+  work?: WorkFolderStatus;
   /** Whether the agent records the history; missing on agents before 0.6.0. */
   history?: { enabled: boolean };
   /** Missing on agents before 0.7.0, which cannot be stopped from Manelly either. */
@@ -1259,6 +1269,24 @@ export interface AgentCheckResponse {
   sourceBytes: number | null;
   /** Free space per requested directory; null when it does not exist. */
   directories: Array<{ path: string; freeBytes: number | null }>;
+  /** Missing before agent 0.17.0. */
+  work?: WorkFolderStatus;
+}
+
+/**
+ * A folder on a fast disk of the Jellyfin server where conversions copy the original to, convert, and copy the
+ * result back from; set in Manelly, kept by the agent.
+ */
+export interface WorkFolderStatus {
+  directory: string | null;
+  freeBytes: number | null;
+  /** Why the agent cannot use it right now, e.g. the disk is gone. */
+  error: string | null;
+}
+
+/** PUT /api/work on the agent; null switches the work folder off. */
+export interface WorkFolderRequest {
+  directory: string | null;
 }
 
 /** GET/PUT /api/agent/settings in Manelly; the token itself never leaves the server. */
@@ -1293,6 +1321,8 @@ export interface ConversionOptions {
   folders: Array<{ library: string; path: string; freeBytes: number | null }>;
   /** Suggested subfolder for folder mode: the folder the original lives in. */
   subfolder: string;
+  /** The agent's work folder, when one is set; converting there needs space there and only the result's at the target. */
+  work: { directory: string; freeBytes: number | null; error: string | null; requiredBytes: number | null; targetBytes: number | null } | null;
 }
 
 export interface StartConversionRequest {
@@ -1300,6 +1330,8 @@ export interface StartConversionRequest {
   mediaSourceId?: string;
   output: ConversionRequest['output'];
   scheduled?: boolean;
+  /** Convert in the agent's work folder. */
+  work?: boolean;
 }
 
 // --- Server: transcoding ------------------------------------------------------

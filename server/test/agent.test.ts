@@ -50,7 +50,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
   };
   const jobs: ConversionJob[] = [];
   // Agents from 0.2.0 on report their schedule and what Jellyfin they know.
-  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus, network: [] as string[] };
+  const agent = { schedule: { window: null, idleOnly: false, jellyfinUrl: null, gate: null, timeZone: 'Europe/Zurich' } as AgentScheduleStatus, network: [] as string[], work: null as string | null };
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -138,7 +138,15 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         return Response.json({ ...jobs.find((job) => job.id === pause[1]), paused: pause[2] === 'pause' });
       }
       if (url.pathname === '/api/check') {
-        return Response.json({ sourceBytes: 40_000_000_000, directories: body.directories.map((path: string) => ({ path, freeBytes: 500_000_000_000 })) });
+        return Response.json({
+          sourceBytes: 40_000_000_000,
+          directories: body.directories.map((path: string) => ({ path, freeBytes: 500_000_000_000 })),
+          work: { directory: agent.work, freeBytes: agent.work ? 900_000_000_000 : null, error: null },
+        });
+      }
+      if (url.pathname === '/api/work' && init?.method === 'PUT') {
+        agent.work = body.directory;
+        return Response.json({ directory: agent.work, freeBytes: agent.work ? 900_000_000_000 : null, error: null });
       }
       if (url.pathname === '/api/jobs' && init?.method === 'POST') {
         sent.jobs.push(body);
@@ -214,6 +222,19 @@ describe('agent connection', () => {
     });
     // Only video libraries; music folders are no place for a movie.
     expect(options.folders.map((folder) => folder.path)).toEqual(['D:\\Filme', 'E:\\UHD']);
+    expect(options.work).toBeNull();
+  });
+
+  it('sets the work folder on the agent and converts there when asked', async () => {
+    const { app, world } = await setup();
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/work', payload: { directory: 'F:\\Manelly' } })).json()).toEqual({ directory: 'F:\\Manelly', freeBytes: 900_000_000_000, error: null });
+    const options = (await app.inject('/api/agent/conversions/options?itemId=movie')).json<ConversionOptions>();
+    // The copy of the original and both video streams in the work folder; only the result at the target.
+    expect(options.work).toEqual({ directory: 'F:\\Manelly', freeBytes: 900_000_000_000, error: null, requiredBytes: 124_000_000_000, targetBytes: 42_000_000_000 });
+    await app.inject({ method: 'POST', url: '/api/agent/jobs', payload: { itemId: 'movie', output: { mode: 'replace' }, work: true } });
+    expect(world.sent.jobs[0]).toMatchObject({ output: { mode: 'replace' }, work: true });
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/work', payload: { directory: null } })).json().directory).toBeNull();
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/work', payload: {} })).statusCode).toBe(400);
   });
 
   it('starts a conversion with the path from Jellyfin and only into library folders', async () => {

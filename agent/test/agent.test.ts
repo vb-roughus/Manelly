@@ -3,13 +3,15 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob, HistoryResponse, JDownloaderStatus } from '@manelly/shared';
+import type { AgentNetworkList, AgentNetworkStatus, AgentResourceStatus, AgentScheduleStatus, AgentStatus, ConversionJob, ConversionStep, HistoryResponse, JDownloaderStatus, WorkFolderStatus } from '@manelly/shared';
+import { runConversion } from '../src/convert.js';
 import { createRecorder, type Recorder } from '../src/history.js';
 import { createNotifier } from '../src/jellyfin.js';
 import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
 import { createResourceMonitor, type ResourceMonitor } from '../src/resources.js';
+import { planOutput } from '../src/paths.js';
 import { createGate, createSettingsStore } from '../src/schedule.js';
 import { createAgentServer } from '../src/server.js';
 import { discoverTools, type Tools } from '../src/tools.js';
@@ -136,6 +138,7 @@ async function start() {
     gate: createGate({ settings: settings.get, fetch: fakeJellyfin, now: () => clock, quietMs: 0 }),
     tickMs: 0,
     notify: createNotifier(() => settings.get().jellyfin, { fetch: fakeJellyfin }),
+    workFolder: () => settings.get().work,
   });
   network = createNetworkMonitor({ source: fakeNetwork, selection: () => settings.get().network, now: () => 2000 });
   resources = createResourceMonitor({ source: { start: () => () => {} }, ownProcesses: () => new Set() });
@@ -283,7 +286,7 @@ describe('agent', () => {
 
   it('reports sizes and free space only for the paths it is given', async () => {
     const response = await call('/api/check', { method: 'POST', body: JSON.stringify({ source, directories: [media] }) });
-    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }] });
+    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }], work: { directory: null, freeBytes: null, error: null } });
   });
 
 });
@@ -444,6 +447,91 @@ describe('pause', () => {
     } finally {
       await strict.stop();
     }
+  });
+});
+
+describe('work folder', () => {
+  it('takes only a folder that is there and takes files', async () => {
+    const work = path.join(root, 'work');
+    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: null, freeBytes: null, error: null });
+    const refused = async (directory: unknown) => {
+      const response = await put('/api/work', { directory });
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refused('work')).toEqual([400, '«work» ist kein absoluter Pfad, z. B. E:\\Manelly.']);
+    expect(await refused(work)).toEqual([404, `Den Ordner ${work} gibt es auf dem Server nicht – zuerst anlegen.`]);
+    await mkdir(work);
+    const saved = await put('/api/work', { directory: ` ${work} ` });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual<WorkFolderStatus>({ directory: work, freeBytes: free, error: null });
+    // The write test leaves nothing behind.
+    expect(await readdir(work)).toEqual([]);
+    expect(((await (await call('/api/status')).json()) as AgentStatus).work?.directory).toBe(work);
+
+    await rm(work, { recursive: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: work, freeBytes: null, error: `Den Arbeitsordner ${work} gibt es auf dem Server nicht (mehr).` });
+    expect(await (await put('/api/work', { directory: null })).json()).toEqual({ directory: null, freeBytes: null, error: null });
+  });
+
+  it('copies the original into the work folder, converts there and copies the result back', async () => {
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    // Without a work folder, the request is refused.
+    expect((await post('/api/jobs', { source, output: { mode: 'alongside' }, work: true })).status).toBe(400);
+    await put('/api/work', { directory: work });
+
+    const created = (await (await post('/api/jobs', { source, output: { mode: 'replace' }, work: true })).json()) as ConversionJob;
+    expect(created.work).toBe(work);
+    const job = await waitFor(created.id, finished);
+    expect(job).toMatchObject({ state: 'done', output: source, backup: path.join(media, '.manelly-backup', 'Film (2000).mkv'), progress: 1 });
+    expect(await readFile(source, 'utf8')).toBe('original');
+    // Muxed from the copy in the work folder, not from the storage.
+    const args = JSON.parse(await readFile(process.env.FAKE_LOG!, 'utf8')) as string[];
+    expect(args.slice(-2)).toEqual(['--no-video', path.join(work, `.manelly-tmp-${job.id}`, 'source.mkv')]);
+    // Nothing left behind, neither in the work folder nor at the target.
+    expect(await readdir(work)).toEqual([]);
+    expect((await readdir(media)).sort()).toEqual(['.manelly-backup', 'Film (2000).mkv']);
+  });
+
+  it('continues a copy that was interrupted, and goes through every step', async () => {
+    const work = path.join(root, 'work');
+    const jobId = 'resumed';
+    // A pause stopped the copy into the work folder after three bytes.
+    await mkdir(path.join(work, `.manelly-tmp-${jobId}`), { recursive: true });
+    const plan = await planOutput({ source, output: { mode: 'alongside' }, work: true }, [], 'linux', undefined, work);
+    await writeFile(path.join(work, `.manelly-tmp-${jobId}`, 'source.mkv.part'), 'ori');
+    const steps: ConversionStep[] = [];
+    const result = await runConversion({
+      jobId,
+      request: { source, output: { mode: 'alongside' }, work: true },
+      plan,
+      tools,
+      signal: new AbortController().signal,
+      freeBytes: async () => free,
+      onProgress: (step) => void (steps.at(-1) !== step && steps.push(step)),
+    });
+    expect(await readFile(result.output, 'utf8')).toBe('original');
+    expect(steps).toEqual(['fetch', 'probe', 'extract', 'convert', 'mux', 'store', 'finalize']);
+    expect(await readdir(work)).toEqual([]);
+    expect((await readdir(media)).sort()).toEqual(['Film (2000) - DV P8.mkv', 'Film (2000).mkv']);
+  });
+
+  it('checks the space in the work folder, and cleans up a failed conversion there', async () => {
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    await put('/api/work', { directory: work });
+    process.env.FAKE_DOVI_FAIL = '1';
+    const failed = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, work: true })).json()) as ConversionJob;
+    expect((await waitFor(failed.id, finished)).error).toBe('dovi_tool ist fehlgeschlagen (Exit-Code 1).');
+    expect(await readdir(work)).toEqual([]);
+    expect(await readdir(media)).toEqual(['Film (2000).mkv']);
+
+    delete process.env.FAKE_DOVI_FAIL;
+    // Enough at the target for the result, but not in the work folder for the copy and both video streams.
+    free = 10;
+    const tight = (await (await post('/api/jobs', { source, output: { mode: 'alongside' }, work: true })).json()) as ConversionJob;
+    expect((await waitFor(tight.id, finished)).error).toMatch(/^Zu wenig Speicherplatz im Arbeitsordner /);
+    expect(await readdir(work)).toEqual([]);
   });
 });
 

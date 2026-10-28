@@ -139,12 +139,19 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
   const [folder, setFolder] = useState(options.folders[0]?.path ?? '');
   const [subfolder, setSubfolder] = useState(options.subfolder);
   const [folderName, setFolderName] = useState(`${stem(original)}.mkv`);
+  // In the work folder whenever there is one that works: the storage is busy only while copying.
+  const work = options.work;
+  const workUsable = work !== null && work.error === null;
+  const [inWork, setInWork] = useState(workUsable);
+  const staged = inWork && workUsable;
 
   const chosenFolder = options.folders.find((candidate) => candidate.path === folder);
   const target =
     mode === 'alongside' ? join(options.alongside.directory, alongsideName) : mode === 'replace' ? options.replace.path : join(folder, subfolder.trim(), folderName);
   const free = mode === 'folder' ? (chosenFolder?.freeBytes ?? null) : options.alongside.freeBytes;
-  const tooLittleSpace = free !== null && options.requiredBytes !== null && free < options.requiredBytes;
+  const targetNeeds = staged ? work.targetBytes : options.requiredBytes;
+  const tooLittleSpace = free !== null && targetNeeds !== null && free < targetNeeds;
+  const tooLittleWorkSpace = staged && work.freeBytes !== null && work.requiredBytes !== null && work.freeBytes < work.requiredBytes;
   const name = mode === 'alongside' ? alongsideName : mode === 'folder' ? folderName : original;
   const nameInvalid = mode !== 'replace' && !validName(name.trim());
 
@@ -161,6 +168,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
       ...(options.source.mediaSourceId ? { mediaSourceId: options.source.mediaSourceId } : {}),
       output,
       ...(scheduled && hasSchedule ? { scheduled: true } : {}),
+      ...(staged ? { work: true } : {}),
     });
   }
 
@@ -211,6 +219,32 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
         </Choice>
       </fieldset>
 
+      {work && (
+        <fieldset className="space-y-2">
+          <legend className="mb-2 text-sm font-medium">Wo umwandeln</legend>
+          <Choice
+            id={`${id}-work`}
+            name="convert-where"
+            checked={staged}
+            onSelect={() => setInWork(true)}
+            title="Im Arbeitsordner"
+            description={
+              work.error ??
+              `Kopiert das Original nach ${work.directory}, wandelt dort um und kopiert das Ergebnis zurück. Der Speicher wird nur beim Kopieren belastet.`
+            }
+            disabled={!workUsable}
+          />
+          <Choice
+            id={`${id}-direct`}
+            name="convert-where"
+            checked={!staged}
+            onSelect={() => setInWork(false)}
+            title="Direkt am Speicherort"
+            description="Liest und schreibt während der ganzen Umwandlung dort, wo die Datei liegt."
+          />
+        </fieldset>
+      )}
+
       {schedule && (
         <fieldset className="space-y-2">
           <legend className="mb-2 text-sm font-medium">Wann</legend>
@@ -244,12 +278,28 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
           <span className="font-mono break-all">{target}</span>
         </p>
         <p className="flex items-center gap-1.5 text-ink-2">
-          <HardDrive className="size-3.5" aria-hidden />
-          {options.requiredBytes ? `Braucht während der Umwandlung etwa ${formatBytes(options.requiredBytes)}` : 'Platzbedarf unbekannt'}
-          {free !== null && ` · frei: ${formatBytes(free)}`}
+          <HardDrive className="size-3.5 shrink-0" aria-hidden />
+          <span>
+            {!targetNeeds
+              ? 'Platzbedarf unbekannt'
+              : staged
+                ? `Am Ziel etwa ${formatBytes(targetNeeds)} für das Ergebnis`
+                : `Braucht während der Umwandlung etwa ${formatBytes(targetNeeds)}`}
+            {free !== null && ` · frei: ${formatBytes(free)}`}
+          </span>
         </p>
+        {staged && work.requiredBytes !== null && (
+          <p className="flex items-center gap-1.5 text-ink-2">
+            <HardDrive className="size-3.5 shrink-0" aria-hidden />
+            <span>
+              Im Arbeitsordner etwa {formatBytes(work.requiredBytes)} während der Umwandlung
+              {work.freeBytes !== null && ` · frei: ${formatBytes(work.freeBytes)}`}
+            </span>
+          </p>
+        )}
       </div>
       {tooLittleSpace && <Note tone="critical">Auf dem Ziellaufwerk ist zu wenig Platz frei.</Note>}
+      {tooLittleWorkSpace && <Note tone="critical">Im Arbeitsordner ist zu wenig Platz frei.</Note>}
       {nameInvalid && <Note tone="critical">Der Dateiname muss auf .mkv enden und darf keine der Zeichen {'<>:"/\\|?*'} enthalten.</Note>}
       <p className="text-xs text-ink-3">
         Bei Profil 7 mit «FEL» (zusätzliche Bildinformation) geht diese Zusatzinformation verloren; bei «MEL» nichts. Behalte das
@@ -261,7 +311,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
         <button type="button" onClick={onCancel} className={secondaryButton}>
           Abbrechen
         </button>
-        <button type="submit" disabled={pending || tooLittleSpace || nameInvalid} className={primaryButton}>
+        <button type="submit" disabled={pending || tooLittleSpace || tooLittleWorkSpace || nameInvalid} className={primaryButton}>
           {pending && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
           {scheduled && hasSchedule ? 'Umwandlung einplanen' : 'Umwandlung starten'}
         </button>

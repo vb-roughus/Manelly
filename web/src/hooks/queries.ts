@@ -37,6 +37,7 @@ import type {
   MediaIndexStatus,
   MediaSearchResponse,
   NetworkDrives,
+  WorkFolderStatus,
   SaveSettingsRequest,
   SaveSettingsResponse,
   ServerStatus,
@@ -504,6 +505,15 @@ export function useSaveSchedule() {
       void queryClient.invalidateQueries({ queryKey: ['agent'] });
       void queryClient.invalidateQueries({ queryKey: ['conversions'] });
     },
+  });
+}
+
+/** The agent's work folder for conversions (agent from 0.17.0); null switches it off. */
+export function useSaveWorkFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (directory: string | null) => sendJson<WorkFolderStatus>('PUT', '/api/agent/work', { directory }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['agent'] }),
   });
 }
 

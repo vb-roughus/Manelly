@@ -11,6 +11,9 @@ import type { AgentConnection } from './connection.js';
 
 /** The extracted and the converted video stream exist side by side for a while. */
 const SPACE_FACTOR = 2.1;
+// In the work folder the copy of the original comes on top; at the target only the result is copied to.
+const WORK_SPACE_FACTOR = 3.1;
+const TARGET_SPACE_FACTOR = 1.05;
 const TICKS_PER_MS = 10_000;
 
 /** Jellyfin on Windows reports "D:\…" or "\\nas\…" paths, whatever system Manelly runs on. */
@@ -75,16 +78,21 @@ export async function conversionOptions(client: JellyfinClient, agent: AgentClie
   const free = (dir: string) => check.directories.find((entry) => entry.path === dir)?.freeBytes ?? null;
   const bytes = check.sourceBytes ?? source.Size ?? null;
   const inLibraryRoot = folders.some((folder) => samePath(folder.path, directory));
+  const space = (factor: number) => (bytes ? Math.ceil(bytes * factor) : null);
 
   return {
     item: { id: item.Id ?? itemId, name: item.Name ?? 'Unbekannter Titel', year: item.ProductionYear ?? null },
     source: { mediaSourceId: source.Id ?? null, path: source.Path, bytes, videoRangeType: video?.VideoRangeType ?? null, dvProfile: video?.DvProfile ?? null },
-    requiredBytes: bytes ? Math.ceil(bytes * SPACE_FACTOR) : null,
+    requiredBytes: space(SPACE_FACTOR),
     alongside: { directory, fileName: `${stem} - DV P8.mkv`, freeBytes: free(directory) },
     replace: { path: api.join(directory, `${stem}.mkv`), backup: api.join(directory, '.manelly-backup', api.basename(source.Path)) },
     folders: folders.map((folder) => ({ ...folder, freeBytes: free(folder.path) })),
     // A movie in its own folder keeps that folder name; a loose file gets one named after it.
     subfolder: inLibraryRoot ? stem : api.basename(directory),
+    // Agents before 0.17.0 have none.
+    work: check.work?.directory
+      ? { ...check.work, directory: check.work.directory, requiredBytes: space(WORK_SPACE_FACTOR), targetBytes: space(TARGET_SPACE_FACTOR) }
+      : null,
   };
 }
 
@@ -110,6 +118,7 @@ export async function startConversion(client: JellyfinClient, agent: AgentClient
       frameRate: video?.RealFrameRate ?? video?.AverageFrameRate ?? null,
     },
     ...(body.scheduled ? { scheduled: true } : {}),
+    ...(body.work ? { work: true } : {}),
   });
 }
 

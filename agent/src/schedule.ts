@@ -31,6 +31,8 @@ export interface AgentSettings {
   history: HistorySettings;
   /** Logins for network shares; the passwords encrypted for this computer. */
   networkCredentials: NetworkCredential[];
+  /** Where conversions copy the original to and convert, e.g. on a local disk; null converts where the files are. */
+  work: string | null;
 }
 
 const SETTINGS_FILE = 'settings.json';
@@ -96,6 +98,7 @@ export async function createSettingsStore(dataDir: string) {
     jdownloaderHold: null,
     history: DEFAULT_HISTORY,
     networkCredentials: [],
+    work: null,
   };
   try {
     const stored = JSON.parse(await readFile(file, 'utf8')) as Partial<AgentSettings>;
@@ -107,6 +110,7 @@ export async function createSettingsStore(dataDir: string) {
       jdownloaderHold: stored.jdownloaderHold && (stored.jdownloaderHold.mode === 'limit' || stored.jdownloaderHold.mode === 'pause') ? stored.jdownloaderHold : null,
       history: stored.history ? parseHistorySettings(stored.history) : DEFAULT_HISTORY,
       networkCredentials: Array.isArray(stored.networkCredentials) ? stored.networkCredentials.filter(isCredential) : [],
+      work: typeof stored.work === 'string' && stored.work ? stored.work : null,
     };
   } catch {
     // Missing or damaged: Manelly sends both again.
@@ -129,6 +133,7 @@ export async function createSettingsStore(dataDir: string) {
     setJDownloaderHold: (jdownloaderHold: JDownloaderHold | null) => save({ ...current, jdownloaderHold }),
     setHistory: (history: HistorySettings) => save({ ...current, history }),
     setNetworkCredentials: (networkCredentials: NetworkCredential[]) => save({ ...current, networkCredentials }),
+    setWork: (work: string | null) => save({ ...current, work }),
   };
 }
 

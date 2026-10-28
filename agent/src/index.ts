@@ -64,6 +64,7 @@ const queue = await createJobQueue({
   gate: createGate({ settings: settings.get }),
   notify: createNotifier(() => settings.get().jellyfin, { log }),
   access,
+  workFolder: () => settings.get().work,
   log,
 });
 // Measures only the interfaces picked in Manelly, and only while somebody looks.

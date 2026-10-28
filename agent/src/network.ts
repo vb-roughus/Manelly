@@ -249,6 +249,7 @@ export function createNetworkMonitor(options: NetworkMonitorOptions) {
           id: entry.id,
           name: entry.name,
           description: entry.description,
+          roles: entry.roles,
           up: state.get(entry.id)?.up ?? true,
           speedBps: state.get(entry.id)?.speed ?? null,
           rxBps: current?.rxBps ?? null,

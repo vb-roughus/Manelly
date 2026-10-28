@@ -707,11 +707,31 @@ describe('network', () => {
     expect((await put('/api/network/interfaces', { interfaces: ['{nope}'] })).status).toBe(400);
     expect((await put('/api/network/interfaces', { interfaces: ['{A1}'] })).status).toBe(200);
     expect(((await (await call('/api/status')).json()) as AgentStatus).network).toEqual({ selected: ['{A1}'] });
+    expect(((await (await call('/api/network/interfaces')).json()) as AgentNetworkList).roles).toEqual({ '{A1}': [] });
 
     const status = (await (await call('/api/network')).json()) as AgentNetworkStatus;
     expect(status.interfaces).toEqual([
-      { id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', up: true, speedBps: 1e9, rxBps: 800_000, txBps: 8_000_000, history: [{ t: 2000, rxBps: 800_000, txBps: 8_000_000 }] },
+      { id: '{A1}', name: 'Ethernet', description: 'Intel I219-V', roles: [], up: true, speedBps: 1e9, rxBps: 800_000, txBps: 8_000_000, history: [{ t: 2000, rxBps: 800_000, txBps: 8_000_000 }] },
     ]);
+  });
+
+  it('keeps the roles of the monitored interfaces – several on one, none for the others', async () => {
+    const roles = await put('/api/network/interfaces', { interfaces: ['{A1}'], roles: { '{A1}': ['storage', 'streaming', 'storage'], '{B2}': ['management'] } });
+    expect(roles.status).toBe(200);
+    expect(((await roles.json()) as AgentNetworkList).roles).toEqual({ '{A1}': ['streaming', 'storage'] });
+    expect(((await (await call('/api/network')).json()) as AgentNetworkStatus).interfaces[0]?.roles).toEqual(['streaming', 'storage']);
+
+    const refused = async (body: unknown) => {
+      const response = await put('/api/network/interfaces', body);
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refused({ interfaces: ['{A1}'], roles: { '{A1}': ['backup'] } })).toEqual([400, 'Unbekannte Rolle für Ethernet; möglich sind streaming, management, storage.']);
+    expect(await refused({ interfaces: ['{A1}'], roles: { '{A1}': 'storage' } })).toEqual([400, 'Unbekannte Rolle für Ethernet; möglich sind streaming, management, storage.']);
+    expect(await refused({ interfaces: ['{A1}'], roles: ['storage'] })).toEqual([400, 'Die Rollen werden je Schnittstelle erwartet.']);
+    // A selection without roles keeps them.
+    expect(((await (await put('/api/network/interfaces', { interfaces: ['{A1}'] })).json()) as AgentNetworkList).roles).toEqual({ '{A1}': ['streaming', 'storage'] });
+    // Kept over a restart.
+    expect((await createSettingsStore(path.join(root, 'data'))).get().network[0]?.roles).toEqual(['streaming', 'storage']);
   });
 });
 

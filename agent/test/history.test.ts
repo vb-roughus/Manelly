@@ -195,7 +195,7 @@ describe('recorder', () => {
     dir = await mkdtemp(path.join(tmpdir(), 'manelly-history-'));
     settings = await createSettingsStore(dir);
     await settings.setJellyfin({ url: 'http://jellyfin:8096', apiKey: 'key' });
-    await settings.setNetwork([{ id: '{A1}', name: 'Ethernet', description: null }]);
+    await settings.setNetwork([{ id: '{A1}', name: 'Ethernet', description: null, roles: [] }]);
     clock = Date.UTC(2026, 9, 27, 10, 0, 0);
     sessions = [];
     resourceHistory = [];

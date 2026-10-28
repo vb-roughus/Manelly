@@ -38,6 +38,7 @@ import type {
   MediaIndexStatus,
   MediaSearchResponse,
   NetworkDrives,
+  NetworkInterfacesRequest,
   WorkFolderStatus,
   SaveSettingsRequest,
   SaveSettingsResponse,
@@ -580,7 +581,7 @@ export function useNetworkInterfaces(enabled: boolean) {
 export function useSaveNetworkInterfaces() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) => sendJson<AgentNetworkList>('PUT', '/api/agent/network/interfaces', { interfaces: ids }),
+    mutationFn: (request: NetworkInterfacesRequest) => sendJson<AgentNetworkList>('PUT', '/api/agent/network/interfaces', request),
     onSuccess: (list) => {
       queryClient.setQueryData(['network-interfaces'], list);
       void queryClient.invalidateQueries({ queryKey: ['agent'] });

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import {
   Archive,
@@ -187,7 +187,8 @@ function NavEntry({ item, compact }: { item: NavItem; compact: boolean }) {
 
 /** The heading opens and closes its entries; closed, it shows when one of them is the current page. */
 function NavGroupEntry({ group, compact }: { group: NavGroup; compact: boolean }) {
-  const [open, setOpen] = usePersistentFlag(`manelly.nav.${group.id}.open`, true);
+  // Closed after every load; closed, the heading shows when one of its pages is open.
+  const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
   const current = group.children.some((child) => pathname === child.to || pathname.startsWith(`${child.to}/`));
   const Icon = group.icon;

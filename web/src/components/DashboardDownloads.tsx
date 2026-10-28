@@ -38,7 +38,7 @@ export function DashboardDownloads() {
   const agent = useAgent({ enabled: Boolean(agentSettings.data?.url && agentSettings.data.hasToken) });
   const enabled = Boolean(agent.data?.status?.jdownloader?.enabled);
   const { data } = useJDownloader(enabled);
-  const [open, setOpen] = usePersistentFlag('manelly.dashboard.downloads.open', true);
+  const [open, setOpen] = useState(false);
   if (!enabled || !data) return null;
 
   const summary = downloadsSummary(data);
@@ -195,7 +195,7 @@ function SpeedLimit({ status }: { status: JDownloaderStatus }) {
 
 /** "3 fertig, 2 entpackt: names"; on the JDownloader page it opens to their rows. */
 function FinishedPackages({ packages, expandable }: { packages: JDownloaderPackage[]; expandable: boolean }) {
-  const [open, setOpen] = usePersistentFlag('manelly.jdownloader.finished.open', false);
+  const [open, setOpen] = useState(false);
   const unpacked = packages.filter((pkg) => pkg.extraction?.state === 'done').length;
   const names = packages.map((pkg) => pkg.name);
   const label = (

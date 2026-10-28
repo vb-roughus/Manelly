@@ -5,6 +5,9 @@ Troubleshooting an einem Ort.
 
 ## Funktionen
 
+Aufklappbares – Menügruppen wie **Umwandlungen** und **Server**, Abschnitte im Dashboard, Filter, Staffeln, Pfade – ist
+nach jedem Laden der Seite eingeklappt. Eine eingeklappte Menügruppe zeigt, wenn eine ihrer Seiten offen ist.
+
 ### Dashboard
 
 Live-Übersicht der laufenden Streams:
@@ -39,7 +42,7 @@ Live-Übersicht der laufenden Streams:
   viele nicht nachkommen), geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
 - Laufende und in den letzten 12 Stunden beendete [Umwandlungen](#umwandlungen-mit-agent) mit Fortschritt (mit Agent),
-  einklappbar – der Browser merkt sich, ob der Abschnitt offen ist
+  eingeklappt (die Überschrift zeigt, wie viele laufen) – ein Klick klappt den Abschnitt auf
 - Ein Klick auf die Kachel **Transcodes** zeigt die **Auslastung des Servers** (mit Agent): CPU und GPU (pro Einheit wie
   Video-Dekodierung, Video-Kodierung, Videoverarbeitung, 3D), jeweils mit dem Anteil von Jellyfins FFmpeg und einer
   laufenden Umwandlung, einem Verlauf der letzten 10 Minuten und den einzelnen FFmpeg-Prozessen. Der Agent misst nur,
@@ -67,7 +70,7 @@ Filme und Serien durchsuchen und filtern:
 - Detailansicht mit allen Tonspuren und der Dateigrösse jeder Version bzw. den Tonspuren jeder Folge und Link zum Titel in Jellyfin
 - **Treffer in eine Sammlung übernehmen:** alle Titel der aktuellen Suche zu einer bestehenden Jellyfin-Sammlung
   hinzufügen oder eine neue anlegen. Manelly zeigt vorher, wie viele schon drin sind, und fügt nur die fehlenden hinzu
-- Tonspur- und Video-Filter sind einklappbar und zeigen eingeklappt eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
+- Tonspur- und Video-Filter sind eingeklappt und zeigen dann eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
 - Filter stehen in der URL – eine Suche lässt sich als Lesezeichen speichern
 - **«Titel fehlt?»** sucht einen Titel direkt in Jellyfin und erklärt, warum er in Manelly nicht erscheint: von aktiven
   Filtern ausgeblendet, noch nicht eingelesen, falscher Bibliothekstyp (z. B. «Heimvideos»), von Jellyfin als «Video»
@@ -181,7 +184,7 @@ Einrichtung: siehe [Agent auf dem Jellyfin-Server](#agent-auf-dem-jellyfin-serve
 
 Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn über den Agent:
 
-- Abschnitt **Downloads** im Dashboard (einklappbar): Zustand und Gesamttempo, die Pakete mit Fortschritt, Tempo und
+- Abschnitt **Downloads** im Dashboard (eingeklappt, ein Klick klappt ihn auf): Zustand und Gesamttempo, die Pakete mit Fortschritt, Tempo und
   Restzeit, darunter die fertigen
 - **Entpacken** nach dem Download (ab Agent 0.10.0): Ein Paket, dessen Archive JDownloader gerade entpackt, bleibt
   oben in der Liste, mit «Entpacken 40 %» und blauem Balken; schlägt das Entpacken fehl (z. B. falsches Passwort),

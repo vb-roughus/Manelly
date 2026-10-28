@@ -1,10 +1,9 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
-import { usePersistentFlag } from '../../hooks/usePersistentFlag';
 
 interface FilterCardProps {
-  /** Used for the remembered open state and element ids. */
+  /** Used for element ids. */
   id: string;
   title: string;
   icon: LucideIcon;
@@ -16,7 +15,7 @@ interface FilterCardProps {
 
 /** A highlighted, collapsible group of filters. */
 export function FilterCard({ id, title, icon: Icon, summary, onClear, children }: FilterCardProps) {
-  const [open, setOpen] = usePersistentFlag(`manelly.filters.${id}.open`, true);
+  const [open, setOpen] = useState(false);
   const headingId = `${id}-filter-heading`;
   const contentId = `${id}-filter-content`;
 

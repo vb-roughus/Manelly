@@ -145,24 +145,27 @@ function JobCard({ job }: { job: ConversionJob }) {
       {startNow.isError && <p className="mt-2 text-sm text-critical">{startNow.error.message}</p>}
       {pause.isError && <p className="mt-2 text-sm text-critical">{pause.error.message}</p>}
 
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-ink-3">Quelle</dt>
-        <dd className="font-mono break-all">{job.source}</dd>
-        <dt className="text-ink-3">Ziel</dt>
-        <dd className="font-mono break-all">{job.output}</dd>
-        {job.work && (
-          <>
-            <dt className="text-ink-3">Umgewandelt in</dt>
-            <dd className="font-mono break-all">{job.work}</dd>
-          </>
-        )}
-        {job.backup && (
-          <>
-            <dt className="text-ink-3">Backup</dt>
-            <dd className="font-mono break-all">{job.backup}</dd>
-          </>
-        )}
-      </dl>
+      <details className="mt-3 text-xs">
+        <summary className="cursor-pointer text-ink-2">Pfade</summary>
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <dt className="text-ink-3">Quelle</dt>
+          <dd className="font-mono break-all">{job.source}</dd>
+          <dt className="text-ink-3">Ziel</dt>
+          <dd className="font-mono break-all">{job.output}</dd>
+          {job.work && (
+            <>
+              <dt className="text-ink-3">Umgewandelt in</dt>
+              <dd className="font-mono break-all">{job.work}</dd>
+            </>
+          )}
+          {job.backup && (
+            <>
+              <dt className="text-ink-3">Backup</dt>
+              <dd className="font-mono break-all">{job.backup}</dd>
+            </>
+          )}
+        </dl>
+      </details>
 
       {job.warning && <p className="mt-3 flex gap-2 text-sm text-warning"><TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />{job.warning}</p>}
       {job.error && <p className="mt-3 text-sm text-critical">{job.error}</p>}
@@ -172,20 +175,9 @@ function JobCard({ job }: { job: ConversionJob }) {
           <pre className="mt-2 max-h-60 overflow-auto rounded-lg bg-card-2 p-3 whitespace-pre-wrap">{job.log}</pre>
         </details>
       )}
-      {job.state === 'done' && job.backup && (
-        <p className="mt-3 text-xs text-ink-3">
-          {job.work && job.mode === 'replace' ? (
-            <>
-              Das Original liegt im Arbeitsordner. Passt das Ergebnis, kannst du es unter{' '}
-              <Link to="/conversions/backups" className="font-medium text-accent hover:underline">
-                Backups
-              </Link>{' '}
-              löschen.
-            </>
-          ) : (
-            'Passt das Ergebnis, kannst du das Backup löschen – Manelly macht das nicht von sich aus.'
-          )}
-        </p>
+      {/* Kept in the work folder, a backup is listed under Backups; on the storage only its path tells. */}
+      {job.state === 'done' && job.backup && !(job.work && job.mode === 'replace') && (
+        <p className="mt-3 text-xs text-ink-3">Passt das Ergebnis, kannst du das Backup löschen – Manelly macht das nicht von sich aus.</p>
       )}
     </article>
   );

@@ -35,6 +35,21 @@ import {
   useRefreshJDownloaderAccounts,
 } from '../hooks/queries';
 import { containerProblem } from '../lib/containers';
+import {
+  allState,
+  isEmpty,
+  linkSelected,
+  NOTHING_SELECTED,
+  packageState,
+  pruneSelection,
+  selectedLinks,
+  selectionRequest,
+  toggleAll,
+  toggleLink,
+  togglePackage,
+  type GrabberSelection,
+  type TickState,
+} from '../lib/grabberSelection';
 import { formatBytes } from '../lib/format';
 
 type Tab = 'downloads' | 'linkgrabber' | 'accounts';
@@ -48,6 +63,8 @@ const isTab = (value: string | null): value is Tab => TABS.some((entry) => entry
 
 const button =
   'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait disabled:opacity-60';
+const primaryButton =
+  'bg-brand inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-wait disabled:opacity-70';
 
 /** JDownloader on the Jellyfin server: its downloads and its link grabber; the settings sit behind the gear. */
 export function JDownloaderPage() {
@@ -388,6 +405,22 @@ function useContainerUploads(tooOld: string | null) {
 
 const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files');
 
+/** A checkbox that also shows "in part". */
+function Tick({ state, label, onChange }: { state: TickState; label: string; onChange: () => void }) {
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      checked={state === 'all'}
+      ref={(element) => {
+        if (element) element.indeterminate = state === 'some';
+      }}
+      onChange={onChange}
+      className="size-4 shrink-0 cursor-pointer accent-accent"
+    />
+  );
+}
+
 /** What waits in JDownloader's link grabber, and moving it to the download list; DLC files are picked or dropped onto it. */
 function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: string | null }) {
   const move = useMoveFromLinkGrabber();
@@ -395,6 +428,11 @@ function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: st
   const picker = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const [ticked, setTicked] = useState<GrabberSelection>(NOTHING_SELECTED);
+  // What JDownloader moved or removed meanwhile is no longer ticked.
+  const selection = pruneSelection(ticked, status.packages);
+  const chosen = selectedLinks(selection, status.packages);
+  const moveSelection = () => move.mutate(selectionRequest(selection), { onSuccess: () => setTicked(NOTHING_SELECTED) });
   const links = status.packages.reduce((sum, pkg) => sum + pkg.childCount, 0);
   const bytes = status.packages.reduce((sum, pkg) => sum + pkg.bytesTotal, 0);
   const toggle = (uuid: number) =>
@@ -447,11 +485,23 @@ function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: st
       />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
+          {status.packages.length > 0 && (
+            <span className="flex items-center pl-3">
+              <Tick state={allState(selection, status.packages)} label="Alle Pakete auswählen" onChange={() => setTicked(toggleAll(selection, status.packages))} />
+            </span>
+          )}
           <span className="whitespace-nowrap">
-            {status.packages.length
-              ? `${status.packages.length} ${status.packages.length === 1 ? 'Paket' : 'Pakete'} · ${links} ${links === 1 ? 'Link' : 'Links'}${bytes ? ` · ${formatBytes(bytes)}` : ''}`
-              : 'Der Link Grabber ist leer.'}
+            {chosen > 0
+              ? `${chosen} ${chosen === 1 ? 'Link' : 'Links'} ausgewählt`
+              : status.packages.length
+                ? `${status.packages.length} ${status.packages.length === 1 ? 'Paket' : 'Pakete'} · ${links} ${links === 1 ? 'Link' : 'Links'}${bytes ? ` · ${formatBytes(bytes)}` : ''}`
+                : 'Der Link Grabber ist leer.'}
           </span>
+          {!isEmpty(selection) && (
+            <button type="button" className="text-xs font-medium text-accent hover:underline" onClick={() => setTicked(NOTHING_SELECTED)}>
+              Auswahl aufheben
+            </button>
+          )}
           {status.collecting && (
             <span className="inline-flex items-center gap-1.5 text-ink">
               <LoaderCircle className="size-3.5 animate-spin text-accent" aria-hidden /> sammelt und prüft Links …
@@ -462,14 +512,20 @@ function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: st
           <button type="button" className={button} disabled={busy} onClick={() => picker.current?.click()}>
             {busy ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <FileUp className="size-4" aria-hidden />} DLC hochladen
           </button>
-          <button
-            type="button"
-            className={button}
-            disabled={move.isPending || status.packages.length === 0}
-            onClick={() => move.mutate({ packageIds: status.packages.map((pkg) => pkg.uuid), linkIds: [] })}
-          >
-            <ArrowRightToLine className="size-4" aria-hidden /> Alle in die Downloads
-          </button>
+          {isEmpty(selection) ? (
+            <button
+              type="button"
+              className={button}
+              disabled={move.isPending || status.packages.length === 0}
+              onClick={() => move.mutate({ packageIds: status.packages.map((pkg) => pkg.uuid), linkIds: [] })}
+            >
+              <ArrowRightToLine className="size-4" aria-hidden /> Alle in die Downloads
+            </button>
+          ) : (
+            <button type="button" className={primaryButton} disabled={move.isPending} onClick={moveSelection}>
+              <ArrowRightToLine className="size-4" aria-hidden /> Auswahl in die Downloads
+            </button>
+          )}
         </div>
       </div>
       {move.isError && <Message tone="critical">{move.error.message}</Message>}
@@ -490,7 +546,15 @@ function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: st
       {status.packages.length > 0 && (
         <ul className="space-y-2">
           {status.packages.map((pkg) => (
-            <GrabberPackage key={pkg.uuid} pkg={pkg} open={open.has(pkg.uuid)} onToggle={() => toggle(pkg.uuid)} move={move} />
+            <GrabberPackage
+              key={pkg.uuid}
+              pkg={pkg}
+              open={open.has(pkg.uuid)}
+              onToggle={() => toggle(pkg.uuid)}
+              move={move}
+              selection={selection}
+              onSelect={setTicked}
+            />
           ))}
         </ul>
       )}
@@ -538,28 +602,37 @@ function Uploads({ uploads, busy, onClear }: { uploads: Upload[]; busy: boolean;
   );
 }
 
-function GrabberPackage({ pkg, open, onToggle, move }: { pkg: LinkGrabberPackage; open: boolean; onToggle: () => void; move: ReturnType<typeof useMoveFromLinkGrabber> }) {
+interface GrabberPackageProps {
+  pkg: LinkGrabberPackage;
+  open: boolean;
+  onToggle: () => void;
+  move: ReturnType<typeof useMoveFromLinkGrabber>;
+  selection: GrabberSelection;
+  onSelect: (selection: GrabberSelection) => void;
+}
+
+function GrabberPackage({ pkg, open, onToggle, move, selection, onSelect }: GrabberPackageProps) {
   const details = [`${pkg.childCount} ${pkg.childCount === 1 ? 'Datei' : 'Dateien'}`, pkg.bytesTotal ? formatBytes(pkg.bytesTotal) : null, pkg.hosts.join(', ') || null, !pkg.enabled ? 'deaktiviert' : null].filter(Boolean);
+  const state = packageState(selection, pkg);
   return (
-    <li className="rounded-xl border border-line bg-card shadow-sm shadow-black/5">
+    <li className={clsx('rounded-xl border bg-card shadow-sm shadow-black/5 transition', state === 'none' ? 'border-line' : 'border-accent/50')}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3">
         {/* On a phone the name gets its own row; status and button follow below. */}
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          aria-controls={`grabber-${pkg.uuid}`}
-          className="flex w-full min-w-0 items-start gap-2 text-left sm:w-auto sm:flex-1"
-        >
-          <ChevronDown className={clsx('mt-0.5 size-4 shrink-0 text-ink-3 transition', !open && '-rotate-90')} aria-hidden />
-          <span className="min-w-0">
-            <span className="block truncate font-medium" title={pkg.saveTo ?? undefined}>
-              {pkg.name}
-            </span>
-            <span className="block truncate text-xs text-ink-3">{details.join(' · ')}</span>
+        <div className="flex w-full min-w-0 items-start gap-2.5 sm:w-auto sm:flex-1">
+          <span className="flex h-5 items-center">
+            <Tick state={state} label={`${pkg.name} auswählen`} onChange={() => onSelect(togglePackage(selection, pkg))} />
           </span>
-        </button>
-        <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-2">
+          <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={`grabber-${pkg.uuid}`} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+            <ChevronDown className={clsx('mt-0.5 size-4 shrink-0 text-ink-3 transition', !open && '-rotate-90')} aria-hidden />
+            <span className="min-w-0">
+              <span className="block truncate font-medium" title={pkg.saveTo ?? undefined}>
+                {pkg.name}
+              </span>
+              <span className="block truncate text-xs text-ink-3">{details.join(' · ')}</span>
+            </span>
+          </button>
+        </div>
+        <span className="flex flex-wrap gap-x-3 gap-y-1 pl-6.5 text-xs text-ink-2 sm:pl-0">
           {pkg.online > 0 && <Availability state="ONLINE" count={pkg.online} />}
           {pkg.offline > 0 && <Availability state="OFFLINE" count={pkg.offline} />}
           {pkg.unknown > 0 && <Availability state="UNKNOWN" count={pkg.unknown} />}
@@ -578,23 +651,20 @@ function GrabberPackage({ pkg, open, onToggle, move }: { pkg: LinkGrabberPackage
         <ul id={`grabber-${pkg.uuid}`} className="divide-y divide-line border-t border-line">
           {pkg.links.length === 0 && <li className="px-3 py-2 text-xs text-ink-3">JDownloader hat für dieses Paket noch keine Links gemeldet.</li>}
           {pkg.links.map((link) => (
-            <li key={link.uuid} className={clsx('grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-3 py-2 text-sm sm:grid-cols-[1fr_auto_auto_auto]', !link.enabled && 'opacity-60')}>
-              <span className="min-w-0 truncate pl-6" title={link.name}>
-                {link.name}
-              </span>
-              <span className="text-xs text-ink-2">
-                <Availability state={link.availability} />
-              </span>
-              <span className="hidden text-xs text-ink-3 tabular-nums sm:block">{[link.host, link.bytesTotal ? formatBytes(link.bytesTotal) : null].filter(Boolean).join(' · ')}</span>
-              <button
-                type="button"
-                disabled={move.isPending}
-                onClick={() => move.mutate({ packageIds: [], linkIds: [link.uuid] })}
-                aria-label={`${link.name} in die Downloads übernehmen`}
-                className="justify-self-end text-xs font-medium text-accent hover:underline disabled:opacity-60 max-sm:col-span-2"
-              >
-                übernehmen
-              </button>
+            <li key={link.uuid} className={clsx('text-sm', !link.enabled && 'opacity-60')}>
+              {/* The whole row ticks the link. */}
+              <label className="grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-card-2/50 sm:grid-cols-[auto_1fr_auto_auto]">
+                <span className="flex items-center pl-6">
+                  <Tick state={linkSelected(selection, pkg, link.uuid) ? 'all' : 'none'} label={`${link.name} auswählen`} onChange={() => onSelect(toggleLink(selection, pkg, link.uuid))} />
+                </span>
+                <span className="min-w-0 truncate" title={link.name}>
+                  {link.name}
+                </span>
+                <span className="text-xs text-ink-2">
+                  <Availability state={link.availability} />
+                </span>
+                <span className="hidden text-xs text-ink-3 tabular-nums sm:block">{[link.host, link.bytesTotal ? formatBytes(link.bytesTotal) : null].filter(Boolean).join(' · ')}</span>
+              </label>
             </li>
           ))}
         </ul>

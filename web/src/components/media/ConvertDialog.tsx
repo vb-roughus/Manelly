@@ -5,6 +5,7 @@ import { CircleCheck, HardDrive, LoaderCircle, TriangleAlert, WandSparkles, X } 
 import clsx from 'clsx';
 import { useAgent, useConversionOptions, useStartConversion } from '../../hooks/queries';
 import { formatBytes } from '../../lib/format';
+import { initialChoices, loadChoices, rememberedChoices, saveChoices } from '../../lib/convertChoices';
 import { describeSchedule, restricts } from '../../lib/schedule';
 
 interface ConvertDialogProps {
@@ -132,17 +133,21 @@ interface ConvertFormProps {
 function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: ConvertFormProps) {
   const id = useId();
   const hasSchedule = schedule !== undefined && restricts(schedule);
-  const [scheduled, setScheduled] = useState(hasSchedule);
-  const original = baseName(options.source.path);
-  const [mode, setMode] = useState<ConversionOutputMode>('alongside');
-  const [alongsideName, setAlongsideName] = useState(options.alongside.fileName);
-  const [folder, setFolder] = useState(options.folders[0]?.path ?? '');
-  const [subfolder, setSubfolder] = useState(options.subfolder);
-  const [folderName, setFolderName] = useState(`${stem(original)}.mkv`);
-  // In the work folder whenever there is one that works: the storage is busy only while copying.
   const work = options.work;
   const workUsable = work !== null && work.error === null;
-  const [inWork, setInWork] = useState(workUsable);
+  // The last choices from this browser, as far as they fit this title and agent.
+  const [saved] = useState(loadChoices);
+  const available = { folders: options.folders.map((candidate) => candidate.path), work: workUsable, schedule: hasSchedule };
+  const [initial] = useState(() => initialChoices(saved, available));
+  const original = baseName(options.source.path);
+  const [mode, setMode] = useState<ConversionOutputMode>(initial.mode);
+  const [alongsideName, setAlongsideName] = useState(options.alongside.fileName);
+  const [folder, setFolder] = useState(initial.folder ?? '');
+  const [subfolder, setSubfolder] = useState(options.subfolder);
+  const [folderName, setFolderName] = useState(`${stem(original)}.mkv`);
+  // In the work folder, the storage is busy only while copying.
+  const [inWork, setInWork] = useState(initial.work);
+  const [scheduled, setScheduled] = useState(initial.scheduled);
   const staged = inWork && workUsable;
 
   const chosenFolder = options.folders.find((candidate) => candidate.path === folder);
@@ -163,6 +168,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
         : mode === 'replace'
           ? { mode }
           : { mode, directory: folder, fileName: folderName.trim(), ...(subfolder.trim() ? { subfolder: subfolder.trim() } : {}) };
+    saveChoices(rememberedChoices({ mode, folder: folder || null, work: inWork, scheduled }, saved, available));
     onStart({
       itemId: options.item.id,
       ...(options.source.mediaSourceId ? { mediaSourceId: options.source.mediaSourceId } : {}),
@@ -186,90 +192,89 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
         </p>
       </div>
 
-      <fieldset className="space-y-2">
-        <legend className="mb-2 text-sm font-medium">Speichern</legend>
-        <Choice id={`${id}-alongside`} checked={mode === 'alongside'} onSelect={() => setMode('alongside')} title="Neben dem Original" description="Neue Datei im selben Ordner. Jellyfin zeigt beide als Versionen desselben Films.">
-          <TextInput label="Dateiname" value={alongsideName} onChange={setAlongsideName} />
-        </Choice>
-        <Choice
-          id={`${id}-replace`}
-          checked={mode === 'replace'}
-          onSelect={() => setMode('replace')}
-          title="Original ersetzen"
-          description="Die umgewandelte Datei kommt an die Stelle des Originals. Das Original wird verschoben, nicht gelöscht – Jellyfin ignoriert den Backup-Ordner."
-        >
+      <Choice
+        id={`${id}-mode`}
+        label="Speichern"
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: 'alongside', label: 'Neben dem Original' },
+          { value: 'replace', label: 'Original ersetzen' },
+          { value: 'folder', label: options.folders.length ? 'Anderer Ordner' : 'Anderer Ordner (keine Bibliotheksordner)', disabled: options.folders.length === 0 },
+        ]}
+        description={
+          mode === 'alongside'
+            ? 'Neue Datei im selben Ordner. Jellyfin zeigt beide als Versionen desselben Films.'
+            : mode === 'replace'
+              ? 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original wird verschoben, nicht gelöscht – Jellyfin ignoriert den Backup-Ordner.'
+              : 'In einen Ordner einer Jellyfin-Bibliothek, z. B. eine eigene UHD-Bibliothek.'
+        }
+      >
+        {mode === 'alongside' && <TextInput label="Dateiname" value={alongsideName} onChange={setAlongsideName} />}
+        {mode === 'replace' && (
           <p className="text-xs text-ink-2">
             Backup: <span className="font-mono break-all">{options.replace.backup}</span>
           </p>
-        </Choice>
-        <Choice id={`${id}-folder`} checked={mode === 'folder'} onSelect={() => setMode('folder')} title="Anderer Ordner" description="In einen Ordner einer Jellyfin-Bibliothek, z. B. eine eigene UHD-Bibliothek." disabled={options.folders.length === 0}>
-          <label className="block text-xs">
-            <span className="mb-1 block text-ink-2">Bibliotheksordner</span>
-            <select value={folder} onChange={(event) => setFolder(event.target.value)} className={fieldClass}>
-              {options.folders.map((candidate) => (
-                <option key={candidate.path} value={candidate.path}>
-                  {candidate.library} – {candidate.path}
-                  {candidate.freeBytes === null ? ' (vom Agent aus nicht erreichbar)' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <TextInput label="Unterordner (wird angelegt, falls nötig)" value={subfolder} onChange={setSubfolder} />
-          <TextInput label="Dateiname" value={folderName} onChange={setFolderName} />
-        </Choice>
-      </fieldset>
+        )}
+        {mode === 'folder' && (
+          <>
+            <label className="block text-xs">
+              <span className="mb-1 block text-ink-2">Bibliotheksordner</span>
+              <select value={folder} onChange={(event) => setFolder(event.target.value)} className={fieldClass}>
+                {options.folders.map((candidate) => (
+                  <option key={candidate.path} value={candidate.path}>
+                    {candidate.library} – {candidate.path}
+                    {candidate.freeBytes === null ? ' (vom Agent aus nicht erreichbar)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <TextInput label="Unterordner (wird angelegt, falls nötig)" value={subfolder} onChange={setSubfolder} />
+            <TextInput label="Dateiname" value={folderName} onChange={setFolderName} />
+          </>
+        )}
+      </Choice>
 
-      {work && (
-        <fieldset className="space-y-2">
-          <legend className="mb-2 text-sm font-medium">Wo umwandeln</legend>
-          <Choice
-            id={`${id}-work`}
-            name="convert-where"
-            checked={staged}
-            onSelect={() => setInWork(true)}
-            title="Im Arbeitsordner"
-            description={
-              work.error ??
-              `Kopiert das Original nach ${work.directory}, wandelt dort um und kopiert das Ergebnis zurück. Der Speicher wird nur beim Kopieren belastet.`
-            }
-            disabled={!workUsable}
-          />
-          <Choice
-            id={`${id}-direct`}
-            name="convert-where"
-            checked={!staged}
-            onSelect={() => setInWork(false)}
-            title="Direkt am Speicherort"
-            description="Liest und schreibt während der ganzen Umwandlung dort, wo die Datei liegt."
-          />
-        </fieldset>
-      )}
-
-      {schedule && (
-        <fieldset className="space-y-2">
-          <legend className="mb-2 text-sm font-medium">Wann</legend>
-          <Choice
-            id={`${id}-scheduled`}
-            name="convert-when"
-            checked={scheduled && hasSchedule}
-            onSelect={() => setScheduled(true)}
-            title="Nach Zeitplan"
-            description={
-              hasSchedule
-                ? `Startet ${describeSchedule(schedule)} – auch nach einem Neustart des Servers.`
-                : 'Noch kein Zeitplan – einstellen unter Umwandlungen.'
-            }
-            disabled={!hasSchedule}
-          />
-          <Choice
-            id={`${id}-now`}
-            name="convert-when"
-            checked={!scheduled || !hasSchedule}
-            onSelect={() => setScheduled(false)}
-            title="Sofort"
-            description="Startet gleich (oder nach der laufenden Umwandlung) und läuft auch weiter, wenn jemand streamt."
-          />
-        </fieldset>
+      {(work || schedule) && (
+        <div className="grid gap-5 sm:grid-cols-2">
+          {work && (
+            <Choice
+              id={`${id}-where`}
+              label="Wo umwandeln"
+              value={staged ? 'work' : 'direct'}
+              onChange={(value) => setInWork(value === 'work')}
+              options={[
+                { value: 'work', label: 'Im Arbeitsordner', disabled: !workUsable },
+                { value: 'direct', label: 'Direkt am Speicherort' },
+              ]}
+              description={
+                work.error ??
+                (staged
+                  ? `Kopiert das Original nach ${work.directory}, wandelt dort um und kopiert das Ergebnis zurück. Der Speicher wird nur beim Kopieren belastet.`
+                  : 'Liest und schreibt während der ganzen Umwandlung dort, wo die Datei liegt.')
+              }
+            />
+          )}
+          {schedule && (
+            <Choice
+              id={`${id}-when`}
+              label="Wann"
+              value={scheduled && hasSchedule ? 'scheduled' : 'now'}
+              onChange={(value) => setScheduled(value === 'scheduled')}
+              options={[
+                { value: 'scheduled', label: 'Nach Zeitplan', disabled: !hasSchedule },
+                { value: 'now', label: 'Sofort' },
+              ]}
+              description={
+                !hasSchedule
+                  ? 'Noch kein Zeitplan – einstellen unter Umwandlungen.'
+                  : scheduled
+                    ? `Startet ${describeSchedule(schedule)} – auch nach einem Neustart des Servers.`
+                    : 'Startet gleich (oder nach der laufenden Umwandlung) und läuft auch weiter, wenn jemand streamt.'
+              }
+            />
+          )}
+        </div>
       )}
 
       <div className="space-y-1.5 rounded-lg bg-card-2 p-3 text-xs">
@@ -320,26 +325,30 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
   );
 }
 
-function Choice(props: {
+/** A choice as a dropdown, with what the chosen option does below it and its own fields. */
+function Choice<T extends string>(props: {
   id: string;
-  name?: string;
-  checked: boolean;
-  onSelect: () => void;
-  title: string;
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: Array<{ value: T; label: string; disabled?: boolean }>;
   description: string;
-  disabled?: boolean;
   children?: ReactNode;
 }) {
   return (
-    <div className={clsx('rounded-xl p-3 ring-1 transition', props.checked ? 'bg-accent/8 ring-accent/50' : 'ring-line', props.disabled && 'opacity-50')}>
-      <label htmlFor={props.id} className="flex cursor-pointer gap-3">
-        <input id={props.id} type="radio" name={props.name ?? 'convert-mode'} checked={props.checked} onChange={props.onSelect} disabled={props.disabled} className="mt-1 accent-accent" />
-        <span>
-          <span className="block text-sm font-medium">{props.title}</span>
-          <span className="block text-xs text-ink-2">{props.description}</span>
-        </span>
+    <div>
+      <label htmlFor={props.id} className="mb-1.5 block text-sm font-medium">
+        {props.label}
       </label>
-      {props.checked && props.children && <div className="mt-3 space-y-2 pl-7">{props.children}</div>}
+      <select id={props.id} value={props.value} onChange={(event) => props.onChange(event.target.value as T)} className={fieldClass}>
+        {props.options.map((option) => (
+          <option key={option.value} value={option.value} disabled={option.disabled}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1.5 text-xs text-ink-2">{props.description}</p>
+      {props.children && <div className="mt-3 space-y-2 rounded-xl p-3 ring-1 ring-line">{props.children}</div>}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NowPlayingItem } from '@manelly/shared';
-import { formatBitrate, formatDuration, formatEta, formatSpeed, itemHeadline, languageLabel, resolutionLabel } from './format';
+import { formatBitrate, formatDuration, formatEta, itemHeadline, kibToMbit, languageLabel, mbitField, mbitToKib, resolutionLabel } from './format';
 import { describeTranscodeReason } from './transcodeReasons';
 
 const item = (overrides: Partial<NowPlayingItem>): NowPlayingItem => ({
@@ -65,10 +65,10 @@ describe('format', () => {
 });
 
 describe('downloads', () => {
-  it('formats download speed and time to go', () => {
-    expect(formatSpeed(2_500_000)).toBe('2.4 MB/s');
-    expect(formatSpeed(870_000)).toBe('850 KB/s');
-    expect(formatSpeed(150 * 1024 ** 2)).toBe('150 MB/s');
+  it('takes speed limits in Mbit/s for JDownloader\'s KiB/s, and formats the time to go', () => {
+    expect(mbitToKib(40)).toBe(4883);
+    expect(mbitField(kibToMbit(4883))).toBe('40');
+    expect(mbitField(kibToMbit(5120))).toBe('41.9');
     expect([formatEta(42), formatEta(720), formatEta(3900), formatEta(7200)]).toEqual(['42 s', '12 min', '1 h 5 min', '2 h']);
   });
 });

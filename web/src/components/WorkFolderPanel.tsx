@@ -64,12 +64,12 @@ export function WorkFolderPanel({ work }: { work: WorkFolderStatus }) {
       </form>
 
       {work.directory &&
-        // Missing on agents before 0.21.0.
-        (work.copyLimit ? (
+        // Missing on agents before 0.21.0; in MB/s before 0.23.0.
+        (typeof work.copyLimit?.limitMbps === 'number' ? (
           <CopyLimitForm key={JSON.stringify(work.copyLimit)} limit={work.copyLimit} save={saveLimit} />
         ) : (
           <p className="mt-4 border-t border-line pt-3 text-xs text-ink-3">
-            Das Kopieren begrenzen geht ab Agent 0.21.0 – unter{' '}
+            Das Kopieren begrenzen in Mbit/s geht ab Agent 0.23.0 – unter{' '}
             <Link to="/server/agent" className="font-medium text-accent hover:underline">
               Server → Agent
             </Link>{' '}
@@ -86,25 +86,27 @@ const MODES: Array<{ mode: CopyLimitMode; label: string }> = [
   { mode: 'always', label: 'Immer' },
 ];
 
-const isRate = (value: number) => Number.isInteger(value) && value >= 1 && value <= 5000;
+/** In Mbit/s, up to 100 Gbit/s. */
+const MAX_MBPS = 100_000;
+const isRate = (value: number) => Number.isInteger(value) && value >= 1 && value <= MAX_MBPS;
 
 /** How fast conversions may copy to and from the work folder, so streams still get enough from the storage. */
 function CopyLimitForm({ limit, save }: { limit: CopyLimit; save: ReturnType<typeof useSaveCopyLimit> }) {
   const id = useId();
   const [mode, setMode] = useState(limit.mode);
-  const [limitMBps, setLimitMBps] = useState(String(limit.limitMBps));
-  const [storageMBps, setStorageMBps] = useState(String(limit.storageMBps));
+  const [limitMbps, setLimitMbps] = useState(String(limit.limitMbps));
+  const [storageMbps, setStorageMbps] = useState(String(limit.storageMbps));
   // The field this mode uses; the other one keeps what was saved.
-  const field = mode === 'always' ? Number(limitMBps) : mode === 'streaming' ? Number(storageMBps) : null;
+  const field = mode === 'always' ? Number(limitMbps) : mode === 'streaming' ? Number(storageMbps) : null;
   const valid = field === null || isRate(field);
-  const changed = mode !== limit.mode || (mode === 'always' && field !== limit.limitMBps) || (mode === 'streaming' && field !== limit.storageMBps);
+  const changed = mode !== limit.mode || (mode === 'always' && field !== limit.limitMbps) || (mode === 'streaming' && field !== limit.storageMbps);
 
   function submit(event: FormEvent) {
     event.preventDefault();
     save.mutate({
       mode,
-      limitMBps: mode === 'always' ? Number(limitMBps) : limit.limitMBps,
-      storageMBps: mode === 'streaming' ? Number(storageMBps) : limit.storageMBps,
+      limitMbps: mode === 'always' ? Number(limitMbps) : limit.limitMbps,
+      storageMbps: mode === 'streaming' ? Number(storageMbps) : limit.storageMbps,
     });
   }
 
@@ -131,15 +133,15 @@ function CopyLimitForm({ limit, save }: { limit: CopyLimit; save: ReturnType<typ
         {mode === 'streaming' && (
           <label className="flex items-center gap-1.5 text-sm text-ink-2">
             Speicher schafft
-            <RateInput value={storageMBps} onChange={setStorageMBps} label="Was der Speicher insgesamt schafft, in MB/s" />
-            MB/s
+            <RateInput value={storageMbps} onChange={setStorageMbps} label="Was der Speicher insgesamt schafft, in Mbit/s" />
+            Mbit/s
           </label>
         )}
         {mode === 'always' && (
           <label className="flex items-center gap-1.5 text-sm text-ink-2">
             auf
-            <RateInput value={limitMBps} onChange={setLimitMBps} label="Höchstens MB/s" />
-            MB/s
+            <RateInput value={limitMbps} onChange={setLimitMbps} label="Höchstens Mbit/s" />
+            Mbit/s
           </label>
         )}
         <button type="submit" disabled={!changed || !valid || save.isPending} className={primaryButton}>
@@ -154,7 +156,7 @@ function CopyLimitForm({ limit, save }: { limit: CopyLimit; save: ReturnType<typ
           die «Auslastung der Storage-Schnittstelle» unter «Zusammen».
         </p>
       )}
-      {!valid && <p className="mt-1.5 text-xs text-critical">Zwischen 1 und 5000 MB/s.</p>}
+      {!valid && <p className="mt-1.5 text-xs text-critical">Ganze Mbit/s zwischen 1 Mbit/s und 100 Gbit/s (100000).</p>}
       {save.isError && <p className="mt-2 text-xs text-critical">{save.error.message}</p>}
       {save.isSuccess && !changed && <p className="mt-2 text-xs text-good">Gespeichert.</p>}
     </form>
@@ -166,12 +168,12 @@ function RateInput({ value, onChange, label }: { value: string; onChange: (value
     <input
       type="number"
       min={1}
-      max={5000}
+      max={MAX_MBPS}
       step={1}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       aria-label={label}
-      className={`${fieldClass} w-20 tabular-nums`}
+      className={`${fieldClass} w-24 tabular-nums`}
     />
   );
 }

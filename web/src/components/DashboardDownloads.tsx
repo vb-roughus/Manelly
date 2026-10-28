@@ -5,7 +5,7 @@ import { ChevronDown, CircleCheck, CircleX, Download, Gauge, LoaderCircle, Pause
 import clsx from 'clsx';
 import { useAgent, useAgentSettings, useControlJDownloader, useJDownloader, useJDownloaderLimit } from '../hooks/queries';
 import { usePersistentFlag } from '../hooks/usePersistentFlag';
-import { formatBytes, formatEta, formatSpeed } from '../lib/format';
+import { formatBitrate, formatBytes, formatEta, mbitField, mbitToKib } from '../lib/format';
 
 const MAX_SHOWN = 6;
 
@@ -16,7 +16,7 @@ export function isActivePackage(pkg: JDownloaderPackage): boolean {
   return !pkg.finished || pkg.extraction?.state === 'running' || pkg.extraction?.state === 'failed';
 }
 
-/** "lädt · 12 MB/s · gebremst", or why JDownloader does not answer. */
+/** "lädt · 96 Mbit/s · gebremst", or why JDownloader does not answer. */
 export function downloadsSummary(status: JDownloaderStatus): string {
   if (!status.reachable) return 'nicht erreichbar';
   const state = status.state ? (STATES[status.state] ?? status.state.toLowerCase()) : null;
@@ -24,7 +24,7 @@ export function downloadsSummary(status: JDownloaderStatus): string {
   const unpacking = status.packages.filter((pkg) => pkg.extraction?.state === 'running').length;
   return [
     state,
-    status.state === 'RUNNING' && status.speedBps ? formatSpeed(status.speedBps) : null,
+    status.state === 'RUNNING' && status.speedBps ? formatBitrate(status.speedBps * 8) : null,
     unpacking ? (unpacking === 1 ? '1 Paket wird entpackt' : `${unpacking} Pakete werden entpackt`) : null,
     status.throttling.active ? 'gebremst' : null,
   ]
@@ -149,8 +149,8 @@ function SpeedLimit({ status }: { status: JDownloaderStatus }) {
   const [editing, setEditing] = useState(false);
   const current = status.limit;
   const [enabled, setEnabled] = useState(current?.enabled ?? false);
-  const [mb, setMb] = useState(current && current.bytesPerSecond > 0 ? String(Math.round((current.bytesPerSecond / 1024 ** 2) * 10) / 10) : '5');
-  const kbps = Math.round(Number(mb.replace(',', '.')) * 1024);
+  const [mbit, setMbit] = useState(current && current.bytesPerSecond > 0 ? mbitField((current.bytesPerSecond * 8) / 1_000_000) : '40');
+  const kbps = mbitToKib(Number(mbit.replace(',', '.')));
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -160,7 +160,7 @@ function SpeedLimit({ status }: { status: JDownloaderStatus }) {
   if (!editing) {
     return (
       <p className="flex items-center gap-2 text-sm text-ink-2">
-        {current?.enabled ? <>Tempo-Limit {formatSpeed(current.bytesPerSecond)}</> : 'Kein Tempo-Limit'}
+        {current?.enabled ? <>Tempo-Limit {formatBitrate(current.bytesPerSecond * 8)}</> : 'Kein Tempo-Limit'}
         <button type="button" onClick={() => setEditing(true)} className="font-medium text-accent hover:underline">
           ändern
         </button>
@@ -175,13 +175,13 @@ function SpeedLimit({ status }: { status: JDownloaderStatus }) {
       </label>
       <input
         inputMode="decimal"
-        value={mb}
-        onChange={(event) => setMb(event.target.value)}
+        value={mbit}
+        onChange={(event) => setMbit(event.target.value)}
         disabled={!enabled}
-        aria-label="Tempo-Limit in MB/s"
+        aria-label="Tempo-Limit in Mbit/s"
         className="w-20 rounded-lg border border-line bg-card px-2 py-1 tabular-nums outline-none focus:border-accent focus:ring-3 focus:ring-accent/20 disabled:opacity-50"
       />
-      MB/s
+      Mbit/s
       <button type="submit" disabled={save.isPending || (enabled && !(kbps >= 1))} className={button}>
         Setzen
       </button>
@@ -248,7 +248,7 @@ function PackageRow({ pkg, expandable = false }: { pkg: JDownloaderPackage; expa
   const share = pkg.bytesTotal > 0 ? Math.min(1, pkg.bytesLoaded / pkg.bytesTotal) : pkg.finished ? 1 : 0;
   const details = [
     pkg.bytesTotal > 0 ? (pkg.finished ? formatBytes(pkg.bytesTotal) : `${formatBytes(pkg.bytesLoaded)} von ${formatBytes(pkg.bytesTotal)}`) : null,
-    pkg.running && pkg.speedBps > 0 ? formatSpeed(pkg.speedBps) : null,
+    pkg.running && pkg.speedBps > 0 ? formatBitrate(pkg.speedBps * 8) : null,
     pkg.running && pkg.eta !== null ? `noch ${formatEta(pkg.eta)}` : null,
     pkg.childCount > 1 ? `${pkg.childCount} Dateien` : null,
     !pkg.enabled ? 'deaktiviert' : null,
@@ -324,7 +324,7 @@ function PartRow({ link }: { link: JDownloaderLink }) {
   const details = [
     link.host,
     link.bytesTotal > 0 ? (link.finished ? formatBytes(link.bytesTotal) : `${formatBytes(link.bytesLoaded)} von ${formatBytes(link.bytesTotal)}`) : null,
-    link.running && link.speedBps > 0 ? formatSpeed(link.speedBps) : null,
+    link.running && link.speedBps > 0 ? formatBitrate(link.speedBps * 8) : null,
     link.running && link.eta !== null ? `noch ${formatEta(link.eta)}` : null,
     !link.enabled ? 'deaktiviert' : null,
     // While unpacking or once unpacked the status only says so again; a failure keeps its reason.

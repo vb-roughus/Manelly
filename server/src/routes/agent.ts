@@ -308,24 +308,24 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
         body: {
           type: 'object',
           additionalProperties: false,
-          required: ['mode', 'limitMBps', 'storageMBps'],
+          required: ['mode', 'limitMbps', 'storageMbps'],
           properties: {
             mode: { type: 'string', enum: ['off', 'streaming', 'always'] },
-            limitMBps: { type: 'integer', minimum: 1, maximum: 5000 },
-            storageMBps: { type: 'integer', minimum: 1, maximum: 5000 },
+            limitMbps: { type: 'integer', minimum: 1, maximum: 100_000 },
+            storageMbps: { type: 'integer', minimum: 1, maximum: 100_000 },
           },
         },
       },
     },
     async (request): Promise<WorkFolderStatus> => {
       const work = await requireAgent(agent).setCopyLimit(request.body);
-      const { mode, limitMBps, storageMBps } = request.body;
+      const { mode, limitMbps, storageMbps } = request.body;
       request.log.info(
         mode === 'off'
           ? 'Kopieren in den Arbeitsordner unbegrenzt'
           : mode === 'always'
-            ? `Kopieren in den Arbeitsordner begrenzt auf ${limitMBps} MB/s`
-            : `Kopieren in den Arbeitsordner während Streams begrenzt: ${storageMBps} MB/s abzüglich Streams und Reserve`,
+            ? `Kopieren in den Arbeitsordner begrenzt auf ${limitMbps} Mbit/s`
+            : `Kopieren in den Arbeitsordner während Streams begrenzt: ${storageMbps} Mbit/s abzüglich Streams und Reserve`,
       );
       return work;
     },

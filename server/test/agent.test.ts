@@ -260,12 +260,15 @@ describe('agent connection', () => {
 
     // The limit for copying there.
     const limit = (payload: Record<string, unknown>) => app.inject({ method: 'PUT', url: '/api/agent/work/copy-limit', payload });
-    const automatic = { mode: 'streaming', limitMBps: 60, storageMBps: 220 };
+    const automatic = { mode: 'streaming', limitMbps: 500, storageMbps: 1850 };
     expect((await limit(automatic)).json<WorkFolderStatus>().copyLimit).toEqual(automatic);
     expect((await limit({ ...automatic, mode: 'sometimes' })).statusCode).toBe(400);
-    expect((await limit({ ...automatic, limitMBps: 0 })).statusCode).toBe(400);
-    expect((await limit({ ...automatic, storageMBps: 2.5 })).statusCode).toBe(400);
-    expect((await limit({ mode: 'always', limitMBps: 60 })).statusCode).toBe(400);
+    expect((await limit({ ...automatic, limitMbps: 0 })).statusCode).toBe(400);
+    expect((await limit({ ...automatic, storageMbps: 2.5 })).statusCode).toBe(400);
+    expect((await limit({ ...automatic, storageMbps: 100_001 })).statusCode).toBe(400);
+    expect((await limit({ mode: 'always', limitMbps: 500 })).statusCode).toBe(400);
+    // In MB/s as before: no longer taken.
+    expect((await limit({ mode: 'always', limitMBps: 60, storageMBps: 220 })).statusCode).toBe(400);
   });
 
   it('starts a conversion with the path from Jellyfin and only into library folders', async () => {

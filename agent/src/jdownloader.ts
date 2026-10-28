@@ -17,6 +17,11 @@ import { createJellyfinApi } from './jellyfin.js';
 import type { JDownloaderHold, SettingsStore } from './schedule.js';
 
 const TIMEOUT_MS = 5000;
+/** JDownloader's KiB/s as Manelly shows rates: Mbit/s, one decimal below 10. */
+const mbit = (kib: number) => {
+  const value = (kib * 1024 * 8) / 1_000_000;
+  return String(value >= 10 ? Math.round(value) : Math.round(value * 10) / 10);
+};
 const GENERAL_SETTINGS = 'org.jdownloader.settings.GeneralSettings';
 /** All the details the dashboard shows, for every package. */
 const PACKAGE_QUERY = {
@@ -440,7 +445,7 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
         active: Boolean(current),
         reason: current
           ? current.mode === 'limit'
-            ? `Auf ${config.throttle.limitKBps >= 1024 ? `${Math.round((config.throttle.limitKBps / 1024) * 10) / 10} MB/s` : `${config.throttle.limitKBps} KB/s`} gedrosselt, weil jemand streamt.`
+            ? `Auf ${mbit(config.throttle.limitKBps)} Mbit/s gedrosselt, weil jemand streamt.`
             : 'Pausiert, weil jemand streamt.'
           : null,
       };

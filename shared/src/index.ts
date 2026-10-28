@@ -1343,13 +1343,16 @@ export interface WorkFolderStatus {
  */
 export type CopyLimitMode = 'off' | 'streaming' | 'always';
 
-/** PUT /api/work/copy-limit on the agent (from 0.21.0). Rates in MB/s, with 1 MB = 1024 × 1024 bytes as Manelly shows them. */
+/**
+ * PUT /api/work/copy-limit on the agent (from 0.21.0). Rates in Mbit/s (1 Mbit = 1 000 000 bits) from agent 0.23.0;
+ * older agents store and report `limitMBps` and `storageMBps` in MB/s (1 MB = 1024 × 1024 bytes) instead.
+ */
 export interface CopyLimit {
   mode: CopyLimitMode;
   /** 'always': copy at most this fast. */
-  limitMBps: number;
+  limitMbps: number;
   /** 'streaming': what the storage manages in all; copying gets that minus the running streams and a reserve. */
-  storageMBps: number;
+  storageMbps: number;
 }
 
 /** Why and how much a copy to or from the work folder is held back right now. */

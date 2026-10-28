@@ -151,9 +151,10 @@ function CopyLimitForm({ limit, save }: { limit: CopyLimit; save: ReturnType<typ
       </div>
       {mode === 'streaming' && (
         <p className="mt-1.5 text-xs text-ink-3">
-          Solange jemand streamt, kopiert der Agent höchstens mit: was der Speicher schafft − Bitrate der laufenden Streams − 20 Mbit/s
-          Reserve. Ohne Streams mit voller Geschwindigkeit. Was dein Speicher schafft, zeigt bei einer laufenden Umwandlung im Arbeitsordner
-          die «Auslastung der Storage-Schnittstelle» unter «Zusammen».
+          Solange jemand streamt, kopiert der Agent höchstens mit: 85 % von dem, was der Speicher schafft − Bitrate der laufenden Streams
+          − 20 Mbit/s Reserve. Die 15 % bleiben frei, weil Streams unter Volllast stocken, obwohl die Summe noch passt. Ohne Streams mit
+          voller Geschwindigkeit. Was dein Speicher schafft, zeigt bei einer laufenden Umwandlung im Arbeitsordner die «Auslastung der
+          Storage-Schnittstelle» unter «Zusammen» – den gemessenen Höchstwert hier eintragen.
         </p>
       )}
       {!valid && <p className="mt-1.5 text-xs text-critical">Ganze Mbit/s zwischen 1 Mbit/s und 100 Gbit/s (100000).</p>}

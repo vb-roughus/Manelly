@@ -143,9 +143,13 @@ Arbeitsordner, Kopieren begrenzen).
   liegt
 - **Kopieren begrenzen** (ab Agent 0.21.0, in Mbit/s ab Agent 0.23.0): Unter **Umwandlungen → Einstellungen** beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
   darf, damit auf dem Speicher genug für Streams bleibt. **Automatisch während Streams**: einmal eintragen, was der
-  Speicher insgesamt schafft (z. B. 1850 Mbit/s; zu sehen bei einer Umwandlung unter «Auslastung der Storage-Schnittstelle»,
-  «Zusammen»). Solange jemand streamt, kopiert der Agent höchstens mit diesem Wert − Bitrate der laufenden Streams
-  (geschätzt aus ihren Dateien) − 20 Mbit/s Reserve, mindestens aber mit 8 Mbit/s; ohne Streams mit voller Geschwindigkeit.
+  Speicher insgesamt schafft (den gemessenen Höchstwert, z. B. 1600 Mbit/s; zu sehen bei einer Umwandlung unter «Auslastung
+  der Storage-Schnittstelle», «Zusammen»). Solange jemand streamt, kopiert der Agent höchstens mit 85 % dieses Werts
+  − Bitrate der laufenden Streams (geschätzt aus ihren Dateien) − 20 Mbit/s Reserve, mindestens aber mit 8 Mbit/s; ohne
+  Streams mit voller Geschwindigkeit. Die 15 % Luft (ab Agent 0.24.0) braucht es, weil ein Stream seine Datei in vielen
+  kleinen Stücken liest: Ist der Speicher fast voll ausgelastet, wartet jedes Stück hinter den grossen Blöcken der Kopie,
+  und der Stream stockt, obwohl die Summe der Bitraten noch passt. Dazu zählt der gemessene Höchstwert auch den
+  Netzwerk-Overhead mit, das Limit nur die Dateidaten.
   Ein Limit, das ein älterer Agent in MB/s gespeichert hat, rechnet der Agent beim Update in Mbit/s um.
   Er fragt Jellyfin dafür alle 15 Sekunden, und nur während er kopiert; weiss er nichts über Streams, rechnet er mit einem
   UHD-Stream. **Immer**: ein festes Limit. Die Umwandlungskarte zeigt, wenn und warum gerade gebremst wird. Die

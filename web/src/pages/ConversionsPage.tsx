@@ -188,7 +188,7 @@ function throttleReason({ bytesPerSecond, streams, streamsBitsPerSecond }: CopyT
   const limit = `Kopiert mit höchstens ${formatBitrate(bytesPerSecond * 8)}`;
   if (streams === null) return `${limit}, wie unter Einstellungen festgelegt.`;
   const who = streams === 1 ? '1 Stream braucht' : `${streams} Streams brauchen`;
-  return `${limit}: ${who} gerade etwa ${formatBitrate(streamsBitsPerSecond ?? 0)}, dazu 20 Mbit/s Reserve.`;
+  return `${limit}: ${who} gerade etwa ${formatBitrate(streamsBitsPerSecond ?? 0)}, dazu 20 Mbit/s Reserve und 15 % Luft.`;
 }
 
 /**

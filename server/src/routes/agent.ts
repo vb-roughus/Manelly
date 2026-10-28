@@ -325,7 +325,7 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
           ? 'Kopieren in den Arbeitsordner unbegrenzt'
           : mode === 'always'
             ? `Kopieren in den Arbeitsordner begrenzt auf ${limitMbps} Mbit/s`
-            : `Kopieren in den Arbeitsordner während Streams begrenzt: ${storageMbps} Mbit/s abzüglich Streams und Reserve`,
+            : `Kopieren in den Arbeitsordner während Streams begrenzt: 85 % von ${storageMbps} Mbit/s abzüglich Streams und Reserve`,
       );
       return work;
     },

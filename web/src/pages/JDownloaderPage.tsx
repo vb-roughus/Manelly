@@ -14,6 +14,7 @@ import {
   KeyRound,
   Link2,
   LoaderCircle,
+  PackageOpen,
   RefreshCw,
   Settings,
   TriangleAlert,
@@ -23,11 +24,13 @@ import {
 import clsx from 'clsx';
 import { Downloads, downloadsSummary, isActivePackage } from '../components/DashboardDownloads';
 import { Code, Message } from '../components/ConnectionForm';
+import { ExtractedList } from '../components/ExtractedList';
 import { JDownloaderForm } from '../components/JDownloaderForm';
 import {
   useAddLinkGrabberContainer,
   useAgent,
   useAgentSettings,
+  useExtracted,
   useJDownloader,
   useJDownloaderAccounts,
   useLinkGrabber,
@@ -52,12 +55,13 @@ import {
 } from '../lib/grabberSelection';
 import { formatBytes } from '../lib/format';
 
-type Tab = 'downloads' | 'linkgrabber' | 'accounts';
-/** `short` and no icons fit three tabs side by side on a phone. */
+type Tab = 'downloads' | 'linkgrabber' | 'accounts' | 'extracted';
+/** `short` and no icons keep the tabs narrow on a phone. */
 const TABS: Array<{ id: Tab; label: string; short?: string; icon: LucideIcon }> = [
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'linkgrabber', label: 'Link Grabber', short: 'Grabber', icon: Link2 },
   { id: 'accounts', label: 'Premium-Accounts', short: 'Accounts', icon: KeyRound },
+  { id: 'extracted', label: 'Extracted', icon: PackageOpen },
 ];
 const isTab = (value: string | null): value is Tab => TABS.some((entry) => entry.id === value);
 
@@ -98,6 +102,9 @@ export function JDownloaderPage() {
   const accountsSupported = Boolean(status?.jdownloader?.accounts);
   // Traffic and premium time change slowly; JDownloader itself checks the hosters only now and then.
   const accounts = useJDownloaderAccounts(enabled && accountsSupported, tab === 'accounts' ? 30_000 : false);
+  const extractedSupported = Boolean(status?.jdownloader?.extracted);
+  // Read only while the tab is open, so the folder is not counted through on every visit; the count stays afterwards.
+  const extracted = useExtracted('', enabled && extractedSupported && tab === 'extracted');
 
   const openSettings = () => change((next) => next.set('settings', ''));
 
@@ -131,6 +138,7 @@ export function JDownloaderPage() {
       downloads: downloads.data?.reachable ? downloads.data.packages.filter(isActivePackage).length : null,
       linkgrabber: grabber.data ? grabber.data.packages.length : null,
       accounts: accounts.data ? accounts.data.accounts.length : null,
+      extracted: extracted.data?.directory && !extracted.data.error ? extracted.data.entries.length : null,
     };
     content = (
       <>
@@ -141,6 +149,18 @@ export function JDownloaderPage() {
               downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
             ) : (
               <Card>{downloads.data.reachable ? <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable /> : <p className="text-sm text-critical">{downloads.data.error}</p>}</Card>
+            )
+          ) : tab === 'extracted' ? (
+            extractedSupported ? (
+              <ExtractedList onOpenSettings={openSettings} />
+            ) : (
+              <Message tone="critical">
+                Der Agent auf {status.hostname} ist zu alt für den Entpack-Ordner (Version {status.version}). Unter{' '}
+                <Link to="/server/agent" className="font-medium underline">
+                  Server → Agent
+                </Link>{' '}
+                «Aktualisieren & neu starten».
+              </Message>
             )
           ) : tab === 'accounts' ? (
             !accountsSupported ? (
@@ -210,7 +230,12 @@ function Card({ children }: { children: ReactNode }) {
 }
 
 function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, number | null>; onSelect: (tab: Tab) => void }) {
-  const refs = useRef<Record<Tab, HTMLButtonElement | null>>({ downloads: null, linkgrabber: null, accounts: null });
+  const refs = useRef<Record<Tab, HTMLButtonElement | null>>({ downloads: null, linkgrabber: null, accounts: null, extracted: null });
+
+  // Where the tabs still do not fit, the open one is scrolled into sight.
+  useEffect(() => {
+    refs.current[tab]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
 
   // Arrow keys move between the tabs, as in any tab list.
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -223,7 +248,7 @@ function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, numb
   }
 
   return (
-    // Scrolls sideways only where three tabs do not fit; the line below is drawn inside, so nothing sticks out to scroll.
+    // Scrolls sideways only where the tabs do not fit; the line below is drawn inside, so nothing sticks out to scroll.
     <div role="tablist" aria-label="JDownloader" onKeyDown={onKeyDown} className="flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--line)]">
       {TABS.map(({ id, label, short, icon: Icon }) => (
         <button
@@ -239,7 +264,7 @@ function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, numb
           tabIndex={tab === id ? 0 : -1}
           onClick={() => onSelect(id)}
           className={clsx(
-            'flex shrink-0 items-center gap-2 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap transition outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset sm:px-3',
+            'flex shrink-0 items-center gap-2 border-b-2 px-2 py-2 text-[13px] font-medium whitespace-nowrap transition outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset sm:px-3 sm:text-sm',
             tab === id ? 'border-accent text-ink' : 'border-transparent text-ink-2 hover:text-ink',
           )}
         >
@@ -252,7 +277,10 @@ function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, numb
           ) : (
             label
           )}
-          {counts[id] !== null && <span className="rounded-full bg-card-2 px-1.5 text-xs tabular-nums text-ink-2">{counts[id]}</span>}
+          {/* On a phone only the open tab shows its count, so all tabs fit in one line. */}
+          {counts[id] !== null && (
+            <span className={clsx('rounded-full bg-card-2 px-1.5 text-xs tabular-nums text-ink-2', tab !== id && 'hidden sm:inline')}>{counts[id]}</span>
+          )}
         </button>
       ))}
     </div>

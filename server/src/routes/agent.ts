@@ -14,6 +14,7 @@ import type {
   ConversionOptions,
   ConversionSchedule,
   DriveCredentialRequest,
+  ExtractedFolder,
   HistoryResponse,
   HistorySettings,
   JDownloaderAccounts,
@@ -225,6 +226,8 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
               required: ['mode', 'limitKBps'],
               properties: { mode: { type: 'string', enum: ['off', 'limit', 'pause'] }, limitKBps: { type: 'integer', minimum: 1, maximum: 10_000_000 } },
             },
+            // The agent checks that the folder is there; empty or null: none.
+            extractTo: { type: ['string', 'null'], maxLength: 400 },
           },
         },
       },
@@ -433,6 +436,13 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   app.get('/jdownloader/linkgrabber', async (): Promise<LinkGrabberStatus> => requireAgent(agent).linkGrabber());
 
   app.get('/jdownloader/accounts', async (): Promise<JDownloaderAccounts> => requireAgent(agent).jdownloaderAccounts());
+
+  // What JDownloader extracted: the folder named in the settings, or a folder in it.
+  app.get<{ Querystring: { path?: string } }>(
+    '/jdownloader/extracted',
+    { schema: { querystring: { type: 'object', properties: { path: { type: 'string', maxLength: 2000 } } } } },
+    async (request): Promise<ExtractedFolder> => requireAgent(agent).extracted(request.query.path ?? ''),
+  );
 
   // JDownloader asks the hosters again; the list shows the new numbers a moment later.
   app.post<{ Body: { ids: number[] } }>(

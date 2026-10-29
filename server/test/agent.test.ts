@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, HistoryResponse, HistorySettings, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule, WorkFolderStatus } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, HistoryResponse, HistorySettings, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule, ExtractedFolder, WorkFolderStatus } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -98,6 +98,11 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         if (init?.method === 'POST') return Response.json({ refreshing: 2 }, { status: 202 });
         return Response.json({ accounts: [{ id: 7, hoster: 'rapidgator.net', username: 'rolf', state: 'ok', error: null, validUntil: null, trafficLeft: 87e9, trafficMax: 100e9, unlimited: false }] });
+      }
+      if (url.pathname === '/api/jdownloader/extracted') {
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
+        const path = url.searchParams.get('path') ?? '';
+        return Response.json({ directory: 'D:\\Entpackt', path, entries: [], freeBytes: path ? null : 5e11, error: null });
       }
       if (url.pathname.startsWith('/api/jdownloader/linkgrabber')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
@@ -404,6 +409,22 @@ describe('agent connection', () => {
     expect((await app.inject('/api/agent/jdownloader')).json<JDownloaderStatus>().state).toBe('RUNNING');
     await app.inject('/api/agent/jdownloader?links=1');
     expect(world.sent.jdownloader.slice(-2).map((call) => call.path)).toEqual(['/api/jdownloader', '/api/jdownloader?links=1']);
+  });
+
+  it('passes the extraction folder in the settings and lists it', async () => {
+    const { app, world } = await setup();
+    const settings = { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } };
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/jdownloader/settings', payload: { ...settings, extractTo: 'D:\\Entpackt' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/jdownloader/settings', payload: { ...settings, extractTo: null } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/api/agent/jdownloader/settings', payload: { ...settings, extractTo: 'x'.repeat(401) } })).statusCode).toBe(400);
+    expect((await app.inject('/api/agent/jdownloader/extracted')).json<ExtractedFolder>()).toMatchObject({ directory: 'D:\\Entpackt', path: '', freeBytes: 5e11 });
+    expect((await app.inject(`/api/agent/jdownloader/extracted?path=${encodeURIComponent('Dune (2024)/Sample')}`)).json<ExtractedFolder>().path).toBe('Dune (2024)/Sample');
+    expect(world.sent.jdownloader.map((call) => [call.path, (call.body as { extractTo?: string | null } | undefined)?.extractTo])).toEqual([
+      ['/api/jdownloader/settings', 'D:\\Entpackt'],
+      ['/api/jdownloader/settings', null],
+      ['/api/jdownloader/extracted?path=', undefined],
+      ['/api/jdownloader/extracted?path=Dune+%282024%29%2FSample', undefined],
+    ]);
   });
 
   it('passes the premium accounts on and has them checked again', async () => {

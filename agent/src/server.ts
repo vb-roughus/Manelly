@@ -15,6 +15,7 @@ import type {
   DriveCredentialRequest,
   HardwareTestRequest,
   JDownloaderAction,
+  JDownloaderSettings,
   LinkGrabberContainerAnswer,
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
@@ -29,6 +30,7 @@ import { AgentError } from './errors.js';
 import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
+import { listExtracted } from './extracted.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
 import type { Originals } from './originals.js';
@@ -140,17 +142,18 @@ export function createAgentServer(options: AgentServerOptions) {
       : { directory, freeBytes: null, totalBytes: null, error: `Den Arbeitsordner ${directory} gibt es auf dem Server nicht (mehr).`, copyLimit };
   }
 
-  /** Only a folder that is there and takes files; nothing is created or searched. */
-  async function checkWorkFolder(input: unknown): Promise<string> {
+  /** Only a folder that is there – and takes files when `writable`; nothing is created or searched. */
+  async function checkFolder(input: unknown, example: string, writable = true): Promise<string> {
     const folder = typeof input === 'string' ? input.trim() : '';
-    if (!folder || folder.length > 400) throw new AgentError(400, 'Einen Ordner erwartet, z. B. E:\\Manelly.');
+    if (!folder || folder.length > 400) throw new AgentError(400, `Einen Ordner erwartet, z. B. ${example}.`);
     const api = pathApiFor(folder);
-    if (!api.isAbsolute(folder)) throw new AgentError(400, `«${folder}» ist kein absoluter Pfad, z. B. E:\\Manelly.`);
+    if (!api.isAbsolute(folder)) throw new AgentError(400, `«${folder}» ist kein absoluter Pfad, z. B. ${example}.`);
     if (roots.length > 0 && !roots.some((root) => isWithin(folder, root, api))) throw new AgentError(403, `${folder} liegt ausserhalb der freigegebenen Ordner.`);
     await options.access?.prepare(folder);
     if (!(await stat(folder).then((info) => info.isDirectory(), () => false))) {
       throw new AgentError(404, `Den Ordner ${folder} gibt es auf dem Server nicht – zuerst anlegen.`);
     }
+    if (!writable) return folder;
     const probe = api.join(folder, '.manelly-write-test');
     try {
       await writeFile(probe, '');
@@ -191,7 +194,7 @@ export function createAgentServer(options: AgentServerOptions) {
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
-        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true },
+        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true, extracted: true },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
         drives: (await options.drives?.list()) ?? [],
@@ -239,7 +242,16 @@ export function createAgentServer(options: AgentServerOptions) {
     if (route === 'GET /api/resources') return send(response, 200, resources.status());
     if (route === 'GET /api/jdownloader') return send(response, 200, await jdownloader.status(url.searchParams.get('links') === '1'));
     if (route === 'PUT /api/jdownloader/settings') {
-      await settings.setJDownloader(parseJDownloaderSettings(await readJson(request)));
+      const body = await readJson<Partial<JDownloaderSettings>>(request);
+      const parsed = parseJDownloaderSettings(body);
+      // Left out (an older Manelly): keep the extraction folder; empty: none.
+      const extractTo =
+        body.extractTo === undefined
+          ? (settings.get().jdownloader.extractTo ?? null)
+          : parsed.extractTo === null
+            ? null
+            : await checkFolder(parsed.extractTo, 'D:\\Downloads\\Entpackt', false);
+      await settings.setJDownloader({ ...parsed, extractTo });
       // Turned off or switched to another JDownloader: let go of it now.
       await jdownloader.check();
       return send(response, 200, await jdownloader.status());
@@ -294,6 +306,11 @@ export function createAgentServer(options: AgentServerOptions) {
       await recorder.clear();
       return send(response, 204, undefined);
     }
+    if (route === 'GET /api/jdownloader/extracted') {
+      const directory = settings.get().jdownloader.extractTo ?? null;
+      if (directory) await options.access?.prepare(directory);
+      return send(response, 200, await listExtracted(directory, url.searchParams.get('path') ?? '', freeBytes));
+    }
     if (route === 'GET /api/jdownloader/linkgrabber') return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
     if (route === 'GET /api/jdownloader/accounts') return send(response, 200, await jdownloaderCall(() => jdownloader.accounts()));
     if (route === 'POST /api/jdownloader/accounts/refresh') {
@@ -339,7 +356,7 @@ export function createAgentServer(options: AgentServerOptions) {
     }
     if (route === 'PUT /api/work') {
       const { directory } = await readJson<Partial<WorkFolderRequest>>(request);
-      await settings.setWork(directory === null ? null : await checkWorkFolder(directory));
+      await settings.setWork(directory === null ? null : await checkFolder(directory, 'E:\\Manelly'));
       return send(response, 200, await workStatus());
     }
     if (route === 'PUT /api/work/copy-limit') {

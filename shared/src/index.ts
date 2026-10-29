@@ -908,6 +908,40 @@ export interface JDownloaderSettings {
   /** As the agent reaches it, e.g. http://127.0.0.1:3128. */
   url: string;
   throttle: { mode: JDownloaderThrottleMode; limitKBps: number };
+  /**
+   * The folder JDownloader extracts archives into, as Manelly set it; null when none. Missing before agent 0.26.0;
+   * left out when saving, the agent keeps the one it has.
+   */
+  extractTo?: string | null;
+}
+
+/** GET /api/jdownloader/extracted on the agent (from 0.26.0): what lies in the folder JDownloader extracts into. */
+export interface ExtractedFolder {
+  /** The extraction folder; null when none is set. */
+  directory: string | null;
+  /** The listed folder inside it, with "/" between the names; "" for the extraction folder itself. */
+  path: string;
+  /** In the extraction folder newest first, below it by name. */
+  entries: ExtractedEntry[];
+  /** Free space on its disk. */
+  freeBytes: number | null;
+  /** Why it cannot be listed right now, e.g. the folder is gone. */
+  error: string | null;
+}
+
+export interface ExtractedEntry {
+  name: string;
+  /** Inside the extraction folder, with "/" between the names; to list a folder's content. */
+  path: string;
+  kind: 'directory' | 'file';
+  /** A file's size; for a folder, everything in it. */
+  bytes: number;
+  /** Folders: the files in them, on all levels; null for files. */
+  files: number | null;
+  /** False when a folder held too much to count it all; bytes and files are then at least that much. */
+  complete: boolean;
+  /** When it came into the folder or last changed, whichever is later – extracted files often keep the archive's old date. */
+  updatedAt: string;
 }
 
 export interface JDownloaderPackage {
@@ -1296,8 +1330,11 @@ export interface AgentStatus {
   network?: { selected: string[] };
   /** Whether the agent can measure CPU and GPU here; missing on agents before 0.4.0. */
   resources?: { supported: boolean };
-  /** Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0. */
-  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean };
+  /**
+   * Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0,
+   * extracted before 0.26.0.
+   */
+  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean; extracted?: boolean };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
   /** The work folder for conversions; missing before agent 0.17.0. */

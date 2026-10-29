@@ -6,7 +6,9 @@ Troubleshooting an einem Ort.
 ## Funktionen
 
 Aufklappbares – Menügruppen wie **Umwandlungen** und **Server**, Abschnitte im Dashboard, Filter, Staffeln, Pfade – ist
-nach jedem Laden der Seite eingeklappt. Eine eingeklappte Menügruppe zeigt, wenn eine ihrer Seiten offen ist.
+nach jedem Laden der Seite eingeklappt. Eine eingeklappte Menügruppe zeigt, wenn eine ihrer Seiten offen ist. Im Menü
+ist immer nur eine Gruppe offen: Öffnet man eine andere, klappt die vorherige zu; beides gleitet animiert auf und zu (auf
+dem Handy seitwärts).
 
 ### Dashboard
 

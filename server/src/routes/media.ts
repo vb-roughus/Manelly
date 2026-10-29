@@ -6,11 +6,14 @@ import type {
   MediaDiagnosisResponse,
   MediaFacetsResponse,
   MediaIndexStatus,
+  LibrarySeries,
   MediaLibrary,
   MediaSearchParams,
   MediaSearchResponse,
+  SeriesSeason,
 } from '@manelly/shared';
 import type { JellyfinConnection } from '../connection.js';
+import { samePath } from '../agent/conversions.js';
 import { AppError, requireClient } from '../errors.js';
 import type { LibraryScanner } from '../media/scan.js';
 import type { MediaIndexStore } from '../media/store.js';
@@ -74,6 +77,32 @@ export async function mediaRoutes(app: FastifyInstance, opts: { connection: Jell
       locations: library.Locations ?? [],
     })),
   );
+
+  const id = { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^[0-9a-fA-F-]{1,64}$' } } };
+  const noFrills = { enableImages: 'false', enableUserData: 'false' };
+
+  // The series of a library with their folders, e.g. as a target for new episodes or seasons.
+  app.get<{ Params: { id: string } }>('/libraries/:id/series', { schema: { params: id } }, async (request): Promise<LibrarySeries[]> => {
+    const query = new URLSearchParams({ parentId: request.params.id, includeItemTypes: 'Series', recursive: 'true', fields: 'Path', sortBy: 'SortName', sortOrder: 'Ascending', ...noFrills });
+    const result = await requireClient(connection.client).getItems(query);
+    return (result.Items ?? [])
+      .filter((item) => item.Id && item.Path)
+      .map((item) => ({ id: item.Id!, name: item.Name ?? 'Unbenannt', year: item.ProductionYear ?? null, path: item.Path! }));
+  });
+
+  // The seasons of a series that have a folder of their own; where episodes lie in the series folder itself, none.
+  app.get<{ Params: { id: string } }>('/series/:id/seasons', { schema: { params: id } }, async (request): Promise<SeriesSeason[]> => {
+    const client = requireClient(connection.client);
+    const [series, seasons] = await Promise.all([
+      client.getItems(new URLSearchParams({ ids: request.params.id, fields: 'Path', ...noFrills })),
+      client.getItems(new URLSearchParams({ parentId: request.params.id, includeItemTypes: 'Season', fields: 'Path', sortBy: 'IndexNumber', sortOrder: 'Ascending', ...noFrills })),
+    ]);
+    const folder = series.Items?.[0]?.Path;
+    if (!folder) throw new AppError('NOT_FOUND', 'Diese Serie kennt Jellyfin nicht (mehr).');
+    return (seasons.Items ?? [])
+      .filter((season) => season.Id && season.Path && !samePath(season.Path, folder))
+      .map((season) => ({ id: season.Id!, name: season.Name ?? 'Staffel', index: season.IndexNumber ?? null, path: season.Path! }));
+  });
 
   // Jellyfin's scan of its libraries; once it ended, the index is read again.
   app.get('/scan', async (): Promise<LibraryScanStatus> => scanner.status());

@@ -16,6 +16,7 @@ import type {
   DriveCredentialRequest,
   ExtractedFolder,
   ExtractedMove,
+  ExtractedMoveTarget,
   ExtractedSamples,
   ExtractedSamplesDeleted,
   HistoryResponse,
@@ -36,6 +37,7 @@ import type {
   WorkFolderStatus,
 } from '@manelly/shared';
 import type { AgentClient } from '../agent/client.js';
+import { resolveMoveTarget } from '../agent/moveTarget.js';
 import type { AgentConnection } from '../agent/connection.js';
 import { normalizeAgentUrl } from '../agent/connection.js';
 import { conversionOptions, createConversionWatcher, requireAgent, startConversion } from '../agent/conversions.js';
@@ -442,8 +444,8 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
 
   app.get('/jdownloader/extracted/moves', async (): Promise<ExtractedMove[]> => requireAgent(agent).extractedMoves());
 
-  // Only into a folder of a Jellyfin library: the agent gets the path from Jellyfin, not from the browser.
-  app.post<{ Body: { paths: string[]; target: string } }>(
+  // Only into a folder of a Jellyfin library, or of a series or season in it: the agent gets the path from Jellyfin.
+  app.post<{ Body: ExtractedMoveTarget }>(
     '/jdownloader/extracted/move',
     {
       schema: {
@@ -454,18 +456,16 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
           properties: {
             paths: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'string', minLength: 1, maxLength: 2000 } },
             target: { type: 'string', minLength: 1, maxLength: 1000 },
+            itemId: { type: 'string', pattern: '^[0-9a-fA-F-]{1,64}$' },
           },
         },
       },
     },
     async (request, reply) => {
       const client = requireAgent(agent);
-      const libraries = await requireClient(connection.client).getLibraries();
-      const library = libraries.find((candidate) => (candidate.Locations ?? []).includes(request.body.target));
-      if (!library) throw new AppError('BAD_REQUEST', 'Das Ziel ist kein Ordner einer Mediathek in Jellyfin.');
-      const label = library.Name ?? 'Mediathek';
-      const move = await client.moveExtracted({ paths: request.body.paths, target: request.body.target, label });
-      request.log.info(`Aus dem Entpack-Ordner nach ${label} (${request.body.target}): ${request.body.paths.join(', ')}`);
+      const { target, label } = await resolveMoveTarget(requireClient(connection.client), request.body);
+      const move = await client.moveExtracted({ paths: request.body.paths, target, label });
+      request.log.info(`Aus dem Entpack-Ordner nach ${label} (${target}): ${request.body.paths.join(', ')}`);
       return reply.status(202).send(move);
     },
   );

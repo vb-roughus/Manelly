@@ -9,7 +9,8 @@ Aufklappbares – Menügruppen wie **Umwandlungen** und **Server**, Abschnitte i
 nach jedem Laden der Seite eingeklappt. Eine eingeklappte Menügruppe zeigt, wenn eine ihrer Seiten offen ist. Im Menü
 ist immer nur eine Gruppe offen: Öffnet man eine andere, klappt die vorherige zu; beides gleitet animiert auf und zu (auf
 dem Handy seitwärts). Auch der Wechsel zu einer anderen Seite ist animiert: Die bisherige blendet aus, die neue gleitet
-herein, das Menü bleibt stehen (in Browsern mit View Transitions; mit «Bewegung reduzieren» ohne Animation).
+herein, das Menü bleibt stehen (in Browsern mit View Transitions; mit «Bewegung reduzieren» ohne Animation). Die Reiter
+von JDownloader gleiten je nach Richtung von rechts oder links herein.
 
 ### Dashboard
 
@@ -230,8 +231,11 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     legst du in den Einstellungen fest (so wie beim Archiv-Entpacker von JDownloader eingestellt, z. B. `D:\Downloads\Entpackt`
     oder `\\NAS\Downloads\Entpackt`). Der Agent liest nur diesen Ordner und nur, solange der Reiter offen ist (jede Minute neu).
     **Move to Library** (ab Agent 0.27.0): Ordner und Dateien ankreuzen (ein angekreuzter Ordner nimmt alles darin mit),
-    dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter; als Ziel taugt nur ein solcher
-    Ordner. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
+    dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter. Bei einer Serien-Mediathek folgt
+    die **Serie** (aus Jellyfin, mit dem Ordner, in dem Jellyfin sie führt; vorgeschlagen nach dem Namen, z. B. «The
+    Expanse S06» → The Expanse) und, wenn die Serie Staffelordner hat, die **Staffel** (für einzelne Folgen wie
+    «S05E11» schlägt Manelly die passende vor). Ohne Serie kommt der Ordner als neue Serie direkt in die Mediathek. Unten
+    steht der Zielordner. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
     Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt) und löscht erst
     danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich
     von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.

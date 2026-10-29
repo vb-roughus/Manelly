@@ -61,11 +61,22 @@ async function libraryFolders(client: JellyfinClient): Promise<Array<{ library: 
     .flatMap((library) => (library.Locations ?? []).map((location) => ({ library: library.Name ?? 'Bibliothek', path: location })));
 }
 
-const samePath = (a: string, b: string) => {
+export const samePath = (a: string, b: string) => {
   const api = pathApiFor(a);
   const normalize = (value: string) => api.normalize(value).replace(/[\\/]+$/, '');
   return api === path.win32 ? normalize(a).toLowerCase() === normalize(b).toLowerCase() : normalize(a) === normalize(b);
 };
+
+/** Whether `child` is `folder` or lies somewhere in it; Windows paths in any case. */
+export function isInFolder(child: string, folder: string): boolean {
+  const api = pathApiFor(folder);
+  const fold = (value: string) => {
+    const normal = api.normalize(value).replace(/[\\/]+$/, '');
+    return api === path.win32 ? normal.toLowerCase() : normal;
+  };
+  const relative = api.relative(fold(folder), fold(child));
+  return relative === '' || (!relative.startsWith('..') && !api.isAbsolute(relative));
+}
 
 /** Everything the conversion dialog offers, with free space from the agent. */
 export async function conversionOptions(client: JellyfinClient, agent: AgentClient, itemId: string, mediaSourceId?: string): Promise<ConversionOptions> {

@@ -96,6 +96,16 @@ export async function defaultFreeBytes(directory: string): Promise<number | null
   }
 }
 
+/** The size of the disk the directory is on. */
+export async function defaultTotalBytes(directory: string): Promise<number | null> {
+  try {
+    const info = await statfs(directory);
+    return info.blocks * info.bsize;
+  } catch {
+    return null;
+  }
+}
+
 interface ToolRun {
   tool: string;
   label: string;

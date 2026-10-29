@@ -2,7 +2,7 @@ import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { metered } from '../src/convert.js';
+import { defaultFreeBytes, defaultTotalBytes, metered } from '../src/convert.js';
 
 let dir: string;
 beforeEach(async () => {
@@ -28,5 +28,14 @@ describe('step rate', () => {
     expect(await metered(file, { onRate: (rate) => rates.push(rate) }, step, 100)).toBe('done');
     expect(rates.some((rate) => rate !== null && rate > 1024 * 1024)).toBe(true);
     expect(rates.at(-1)).toBeNull();
+  });
+});
+
+describe('disk space', () => {
+  it('tells the free space and the size of the disk a folder is on, and nothing for a missing folder', async () => {
+    const [free, total] = [await defaultFreeBytes(dir), await defaultTotalBytes(dir)];
+    expect(total).toBeGreaterThan(0);
+    expect(free).toBeLessThanOrEqual(total!);
+    expect(await defaultTotalBytes(path.join(dir, 'gone'))).toBeNull();
   });
 });

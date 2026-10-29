@@ -1,8 +1,9 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import type { CopyLimit, CopyLimitMode, WorkFolderStatus } from '@manelly/shared';
-import { HardDrive, LoaderCircle } from 'lucide-react';
-import { useSaveCopyLimit, useSaveWorkFolder } from '../hooks/queries';
+import { HardDrive, LoaderCircle, TriangleAlert } from 'lucide-react';
+import clsx from 'clsx';
+import { useOriginals, useSaveCopyLimit, useSaveWorkFolder } from '../hooks/queries';
 import { formatBytes } from '../lib/format';
 
 /**
@@ -54,11 +55,7 @@ export function WorkFolderPanel({ work }: { work: WorkFolderStatus }) {
         </div>
         <p className="mt-1.5 text-xs text-ink-3">Den Ordner zuerst auf dem Server anlegen. Leer lassen und speichern schaltet ihn aus.</p>
 
-        {work.directory && !changed && (
-          <p className={work.error ? 'mt-2 text-xs text-critical' : 'mt-2 text-xs text-ink-2'}>
-            {work.error ?? `Frei: ${work.freeBytes === null ? 'unbekannt' : formatBytes(work.freeBytes)} – eine Umwandlung braucht dort etwa das Dreifache der Filmgrösse.`}
-          </p>
-        )}
+        {work.directory && !changed && (work.error ? <p className="mt-2 text-xs text-critical">{work.error}</p> : <DiskSpace work={work} />)}
         {save.isError && <p className="mt-2 text-xs text-critical">{save.error.message}</p>}
         {save.isSuccess && !changed && !work.error && <p className="mt-2 text-xs text-good">Gespeichert.</p>}
       </form>
@@ -77,6 +74,59 @@ export function WorkFolderPanel({ work }: { work: WorkFolderStatus }) {
           </p>
         ))}
     </section>
+  );
+}
+
+/** What a conversion in the work folder needs there: the copy of the original, the video on its own and the result. */
+const WORK_SPACE_FACTOR = 3.1;
+
+/** How full the disk of the work folder is, how much of it the kept backups take, and how big a film still fits. */
+function DiskSpace({ work }: { work: WorkFolderStatus }) {
+  const originals = useOriginals(true);
+  const backups = (originals.data?.originals ?? []).reduce((sum, original) => sum + (original.bytes ?? 0), 0);
+  const { freeBytes: free, totalBytes: total } = work;
+  const fits = free === null ? null : `Reicht für eine Umwandlung bis etwa ${formatBytes(free / WORK_SPACE_FACTOR)} Filmgrösse – sie braucht dort etwa das Dreifache.`;
+  if (free === null) return <p className="mt-2 text-xs text-ink-2">Wie viel Platz frei ist, kann der Agent nicht sagen.</p>;
+  // Agents before 0.25.0 do not tell the size of the disk.
+  if (!total) return <p className="mt-2 text-xs text-ink-2">Frei: {formatBytes(free)}. {fits}</p>;
+
+  const used = Math.min(total, Math.max(0, total - free));
+  const backupShare = Math.min(backups, used) / total;
+  const freeShare = free / total;
+  const level = freeShare < 0.1 ? 'critical' : freeShare < 0.2 ? 'warning' : 'normal';
+  const fill = { normal: 'bg-accent', warning: 'bg-warning', critical: 'bg-critical' }[level];
+  return (
+    <div className="mt-3 rounded-xl bg-card-2/50 p-3 ring-1 ring-line">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p className="flex items-center gap-1.5">
+          {level !== 'normal' && <TriangleAlert className={clsx('size-3.5 self-center', level === 'critical' ? 'text-critical' : 'text-warning')} aria-hidden />}
+          <span className="font-semibold tabular-nums">{formatBytes(free)} frei</span>
+          <span className="text-ink-2">von {formatBytes(total)}</span>
+        </p>
+        <p className="text-xs text-ink-2 tabular-nums">{Math.round((used / total) * 100)} % belegt</p>
+      </div>
+      <div
+        className="mt-2 flex h-2 overflow-hidden rounded-full bg-card ring-1 ring-line"
+        role="meter"
+        aria-label="Belegt auf dem Datenträger des Arbeitsordners"
+        aria-valuenow={Math.round((used / total) * 100)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div className={clsx('h-full', fill)} style={{ width: `${((used - Math.min(backups, used)) / total) * 100}%` }} />
+        {backupShare > 0 && <div className={clsx('h-full opacity-45', fill)} style={{ width: `${backupShare * 100}%` }} />}
+      </div>
+      {backups > 0 && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-2">
+          <span className={clsx('size-2 rounded-full opacity-45', fill)} aria-hidden />
+          Davon {formatBytes(backups)}{' '}
+          <Link to="/conversions/backups" className="font-medium text-accent hover:underline">
+            Backups
+          </Link>
+        </p>
+      )}
+      <p className="mt-1 text-xs text-ink-3">{fits}</p>
+    </div>
   );
 }
 

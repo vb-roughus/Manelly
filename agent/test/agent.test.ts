@@ -85,6 +85,8 @@ let source: string;
 let baseUrl: string;
 let close: () => Promise<void>;
 let free = Number.MAX_SAFE_INTEGER;
+/** Size of the disk of the work folder. */
+const TOTAL = 2_000_000_000_000;
 let tools: Tools;
 let queue: JobQueue;
 let network: NetworkMonitor;
@@ -176,6 +178,7 @@ async function start() {
     recorder,
     tools: async () => tools,
     freeBytes: async () => free,
+    totalBytes: async () => TOTAL,
     process: async () => ({ ...PROCESS, restartable, lastUpdate: null }),
     onExit: (how) => void exits.push(how),
     get updater() {
@@ -324,7 +327,7 @@ describe('agent', () => {
 
   it('reports sizes and free space only for the paths it is given', async () => {
     const response = await call('/api/check', { method: 'POST', body: JSON.stringify({ source, directories: [media] }) });
-    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }], work: { directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } } });
+    expect(await response.json()).toEqual({ sourceBytes: 8, directories: [{ path: media, freeBytes: free }], work: { directory: null, freeBytes: null, totalBytes: null, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } } });
   });
 
 });
@@ -492,7 +495,7 @@ describe('pause', () => {
 describe('work folder', () => {
   it('takes only a folder that is there and takes files', async () => {
     const work = path.join(root, 'work');
-    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: null, freeBytes: null, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).work).toEqual({ directory: null, freeBytes: null, totalBytes: null, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } });
     const refused = async (directory: unknown) => {
       const response = await put('/api/work', { directory });
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
@@ -502,7 +505,7 @@ describe('work folder', () => {
     await mkdir(work);
     const saved = await put('/api/work', { directory: ` ${work} ` });
     expect(saved.status).toBe(200);
-    expect(await saved.json()).toEqual<WorkFolderStatus>({ directory: work, freeBytes: free, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } });
+    expect(await saved.json()).toEqual<WorkFolderStatus>({ directory: work, freeBytes: free, totalBytes: TOTAL, error: null, copyLimit: { mode: 'off', limitMbps: 400, storageMbps: 1600 } });
     // The write test leaves nothing behind.
     expect(await readdir(work)).toEqual([]);
     expect(((await (await call('/api/status')).json()) as AgentStatus).work?.directory).toBe(work);

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, ViewTransition, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import {
   Archive,
@@ -161,9 +161,22 @@ export function Layout({ children }: { children: ReactNode }) {
       </aside>
       <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
         <RestartNotices />
-        {children}
+        <PageTransition>{children}</PageTransition>
       </main>
     </div>
+  );
+}
+
+/**
+ * Each page enters and leaves animated (see index.css): the router switches pages in a transition, and a new key per
+ * path makes the old page exit and the new one enter. Tabs and filters in the address only update – without animation.
+ */
+function PageTransition({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  return (
+    <ViewTransition key={pathname} enter="page-in" exit="page-out" default="none">
+      {children}
+    </ViewTransition>
   );
 }
 

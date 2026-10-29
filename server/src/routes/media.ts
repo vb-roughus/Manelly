@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type {
+  ItemScanStarted,
   LibraryScanRequest,
   LibraryScanStatus,
   MediaDetail,
@@ -118,6 +119,8 @@ export async function mediaRoutes(app: FastifyInstance, opts: { connection: Jell
     async (request): Promise<LibraryScanStatus> => (request.body.libraryId ? scanner.startLibrary(request.body.libraryId) : scanner.start()),
   );
   app.delete('/scan', async (): Promise<LibraryScanStatus> => scanner.cancel());
+  // Just the folder of one series or season: seconds instead of the whole library.
+  app.post<{ Params: { id: string } }>('/items/:id/scan', { schema: { params: id } }, async (request): Promise<ItemScanStarted> => scanner.startItem(request.params.id));
 
   app.get('/facets', async (): Promise<MediaFacetsResponse> => {
     status();

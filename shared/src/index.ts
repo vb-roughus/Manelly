@@ -482,6 +482,13 @@ export interface LibraryScanStatus {
   libraries: LibraryScanEntry[];
 }
 
+/** POST /api/media/items/:id/scan: Jellyfin looks for new, changed and deleted files in one series or season only. */
+export interface ItemScanStarted {
+  id: string;
+  /** e.g. "Dark" or "Dark › Staffel 1". */
+  name: string;
+}
+
 export interface LibraryScanEntry {
   /** Jellyfin's id of the library, for scanning it alone; null when Jellyfin gives none. */
   id: string | null;

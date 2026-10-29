@@ -71,7 +71,8 @@ Filme und Serien durchsuchen und filtern:
 - Schnellwahl **«Deutsch in Dolby Atmos»** und **«Ohne deutsche Tonspur»**; jeder Tonspur-Filter lässt sich auch umkehren
   («fehlt»)
 - Serien zeigen, in wie vielen Folgen die gesuchte Spur vorhanden ist; optional nur Serien, bei denen alle Folgen passen
-- Detailansicht mit allen Tonspuren und der Dateigrösse jeder Version bzw. den Tonspuren jeder Folge und Link zum Titel in Jellyfin
+- Detailansicht mit allen Tonspuren und der Dateigrösse jeder Version bzw. den Tonspuren jeder Folge und Link zum Titel in Jellyfin;
+  bei einer Serie scannt **«Diese Serie scannen»** nur ihren Ordner (siehe unten)
 - **Treffer in eine Sammlung übernehmen:** alle Titel der aktuellen Suche zu einer bestehenden Jellyfin-Sammlung
   hinzufügen oder eine neue anlegen. Manelly zeigt vorher, wie viele schon drin sind, und fügt nur die fehlenden hinzu
 - Tonspur- und Video-Filter sind eingeklappt und zeigen dann eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
@@ -97,6 +98,13 @@ Knopf. Ist der Scan fertig – auch einer aller Mediatheken, der in Jellyfin sel
 Medien sofort neu ein, sodass neue Titel gleich auftauchen. Den Scan einer einzelnen Mediathek kann Jellyfin nicht
 abbrechen.
 
+**Einzelne Serie scannen:** Bei Serien-Mediatheken bietet das Menü zusätzlich **Einzelne Serie …**: Serie und, wenn sie
+Staffelordner hat, auf Wunsch eine Staffel wählen (beides aus Jellyfin, mit dem Ordner dazu) – Jellyfin sucht dann nur
+in diesem Ordner nach neuen, geänderten und gelöschten Dateien, meist in Sekunden statt Minuten. Dasselbe macht
+«Diese Serie scannen» in der Detailansicht einer Serie. Jellyfin meldet für diesen Scan keinen Fortschritt; Manelly liest
+die Medien nach einer halben und nach zwei Minuten neu ein. Eine ganz neue Serie, deren Ordner Jellyfin noch nicht
+kennt, findet nur der Scan der Mediathek.
+
 ### Server
 
 Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** und **JDownloader**.
@@ -105,7 +113,8 @@ Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** 
   **neu starten** oder **aktualisieren und neu starten** – siehe [Manelly aktualisieren](#manelly-aktualisieren)
 - **Allgemein – Mediatheken:** die Mediatheken von Jellyfin mit ihren Ordnern, wann der letzte Scan aller Mediatheken
   lief und wie er ausging; den Scan aller Mediatheken **starten** und **abbrechen**, mit Fortschritt in Prozent; mit
-  «Scannen» bei einer Mediathek nur diese scannen, mit eigenem Fortschritt
+  «Scannen» bei einer Mediathek nur diese scannen, mit eigenem Fortschritt; bei Serien-Mediatheken mit «Serie …» nur
+  eine einzelne Serie oder Staffel
 - **Allgemein – Hardware-Beschleunigung prüfen:** Einstellungen von Jellyfin im Überblick (Beschleunigung, Hardware-Kodierung,
   Hardware-Dekodierung, HEVC 10 bit, Tone-Mapping, FFmpeg) mit Hinweisen, was nicht passt – z. B. HEVC nicht für die
   Hardware-Dekodierung eingeschaltet (Jellyfins Standard) oder eine Beschleunigung, die es auf dem System nicht gibt

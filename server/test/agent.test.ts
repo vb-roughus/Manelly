@@ -478,6 +478,15 @@ describe('agent connection', () => {
     expect(elsewhere.json().error.message).toBe('«Woanders» liegt nicht im Ordner D:\\Serien von Serien.');
     expect((await move({ paths: ['Dune'], target: 'D:\\Serien', itemId: 'ff99' })).json().error.message).toBe('Diese Serie oder Staffel kennt Jellyfin nicht (mehr).');
     expect((await move({ paths: ['Dune'], target: 'D:\\Serien', itemId: '../x' })).statusCode).toBe(400);
+
+    // A new series: a folder right in the library's folder, created by the agent – only with a plain name.
+    await move({ paths: ['Dark.S01.German.1080p'], target: 'D:\\Serien', newFolder: ' Dark (2017) ' });
+    expect(world.sent.jdownloader.at(-1)?.body).toEqual({ paths: ['Dark.S01.German.1080p'], target: 'D:\\Serien\\Dark (2017)', label: 'Serien › Dark (2017)', create: true });
+    const sent = world.sent.jdownloader.length;
+    for (const newFolder of ['..', '..\\Filme', 'C:', 'Dark.', 'CON', '']) expect((await move({ paths: ['Dark'], target: 'D:\\Serien', newFolder })).statusCode).toBe(400);
+    expect((await move({ paths: ['Dark'], target: 'D:\\Serien', newFolder: 'a/b' })).json().error.message).toBe('«a/b» geht nicht als Ordnername – ohne < > : " / \\ | ? * und nicht mit Punkt oder Leerzeichen am Ende.');
+    expect((await move({ paths: ['Dark'], target: 'D:\\Serien', newFolder: 'Dark', itemId: 'aa11' })).statusCode).toBe(400);
+    expect(world.sent.jdownloader.length).toBe(sent);
   });
 
   it('lists the series of a library and their season folders, with the folders from Jellyfin', async () => {

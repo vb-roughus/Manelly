@@ -30,11 +30,11 @@ import {
   useSeriesSeasons,
 } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
+import { guessSeriesName, isFolderName, joinFolder, VIDEO } from '../lib/extracted';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 import { Message } from './ConnectionForm';
 import { Modal } from './Modal';
 
-const VIDEO = /\.(mkv|mp4|m4v|avi|mov|wmv|ts|m2ts|mts|iso|webm)$/i;
 const TEXT = /\.(nfo|txt|srt|ass|ssa|sub|idx|sfv|md5)$/i;
 /** Bigger than any sample usually is; such a file is not ticked for deleting by itself. */
 const BIG_SAMPLE_BYTES = 1024 ** 3;
@@ -96,7 +96,7 @@ const coveredBy = (selected: Map<string, Ticked>, path: string) => [...selected.
  * entries go into a library; samples can be looked for and deleted. The agent reads only that folder, and only while
  * this list is open.
  */
-export function ExtractedList({ onOpenSettings, actions }: { onOpenSettings: () => void; actions: boolean }) {
+export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenSettings: () => void; actions: boolean; newFolders: boolean }) {
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
   const now = useNow(60_000);
@@ -212,6 +212,7 @@ export function ExtractedList({ onOpenSettings, actions }: { onOpenSettings: () 
       >
         <MoveForm
           selected={selected}
+          newFolders={newFolders}
           onDone={() => {
             setSelected(new Map());
             setDialog(null);
@@ -390,9 +391,10 @@ const fieldClass =
 
 /**
  * Where the ticked entries go: a folder of a Jellyfin library – in a series library also into a series, and there
- * perhaps into one of its season folders. Series and seasons come from Jellyfin, with the folders it has them in.
+ * perhaps into one of its season folders, or into a new series folder named here. Series and seasons come from
+ * Jellyfin, with the folders it has them in.
  */
-function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked>; onDone: () => void; onCancel: () => void }) {
+function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<string, Ticked>; newFolders: boolean; onDone: () => void; onCancel: () => void }) {
   const libraries = useMediaLibraries(true);
   const move = useMoveExtracted();
   const options = (libraries.data ?? []).flatMap((library) => library.locations.map((location) => ({ library, location })));
@@ -414,8 +416,13 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked
   const [seasonChoice, setSeasonChoice] = useState<{ series: string; id: string } | null>(null);
   const seasonId = show ? (seasonChoice?.series === show.id ? seasonChoice.id : (guessSeason(seasons, entries)?.id ?? '')) : '';
   const season = seasons.find((candidate) => candidate.id === seasonId) ?? null;
+  // A new series gets a folder of its own, named here; older agents put the entries right into the library.
+  const newSeries = Boolean(chosen && seriesLibrary && seriesList.data && !show && newFolders);
+  const [typedName, setTypedName] = useState<string | null>(null);
+  const folderName = (typedName ?? guessSeriesName(entries.map((entry) => entry.name))).trim();
+  const known = newSeries && folderName ? series.find((candidate) => [candidate.name, lastName(candidate.path.replace(/\\/g, '/'))].some((name) => words(name) === words(folderName))) : undefined;
 
-  const target = season?.path ?? show?.path ?? chosen;
+  const target = newSeries ? (isFolderName(folderName) ? joinFolder(chosen!, folderName) : null) : (season?.path ?? show?.path ?? chosen);
   const paths = [...selected.keys()];
   const bytes = [...selected.values()].reduce((sum, value) => sum + value.bytes, 0);
 
@@ -423,7 +430,7 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked
     event.preventDefault();
     if (!chosen) return;
     move.mutate(
-      { paths, target: chosen, ...(season || show ? { itemId: (season ?? show)!.id } : {}) },
+      { paths, target: chosen, ...(newSeries ? { newFolder: folderName } : season || show ? { itemId: (season ?? show)!.id } : {}) },
       {
         onSuccess: () => {
           try {
@@ -491,7 +498,7 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked
               disabled={!seriesList.data}
               className={fieldClass}
             >
-              <option value="">{seriesList.data ? 'Keine – neu, direkt in die Mediathek' : 'Serien werden geladen …'}</option>
+              <option value="">{!seriesList.data ? 'Serien werden geladen …' : newFolders ? 'Neue Serie …' : 'Keine – neu, direkt in die Mediathek'}</option>
               {series.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
                   {candidate.name}
@@ -501,8 +508,47 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked
             </select>
           )}
           <p className="mt-1.5 text-xs text-ink-2">
-            {show ? 'In den Ordner der Serie – einzelne Folgen oder ganze Staffelordner.' : 'Für eine neue Serie: Der Ordner kommt direkt in die Mediathek.'}
+            {show
+              ? 'In den Ordner der Serie – einzelne Folgen oder ganze Staffelordner.'
+              : newFolders
+                ? 'Für eine neue Serie legt der Agent einen Ordner in der Mediathek an und verschiebt die Einträge hinein.'
+                : 'Für eine neue Serie: Der Ordner kommt direkt in die Mediathek. Einen eigenen Serienordner anlegen geht ab Agent 0.28.0.'}
           </p>
+        </div>
+      )}
+
+      {newSeries && (
+        <div>
+          <label htmlFor="move-folder" className="mb-1.5 block font-medium">
+            Name des Serienordners
+          </label>
+          <input
+            id="move-folder"
+            value={typedName ?? folderName}
+            onChange={(event) => setTypedName(event.target.value)}
+            placeholder="z. B. Dark (2017)"
+            autoComplete="off"
+            spellCheck={false}
+            aria-invalid={!isFolderName(folderName)}
+            aria-describedby="move-folder-hint"
+            className={fieldClass}
+          />
+          <p id="move-folder-hint" className={clsx('mt-1.5 text-xs', folderName && !isFolderName(folderName) ? 'text-critical' : 'text-ink-2')}>
+            {!folderName
+              ? 'Den Namen der Serie angeben, am besten mit Jahr – so findet Jellyfin sie sicher.'
+              : !isFolderName(folderName)
+                ? 'Ohne < > : " / \\ | ? * und nicht mit Punkt oder Leerzeichen am Ende.'
+                : 'So heisst der neue Ordner in der Mediathek; am besten mit Jahr, so findet Jellyfin die Serie sicher.'}
+          </p>
+          {known && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-warning/10 px-3 py-2 text-xs ring-1 ring-warning/30">
+              <TriangleAlert className="size-3.5 shrink-0 text-warning" aria-hidden />
+              <span>«{known.name}» gibt es in Jellyfin schon.</span>
+              <button type="button" onClick={() => setSeriesChoice({ location: chosen, id: known.id })} className="font-medium text-accent hover:underline">
+                Diese Serie wählen
+              </button>
+            </p>
+          )}
         </div>
       )}
 
@@ -527,6 +573,7 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked
         <p className="rounded-lg bg-card-2/50 px-3 py-2 text-xs ring-1 ring-line">
           <span className="text-ink-2">Ziel: </span>
           <span className="font-mono break-all">{target}</span>
+          {newSeries && <span className="ml-2 rounded-full bg-accent/12 px-1.5 py-0.5 font-medium whitespace-nowrap text-accent">neuer Ordner</span>}
         </p>
       )}
 
@@ -539,7 +586,7 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked
         <button type="button" onClick={onCancel} className={button}>
           Abbrechen
         </button>
-        <button type="submit" disabled={!chosen || move.isPending} className={primaryButton}>
+        <button type="submit" disabled={!chosen || move.isPending || (seriesLibrary && !seriesList.data) || (newSeries && !isFolderName(folderName))} className={primaryButton}>
           {move.isPending && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
           Verschieben
         </button>

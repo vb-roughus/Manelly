@@ -41,7 +41,7 @@ import type { ResourceMonitor } from './resources.js';
 import { NETWORK_ROLES, parseCopyLimit, parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type NetworkSelection, type SettingsStore } from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 import type { Updater } from './updater.js';
-import { isWithin, pathApiFor, type PathAccess } from './paths.js';
+import { isValidSegment, isWithin, pathApiFor, type PathAccess } from './paths.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 /** A container file comes as base64, a third larger than the file. */
@@ -205,7 +205,7 @@ export function createAgentServer(options: AgentServerOptions) {
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
-        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: Boolean(options.mover) },
+        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: Boolean(options.mover), newFolders: Boolean(options.mover) },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
         drives: (await options.drives?.list()) ?? [],
@@ -325,13 +325,19 @@ export function createAgentServer(options: AgentServerOptions) {
     if (route === 'GET /api/jdownloader/extracted/moves' && options.mover) return send(response, 200, options.mover.list());
     if (route === 'POST /api/jdownloader/extracted/move' && options.mover) {
       const directory = requireExtractTo();
-      const { paths, target, label } = await readJson<Partial<ExtractedMoveRequest>>(request);
+      const { paths, target, label, create } = await readJson<Partial<ExtractedMoveRequest>>(request);
       if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500 || paths.some((path) => typeof path !== 'string') || typeof label !== 'string' || !label.trim()) {
         throw new AgentError(400, 'Einträge, Zielordner und Mediathek erwartet.');
       }
       await options.access?.prepare(directory);
-      const folder = await checkFolder(target, 'D:\\Filme');
-      return send(response, 202, await options.mover.add(directory, paths, folder, label.trim()));
+      if (create !== true) return send(response, 202, await options.mover.add(directory, paths, await checkFolder(target, 'D:\\Filme'), label.trim()));
+      // A new folder: only its name is new, the folder it goes into must exist and take writing.
+      const wanted = typeof target === 'string' ? target.trim() : '';
+      const api = pathApiFor(wanted);
+      const name = api.basename(wanted);
+      if (!isValidSegment(name)) throw new AgentError(400, `«${name}» ist kein gültiger Ordnername.`);
+      const parent = await checkFolder(api.dirname(wanted), 'D:\\Serien');
+      return send(response, 202, await options.mover.add(directory, paths, api.join(parent, name), label.trim(), true));
     }
     if (route === 'GET /api/jdownloader/extracted/samples') {
       const directory = requireExtractTo();

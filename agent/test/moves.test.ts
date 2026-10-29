@@ -94,6 +94,31 @@ describe('moving into a library', () => {
     await mkdir(path.join(extracted, 'Serien', 'Neu'), { recursive: true });
     await expect(mover.add(extracted, ['Serien'], path.join(extracted, 'Serien', 'Neu'), 'Serien')).rejects.toThrow('«Serien» kann nicht in sich selbst verschoben werden.');
   });
+
+  it('creates a new folder for the entries when the move starts, and moves into it when it is there already', async () => {
+    const told: Array<{ Path: string }> = [];
+    const mover = createMover({ notify: async (updates) => void told.push(...updates) });
+    const series = path.join(library, 'Dark (2017)');
+    await mover.add(extracted, ['Dune (2024)', 'Arrival.mkv'], series, 'Serien › Dark (2017)', true);
+    expect((await settle(mover)).state).toBe('done');
+    expect((await readdir(series)).sort()).toEqual(['Arrival.mkv', 'Dune (2024)']);
+    expect(told.map((update) => update.Path)).toEqual([path.join(series, 'Dune (2024)'), path.join(series, 'Arrival.mkv')]);
+
+    await writeFile(path.join(extracted, 'Dark.S02E01.mkv'), 'dark');
+    await mover.add(extracted, ['Dark.S02E01.mkv'], series, 'Serien › Dark (2017)', true);
+    expect((await settle(mover)).state).toBe('done');
+    expect(await readdir(series)).toContain('Dark.S02E01.mkv');
+  });
+
+  it('moves nothing when the new folder cannot be created', async () => {
+    await writeFile(path.join(library, 'Dark'), 'a file, not a folder');
+    const mover = createMover();
+    await mover.add(extracted, ['Arrival.mkv'], path.join(library, 'Dark'), 'Serien › Dark', true);
+    const done = await settle(mover);
+    expect(done.state).toBe('failed');
+    expect(done.problems[0]?.error).toMatch(/^Den Ordner .*Dark kann der Agent nicht anlegen: /);
+    expect(await readdir(extracted)).toContain('Arrival.mkv');
+  });
 });
 
 describe('samples', () => {

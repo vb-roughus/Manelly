@@ -457,14 +457,15 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
             paths: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'string', minLength: 1, maxLength: 2000 } },
             target: { type: 'string', minLength: 1, maxLength: 1000 },
             itemId: { type: 'string', pattern: '^[0-9a-fA-F-]{1,64}$' },
+            newFolder: { type: 'string', minLength: 1, maxLength: 200 },
           },
         },
       },
     },
     async (request, reply) => {
       const client = requireAgent(agent);
-      const { target, label } = await resolveMoveTarget(requireClient(connection.client), request.body);
-      const move = await client.moveExtracted({ paths: request.body.paths, target, label });
+      const { target, label, create } = await resolveMoveTarget(requireClient(connection.client), request.body);
+      const move = await client.moveExtracted({ paths: request.body.paths, target, label, ...(create ? { create } : {}) });
       request.log.info(`Aus dem Entpack-Ordner nach ${label} (${target}): ${request.body.paths.join(', ')}`);
       return reply.status(202).send(move);
     },

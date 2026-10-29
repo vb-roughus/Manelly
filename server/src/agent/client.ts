@@ -15,6 +15,10 @@ import type {
   ConversionSchedule,
   DriveCredentialRequest,
   ExtractedFolder,
+  ExtractedMove,
+  ExtractedMoveRequest,
+  ExtractedSamples,
+  ExtractedSamplesDeleted,
   HardwareTestRequest,
   HardwareTestResult,
   HistoryResponse,
@@ -76,6 +80,11 @@ export interface AgentClient {
   jdownloaderAccounts(): Promise<JDownloaderAccounts>;
   /** From agent 0.26.0: the extraction folder, or a folder in it ("a/b"; "" for itself). */
   extracted(path: string): Promise<ExtractedFolder>;
+  /** From agent 0.27.0: moves from the extraction folder into a library, and the samples in it. */
+  extractedMoves(): Promise<ExtractedMove[]>;
+  moveExtracted(request: ExtractedMoveRequest): Promise<ExtractedMove>;
+  extractedSamples(): Promise<ExtractedSamples>;
+  deleteExtractedSamples(paths: string[]): Promise<ExtractedSamplesDeleted>;
   /** No ids: all of them. */
   refreshJDownloaderAccounts(ids: number[]): Promise<{ refreshing: number }>;
   /** Recorded load and streams between two times (milliseconds since the epoch). */
@@ -164,6 +173,12 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     jdownloaderAccounts: () => call('GET', '/api/jdownloader/accounts', undefined, 20_000),
     // Adds up the size of every folder; on a NAS that takes a moment.
     extracted: (path) => call('GET', `/api/jdownloader/extracted?${new URLSearchParams({ path })}`, undefined, 30_000),
+    extractedMoves: () => call('GET', '/api/jdownloader/extracted/moves'),
+    // Measures what is moved first; a big folder on a NAS takes a moment.
+    moveExtracted: (request) => call('POST', '/api/jdownloader/extracted/move', request, 60_000),
+    // Looks through the whole extraction folder.
+    extractedSamples: () => call('GET', '/api/jdownloader/extracted/samples', undefined, 60_000),
+    deleteExtractedSamples: (paths) => call('POST', '/api/jdownloader/extracted/samples/delete', { paths }, 60_000),
     refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),
     // A long range means reading many days of records.
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),

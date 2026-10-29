@@ -15,6 +15,9 @@ import type {
   ConversionSchedule,
   DriveCredentialRequest,
   ExtractedFolder,
+  ExtractedMove,
+  ExtractedSamples,
+  ExtractedSamplesDeleted,
   HistoryResponse,
   HistorySettings,
   JDownloaderAccounts,
@@ -436,6 +439,57 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
   app.get('/jdownloader/linkgrabber', async (): Promise<LinkGrabberStatus> => requireAgent(agent).linkGrabber());
 
   app.get('/jdownloader/accounts', async (): Promise<JDownloaderAccounts> => requireAgent(agent).jdownloaderAccounts());
+
+  app.get('/jdownloader/extracted/moves', async (): Promise<ExtractedMove[]> => requireAgent(agent).extractedMoves());
+
+  // Only into a folder of a Jellyfin library: the agent gets the path from Jellyfin, not from the browser.
+  app.post<{ Body: { paths: string[]; target: string } }>(
+    '/jdownloader/extracted/move',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['paths', 'target'],
+          properties: {
+            paths: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'string', minLength: 1, maxLength: 2000 } },
+            target: { type: 'string', minLength: 1, maxLength: 1000 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const client = requireAgent(agent);
+      const libraries = await requireClient(connection.client).getLibraries();
+      const library = libraries.find((candidate) => (candidate.Locations ?? []).includes(request.body.target));
+      if (!library) throw new AppError('BAD_REQUEST', 'Das Ziel ist kein Ordner einer Mediathek in Jellyfin.');
+      const label = library.Name ?? 'Mediathek';
+      const move = await client.moveExtracted({ paths: request.body.paths, target: request.body.target, label });
+      request.log.info(`Aus dem Entpack-Ordner nach ${label} (${request.body.target}): ${request.body.paths.join(', ')}`);
+      return reply.status(202).send(move);
+    },
+  );
+
+  app.get('/jdownloader/extracted/samples', async (): Promise<ExtractedSamples> => requireAgent(agent).extractedSamples());
+
+  app.post<{ Body: { paths: string[] } }>(
+    '/jdownloader/extracted/samples/delete',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['paths'],
+          properties: { paths: { type: 'array', minItems: 1, maxItems: 2000, items: { type: 'string', minLength: 1, maxLength: 2000 } } },
+        },
+      },
+    },
+    async (request): Promise<ExtractedSamplesDeleted> => {
+      const result = await requireAgent(agent).deleteExtractedSamples(request.body.paths);
+      request.log.info(`Samples im Entpack-Ordner gelöscht: ${result.deleted.length}${result.problems.length ? `, nicht gelöscht: ${result.problems.length}` : ''}`);
+      return result;
+    },
+  );
 
   // What JDownloader extracted: the folder named in the settings, or a folder in it.
   app.get<{ Querystring: { path?: string } }>(

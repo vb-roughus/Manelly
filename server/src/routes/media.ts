@@ -6,6 +6,7 @@ import type {
   MediaDiagnosisResponse,
   MediaFacetsResponse,
   MediaIndexStatus,
+  MediaLibrary,
   MediaSearchParams,
   MediaSearchResponse,
 } from '@manelly/shared';
@@ -63,6 +64,16 @@ export async function mediaRoutes(app: FastifyInstance, opts: { connection: Jell
     store.refresh();
     return store.status();
   });
+
+  // The libraries and their folders, e.g. as targets for what JDownloader extracted.
+  app.get('/libraries', async (): Promise<MediaLibrary[]> =>
+    (await requireClient(connection.client).getLibraries()).map((library) => ({
+      id: library.ItemId ?? null,
+      name: library.Name ?? 'Unbenannt',
+      type: library.CollectionType ?? null,
+      locations: library.Locations ?? [],
+    })),
+  );
 
   // Jellyfin's scan of its libraries; once it ended, the index is read again.
   app.get('/scan', async (): Promise<LibraryScanStatus> => scanner.status());

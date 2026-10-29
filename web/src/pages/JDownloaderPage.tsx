@@ -152,7 +152,7 @@ export function JDownloaderPage() {
             )
           ) : tab === 'extracted' ? (
             extractedSupported ? (
-              <ExtractedList onOpenSettings={openSettings} />
+              <ExtractedList onOpenSettings={openSettings} actions={Boolean(status.jdownloader?.moves)} />
             ) : (
               <Message tone="critical">
                 Der Agent auf {status.hostname} ist zu alt für den Entpack-Ordner (Version {status.version}). Unter{' '}

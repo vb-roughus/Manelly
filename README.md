@@ -227,7 +227,16 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
   - **Extracted** (ab Agent 0.26.0): was im **Entpack-Ordner** liegt, das zuletzt Entpackte zuoberst – mit Grösse, Anzahl
     Dateien und Zeitpunkt; Ordner klappen auf und zeigen ihren Inhalt (Filme, Untertitel, Samples …). Den Entpack-Ordner
     legst du in den Einstellungen fest (so wie beim Archiv-Entpacker von JDownloader eingestellt, z. B. `D:\Downloads\Entpackt`
-    oder `\\NAS\Downloads\Entpackt`). Der Agent liest nur diesen Ordner und nur, solange der Reiter offen ist (jede Minute neu)
+    oder `\\NAS\Downloads\Entpackt`). Der Agent liest nur diesen Ordner und nur, solange der Reiter offen ist (jede Minute neu).
+    **Move to Library** (ab Agent 0.27.0): Ordner und Dateien ankreuzen (ein angekreuzter Ordner nimmt alles darin mit),
+    dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter; als Ziel taugt nur ein solcher
+    Ordner. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
+    Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt) und löscht erst
+    danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich
+    von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.
+    **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
+    Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
+    die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird
 - Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite: einbinden, Adresse, Entpack-Ordner und das
   Bremsen beim Streamen
 - **Bremsen, solange jemand streamt** (in den JDownloader-Einstellungen): Beginnt ein Stream, begrenzt der Agent

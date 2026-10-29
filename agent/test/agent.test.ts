@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -13,6 +13,7 @@ import type {
   ConversionJob,
   ConversionStep,
   ExtractedFolder,
+  ExtractedMove,
   HistoryResponse,
   JDownloaderStatus,
   WorkFolderStatus,
@@ -22,6 +23,7 @@ import { createRecorder, type Recorder } from '../src/history.js';
 import { createNotifier } from '../src/jellyfin.js';
 import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
+import { createMover } from '../src/moves.js';
 import { createCopyLimiter } from '../src/copyLimit.js';
 import { createOriginals } from '../src/originals.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
@@ -138,6 +140,8 @@ const fakeDrives = {
 
 // Agents from 0.11.0 update while running; without an updater the runner updates after the exit.
 let withUpdater = false;
+/** Holds a move in the extraction folder back until resolved. */
+let moveHold: Promise<void> = Promise.resolve();
 const updates: string[] = [];
 const fakeUpdater = {
   progress: () => null,
@@ -187,6 +191,12 @@ async function start() {
     },
     drives: fakeDrives,
     originals,
+    mover: createMover({
+      rename: async (from, to) => {
+        await moveHold;
+        await rename(from, to);
+      },
+    }),
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -804,7 +814,7 @@ describe('resources', () => {
 
 describe('JDownloader routes', () => {
   it('checks the settings and refuses to control a JDownloader that is switched off', async () => {
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true, extracted: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: true });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
     expect((await call('/api/jdownloader/accounts')).status).toBe(409);
@@ -861,6 +871,51 @@ describe('JDownloader routes', () => {
 
     // Emptied in Manelly: none.
     expect(((await (await put('/api/jdownloader/settings', { ...settings, extractTo: '' })).json()) as JDownloaderStatus).settings.extractTo).toBeNull();
+  });
+
+  it('moves entries of the extraction folder into a library, and finds and deletes samples there', async () => {
+    const extracted = path.join(root, 'entpackt');
+    const library = path.join(root, 'filme');
+    await mkdir(path.join(extracted, 'Dune (2024)', 'Sample'), { recursive: true });
+    await writeFile(path.join(extracted, 'Dune (2024)', 'Dune.mkv'), 'dune');
+    await writeFile(path.join(extracted, 'Dune (2024)', 'Sample', 'dune-sample.mkv'), 'sm');
+    await mkdir(library);
+    const move = { paths: ['Dune (2024)'], target: library, label: 'Filme' };
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader?.moves).toBe(true);
+    // Without an extraction folder there is nothing to move.
+    expect((await post('/api/jdownloader/extracted/move', move)).status).toBe(409);
+    await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 }, extractTo: extracted });
+
+    expect(await (await call('/api/jdownloader/extracted/samples')).json()).toEqual({ samples: [{ path: 'Dune (2024)/Sample/dune-sample.mkv', bytes: 2 }] });
+    const deleted = await post('/api/jdownloader/extracted/samples/delete', { paths: ['Dune (2024)/Sample/dune-sample.mkv'] });
+    expect(await deleted.json()).toEqual({ deleted: ['Dune (2024)/Sample/dune-sample.mkv'], problems: [] });
+    expect((await post('/api/jdownloader/extracted/samples/delete', { paths: [] })).status).toBe(400);
+
+    expect((await post('/api/jdownloader/extracted/move', { ...move, target: path.join(root, 'gibts-nicht') })).status).toBe(404);
+    expect((await post('/api/jdownloader/extracted/move', { ...move, label: '' })).status).toBe(400);
+    expect((await post('/api/jdownloader/extracted/move', { ...move, paths: ['../filme'] })).status).toBe(400);
+
+    // A restart would interrupt a move: asked first.
+    exits = [];
+    restartable = true;
+    let release = () => {};
+    moveHold = new Promise((resolve) => (release = resolve));
+    const started = await post('/api/jdownloader/extracted/move', move);
+    expect(started.status).toBe(202);
+    const refused = await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: false }) });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { message: string } }).error.message).toBe(
+      'Gerade verschiebt der Agent «Dune (2024)» nach Filme (0 %). Ein Neustart würde das unterbrechen – warte, bis es fertig ist, oder bestätige den Neustart.',
+    );
+    release();
+    moveHold = Promise.resolve();
+    for (let i = 0; i < 50 && (((await (await call('/api/jdownloader/extracted/moves')).json()) as ExtractedMove[])[0]?.state ?? 'running') === 'running'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(((await (await call('/api/jdownloader/extracted/moves')).json()) as ExtractedMove[])[0]).toMatchObject({ state: 'done', paths: ['Dune (2024)'], target: library, label: 'Filme' });
+    expect(await readdir(path.join(library, 'Dune (2024)'))).toEqual(['Dune.mkv']);
+    expect(exits).toEqual([]);
+    restartable = false;
   });
 
   it('hands DLC files to the link grabber', async () => {

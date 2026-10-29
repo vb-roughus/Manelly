@@ -179,6 +179,11 @@ describe('library scan', () => {
     });
     const app = await buildApp({ config: { staticDir: null }, connection });
     expect((await app.inject('/api/media/scan')).json<LibraryScanStatus>().state).toBe('idle');
+    // The libraries with their folders, e.g. as targets for moving.
+    expect((await app.inject('/api/media/libraries')).json()).toEqual([
+      { id: 'a', name: 'Filme', type: 'movies', locations: ['D:\\Filme', '\\\\nas\\Filme'] },
+      { id: 'b', name: 'Gemischt', type: null, locations: [] },
+    ]);
     const all = await app.inject({ method: 'POST', url: '/api/media/scan' });
     expect(all.json<LibraryScanStatus>().state, all.body).toBe('running');
     jf.task = { ...jf.task, State: 'Running' };

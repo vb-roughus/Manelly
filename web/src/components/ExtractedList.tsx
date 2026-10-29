@@ -32,8 +32,10 @@ import {
 import { useNow } from '../hooks/useNow';
 import { guessSeriesName, isFolderName, joinFolder, VIDEO } from '../lib/extracted';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
+import { range } from '../lib/packageSelection';
 import { Message } from './ConnectionForm';
 import { Modal } from './Modal';
+import { keepTextOnShift } from './Tick';
 
 const TEXT = /\.(nfo|txt|srt|ass|ssa|sub|idx|sfv|md5)$/i;
 /** Bigger than any sample usually is; such a file is not ticked for deleting by itself. */
@@ -84,7 +86,8 @@ interface Ticked {
 interface Selection {
   enabled: boolean;
   selected: Map<string, Ticked>;
-  toggle: (entry: ExtractedEntry) => void;
+  /** A click on an entry's box; with shift, every entry of `siblings` from the one clicked before gets the same. */
+  toggle: (entry: ExtractedEntry, siblings: ExtractedEntry[], shift: boolean) => void;
 }
 
 const SelectionContext = createContext<Selection>({ enabled: false, selected: new Map(), toggle: () => {} });
@@ -101,17 +104,23 @@ export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenS
   const moves = useExtractedMoves(actions);
   const now = useNow(60_000);
   const [selected, setSelected] = useState<Map<string, Ticked>>(new Map());
+  const [anchor, setAnchor] = useState<string | null>(null);
   const [dialog, setDialog] = useState<'move' | 'samples' | null>(null);
 
-  function toggle(entry: ExtractedEntry) {
+  function toggle(entry: ExtractedEntry, siblings: ExtractedEntry[], shift: boolean) {
+    const tick = !selected.has(entry.path);
+    const paths = shift ? range(siblings.map((each) => each.path), anchor, entry.path) : [entry.path];
     const next = new Map(selected);
-    if (next.has(entry.path)) next.delete(entry.path);
-    else {
-      // Ticking a folder takes in what was ticked inside it.
-      for (const path of next.keys()) if (path.startsWith(`${entry.path}/`)) next.delete(path);
-      next.set(entry.path, { bytes: entry.bytes, folder: entry.kind === 'directory' });
+    for (const each of siblings.filter((candidate) => paths.includes(candidate.path))) {
+      if (!tick) next.delete(each.path);
+      else if (!coveredBy(next, each.path)) {
+        // Ticking a folder takes in what was ticked inside it.
+        for (const path of next.keys()) if (path.startsWith(`${each.path}/`)) next.delete(path);
+        next.set(each.path, { bytes: each.bytes, folder: each.kind === 'directory' });
+      }
     }
     setSelected(next);
+    setAnchor(entry.path);
   }
 
   if (root.error) return <Message tone="critical">{root.error.message}</Message>;
@@ -195,9 +204,9 @@ export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenS
         {error && <p className="mt-3 text-critical">{error}</p>}
         {!error && entries.length === 0 && <p className="mt-3 text-ink-2">Der Ordner ist leer.</p>}
         {entries.length > 0 && (
-          <ul className="mt-3 divide-y divide-line border-t border-line">
+          <ul className="mt-3 divide-y divide-line border-t border-line" onMouseDown={keepTextOnShift}>
             {entries.map((entry) => (
-              <EntryRow key={entry.path} entry={entry} now={now} />
+              <EntryRow key={entry.path} entry={entry} siblings={entries} now={now} />
             ))}
           </ul>
         )}
@@ -233,7 +242,7 @@ export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenS
   );
 }
 
-function EntryRow({ entry, now }: { entry: ExtractedEntry; now: number }) {
+function EntryRow({ entry, siblings, now }: { entry: ExtractedEntry; siblings: ExtractedEntry[]; now: number }) {
   const [open, setOpen] = useState(false);
   const selection = useContext(SelectionContext);
   const Icon = iconFor(entry, open);
@@ -258,7 +267,8 @@ function EntryRow({ entry, now }: { entry: ExtractedEntry; now: number }) {
             type="checkbox"
             checked={ticked}
             disabled={covered}
-            onChange={() => selection.toggle(entry)}
+            // A checkbox changes on a click, so the event says whether shift was held.
+            onChange={(event) => selection.toggle(entry, siblings, (event.nativeEvent as MouseEvent).shiftKey === true)}
             aria-label={`«${entry.name}» auswählen`}
             title={covered ? 'Mit dem Ordner darüber ausgewählt' : undefined}
             className="mt-1 size-4 shrink-0 accent-accent"
@@ -293,7 +303,7 @@ function FolderContent({ path, now }: { path: string; now: number }) {
     content = (
       <ul className="divide-y divide-line">
         {folder.data.entries.map((entry) => (
-          <EntryRow key={entry.path} entry={entry} now={now} />
+          <EntryRow key={entry.path} entry={entry} siblings={folder.data.entries} now={now} />
         ))}
       </ul>
     );

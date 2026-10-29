@@ -14,6 +14,7 @@ import type {
   ConversionOptions,
   ConversionSchedule,
   CopyLimit,
+  DownloadsRemoveRequest,
   DriveCredentialRequest,
   ExtractedFolder,
   ExtractedMove,
@@ -34,6 +35,7 @@ import type {
   LibrarySeries,
   LinkGrabberContainerAnswer,
   LinkGrabberMoveRequest,
+  LinkGrabberRemoveRequest,
   LinkGrabberStatus,
   SaveAgentSettingsRequest,
   StartConversionRequest,
@@ -832,6 +834,27 @@ export function useMoveFromLinkGrabber() {
     onSuccess: (status) => {
       queryClient.setQueryData(['linkgrabber'], status);
       void queryClient.invalidateQueries({ queryKey: ['jdownloader'] });
+    },
+  });
+}
+
+/** From agent 0.29.0: packages and links out of the link grabber. */
+export function useRemoveFromLinkGrabber() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: LinkGrabberRemoveRequest) => sendJson<LinkGrabberStatus>('POST', '/api/agent/jdownloader/linkgrabber/remove', request),
+    onSuccess: (status) => queryClient.setQueryData(['linkgrabber'], status),
+  });
+}
+
+/** From agent 0.29.0: packages and links out of the download list, perhaps with their files. */
+export function useRemoveDownloads() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: DownloadsRemoveRequest) => sendJson<JDownloaderStatus>('POST', '/api/agent/jdownloader/downloads/remove', request),
+    onSuccess: (status) => {
+      queryClient.setQueryData(['jdownloader', 'links'], status);
+      void queryClient.invalidateQueries({ queryKey: ['jdownloader'], exact: true });
     },
   });
 }

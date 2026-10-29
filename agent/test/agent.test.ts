@@ -814,7 +814,16 @@ describe('resources', () => {
 
 describe('JDownloader routes', () => {
   it('checks the settings and refuses to control a JDownloader that is switched off', async () => {
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: true, newFolders: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({
+      enabled: false,
+      linkgrabber: true,
+      accounts: true,
+      containers: true,
+      extracted: true,
+      moves: true,
+      newFolders: true,
+      remove: true,
+    });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
     expect((await call('/api/jdownloader/accounts')).status).toBe(409);
@@ -827,6 +836,14 @@ describe('JDownloader routes', () => {
     expect((await post('/api/jdownloader/control', { action: 'jump' })).status).toBe(400);
     expect((await post('/api/jdownloader/linkgrabber/move', { packageIds: [], linkIds: [] })).status).toBe(400);
     expect((await post('/api/jdownloader/linkgrabber/move', { packageIds: ['1'] })).status).toBe(400);
+    expect((await post('/api/jdownloader/linkgrabber/remove', { packageIds: [], linkIds: [] })).status).toBe(400);
+    expect((await post('/api/jdownloader/downloads/remove', { packageIds: [1], linkIds: [], deleteFiles: 'ja' })).status).toBe(400);
+    expect((await post('/api/jdownloader/linkgrabber/remove', { packageIds: [1], linkIds: [] })).status).toBe(200);
+    expect((await post('/api/jdownloader/downloads/remove', { packageIds: [1], linkIds: [2], deleteFiles: true })).status).toBe(200);
+    expect(jellyfinCalls.filter((entry) => entry.includes('removeLinks') || entry.includes('cleanup'))).toEqual([
+      'GET /linkgrabberv2/removeLinks',
+      'GET /downloadsV2/cleanup',
+    ]);
     expect(await (await call('/api/jdownloader/linkgrabber')).json()).toEqual({ collecting: false, packages: [] });
   });
 

@@ -227,6 +227,11 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
     grabberLinks: () => call<RawCrawledLink[]>('linkgrabberv2/queryLinks', GRABBER_LINK_QUERY),
     collecting: () => call<boolean>('linkgrabberv2/isCollecting'),
     moveToDownloads: (linkIds: number[], packageIds: number[]) => call<void>('linkgrabberv2/moveToDownloadlist', linkIds, packageIds),
+    removeFromGrabber: (linkIds: number[], packageIds: number[]) => call<void>('linkgrabberv2/removeLinks', linkIds, packageIds),
+    removeDownloads: (linkIds: number[], packageIds: number[]) => call<void>('downloadsV2/removeLinks', linkIds, packageIds),
+    /** Removes the links and deletes their files on the disk – what was unpacked from them stays. */
+    deleteDownloads: (linkIds: number[], packageIds: number[]) =>
+      call<void>('downloadsV2/cleanup', linkIds, packageIds, 'DELETE_ALL', 'REMOVE_LINKS_AND_DELETE_FILES', 'SELECTED'),
     /**
      * Hands JDownloader a container file as a data URL; it reads the links in the background. The file goes in the
      * body, where a large one fits; a JDownloader that only reads the address gets it there. Answers the job's id.
@@ -503,6 +508,18 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
     /** Whole packages and single links from the link grabber to the download list. */
     async moveToDownloads(packageIds: number[], linkIds: number[]): Promise<void> {
       await api().moveToDownloads(linkIds, packageIds);
+    },
+
+    /** Whole packages and single links out of the link grabber; nothing was downloaded yet. */
+    async removeFromGrabber(packageIds: number[], linkIds: number[]): Promise<void> {
+      await api().removeFromGrabber(linkIds, packageIds);
+    },
+
+    /** Whole packages and single links out of the download list; with `deleteFiles` their downloaded files as well. */
+    async removeDownloads(packageIds: number[], linkIds: number[], deleteFiles: boolean): Promise<void> {
+      const jd = api();
+      if (deleteFiles) await jd.deleteDownloads(linkIds, packageIds);
+      else await jd.removeDownloads(linkIds, packageIds);
     },
 
     async control(action: JDownloaderAction): Promise<void> {

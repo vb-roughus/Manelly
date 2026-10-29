@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   ArchivedOriginals,
   ConversionRequest,
+  DownloadsRemoveRequest,
   DriveCredentialRequest,
   ExtractedMoveRequest,
   HardwareTestRequest,
@@ -20,6 +21,7 @@ import type {
   LinkGrabberContainerAnswer,
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
+  LinkGrabberRemoveRequest,
   NetworkDrives,
   NetworkRole,
   WorkFolderRequest,
@@ -185,6 +187,15 @@ export function createAgentServer(options: AgentServerOptions) {
     }
   }
 
+  /** The packages and links a request names: at least one, all of them ids. */
+  function selectedIds(body: Partial<LinkGrabberMoveRequest>, missing: string): LinkGrabberMoveRequest {
+    const ids = (value: unknown) => (Array.isArray(value) && value.length <= MAX_MOVED && value.every((id) => Number.isSafeInteger(id)) ? (value as number[]) : null);
+    const packageIds = ids(body.packageIds ?? []);
+    const linkIds = ids(body.linkIds ?? []);
+    if (!packageIds || !linkIds || packageIds.length + linkIds.length === 0) throw new AgentError(400, missing);
+    return { packageIds, linkIds };
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse) {
     const url = new URL(request.url ?? '/', 'http://agent');
     const route = `${request.method} ${url.pathname}`;
@@ -205,7 +216,16 @@ export function createAgentServer(options: AgentServerOptions) {
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
-        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: Boolean(options.mover), newFolders: Boolean(options.mover) },
+        jdownloader: {
+          enabled: settings.get().jdownloader.enabled,
+          linkgrabber: true,
+          accounts: true,
+          containers: true,
+          extracted: true,
+          moves: Boolean(options.mover),
+          newFolders: Boolean(options.mover),
+          remove: true,
+        },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
         drives: (await options.drives?.list()) ?? [],
@@ -366,13 +386,21 @@ export function createAgentServer(options: AgentServerOptions) {
       return send(response, 202, { refreshing: all.length });
     }
     if (route === 'POST /api/jdownloader/linkgrabber/move') {
-      const body = await readJson<Partial<LinkGrabberMoveRequest>>(request);
-      const ids = (value: unknown) => (Array.isArray(value) && value.length <= MAX_MOVED && value.every((id) => Number.isSafeInteger(id)) ? (value as number[]) : null);
-      const packageIds = ids(body.packageIds ?? []);
-      const linkIds = ids(body.linkIds ?? []);
-      if (!packageIds || !linkIds || packageIds.length + linkIds.length === 0) throw new AgentError(400, 'Keine Pakete oder Links zum Übernehmen angegeben.');
+      const { packageIds, linkIds } = selectedIds(await readJson<Partial<LinkGrabberMoveRequest>>(request), 'Keine Pakete oder Links zum Übernehmen angegeben.');
       await jdownloaderCall(() => jdownloader.moveToDownloads(packageIds, linkIds));
       return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
+    }
+    if (route === 'POST /api/jdownloader/linkgrabber/remove') {
+      const { packageIds, linkIds } = selectedIds(await readJson<Partial<LinkGrabberRemoveRequest>>(request), 'Keine Pakete oder Links zum Entfernen angegeben.');
+      await jdownloaderCall(() => jdownloader.removeFromGrabber(packageIds, linkIds));
+      return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
+    }
+    if (route === 'POST /api/jdownloader/downloads/remove') {
+      const body = await readJson<Partial<DownloadsRemoveRequest>>(request);
+      const { packageIds, linkIds } = selectedIds(body, 'Keine Pakete oder Links zum Entfernen angegeben.');
+      if (body.deleteFiles !== undefined && typeof body.deleteFiles !== 'boolean') throw new AgentError(400, 'deleteFiles ist ja oder nein.');
+      await jdownloaderCall(() => jdownloader.removeDownloads(packageIds, linkIds, body.deleteFiles === true));
+      return send(response, 200, await jdownloader.status(true));
     }
     if (route === 'POST /api/jdownloader/linkgrabber/container') {
       const { name, content } = await readJson<Partial<LinkGrabberContainerRequest>>(request, MAX_CONTAINER_BODY_BYTES);

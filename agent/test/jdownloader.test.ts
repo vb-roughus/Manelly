@@ -75,7 +75,11 @@ function fakeWorld() {
         jd.containers.push(params);
         return wrapped({ id: 4242 });
       case '/linkgrabberv2/moveToDownloadlist':
+      case '/linkgrabberv2/removeLinks':
         jd.grabber = jd.grabber.filter((uuid) => !(params[1] as number[]).includes(uuid));
+        return wrapped(null);
+      case '/downloadsV2/removeLinks':
+      case '/downloadsV2/cleanup':
         return wrapped(null);
       case '/accountsV2/listAccounts':
         return wrapped([
@@ -335,6 +339,24 @@ describe('JDownloader', () => {
     // Link ids first, then package ids, as JDownloader's method takes them.
     expect(jd.calls).toEqual(['/linkgrabberv2/moveToDownloadlist?%5B%5D&%5B11%5D']);
     expect((await jdownloader.linkgrabber()).packages.map((pkg) => pkg.uuid)).toEqual([12]);
+  });
+
+  it('removes from the link grabber, and from the download list with or without the files', async () => {
+    const { jd, fetch } = fakeWorld();
+    await enable('off');
+    const jdownloader = createJDownloader({ settings, fetch, tickMs: 0 });
+    await jdownloader.removeFromGrabber([11], [201]);
+    // Link ids first, then package ids, as JDownloader's methods take them.
+    expect(jd.calls).toEqual(['/linkgrabberv2/removeLinks?%5B201%5D&%5B11%5D']);
+    expect((await jdownloader.linkgrabber()).packages.map((pkg) => pkg.uuid)).toEqual([12]);
+
+    jd.calls = [];
+    await jdownloader.removeDownloads([1], [], false);
+    await jdownloader.removeDownloads([3], [201], true);
+    expect(jd.calls).toEqual([
+      '/downloadsV2/removeLinks?%5B%5D&%5B1%5D',
+      `/downloadsV2/cleanup?%5B201%5D&%5B3%5D&${['DELETE_ALL', 'REMOVE_LINKS_AND_DELETE_FILES', 'SELECTED'].map((value) => encodeURIComponent(JSON.stringify(value))).join('&')}`,
+    ]);
   });
 
   it('hands a container file to the link grabber as a data URL, in the body or else in the address', async () => {

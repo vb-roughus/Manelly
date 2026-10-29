@@ -13,6 +13,7 @@ import type {
   CopyLimit,
   ConversionRequest,
   ConversionSchedule,
+  DownloadsRemoveRequest,
   DriveCredentialRequest,
   ExtractedFolder,
   ExtractedMove,
@@ -30,6 +31,7 @@ import type {
   LinkGrabberContainerAnswer,
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
+  LinkGrabberRemoveRequest,
   LinkGrabberStatus,
   NetworkDrives,
   NetworkInterfacesRequest,
@@ -76,6 +78,10 @@ export interface AgentClient {
   addLinkGrabberContainer(request: LinkGrabberContainerRequest): Promise<LinkGrabberContainerAnswer>;
   /** Moves packages and links from the link grabber to the download list; answers with what is left. */
   moveFromLinkGrabber(request: LinkGrabberMoveRequest): Promise<LinkGrabberStatus>;
+  /** From agent 0.29.0: removes packages and links from the link grabber; answers with what is left. */
+  removeFromLinkGrabber(request: LinkGrabberRemoveRequest): Promise<LinkGrabberStatus>;
+  /** From agent 0.29.0: removes packages and links from the download list, perhaps with their files. */
+  removeDownloads(request: DownloadsRemoveRequest): Promise<JDownloaderStatus>;
   /** From agent 0.13.0. */
   jdownloaderAccounts(): Promise<JDownloaderAccounts>;
   /** From agent 0.26.0: the extraction folder, or a folder in it ("a/b"; "" for itself). */
@@ -170,6 +176,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     linkGrabber: () => call('GET', '/api/jdownloader/linkgrabber', undefined, 20_000),
     addLinkGrabberContainer: (request) => call('POST', '/api/jdownloader/linkgrabber/container', request, 30_000),
     moveFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/move', request, 30_000),
+    removeFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/remove', request, 30_000),
+    removeDownloads: (request) => call('POST', '/api/jdownloader/downloads/remove', request, 60_000),
     jdownloaderAccounts: () => call('GET', '/api/jdownloader/accounts', undefined, 20_000),
     // Adds up the size of every folder; on a NAS that takes a moment.
     extracted: (path) => call('GET', `/api/jdownloader/extracted?${new URLSearchParams({ path })}`, undefined, 30_000),

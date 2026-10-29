@@ -75,6 +75,8 @@ const SETTINGS: NavItem = { to: '/settings', label: 'Einstellungen', icon: Setti
 // The sidebar collapses to an icon rail on large screens only; small screens show a top bar instead.
 export function Layout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = usePersistentFlag('manelly.sidebar.collapsed', false);
+  // One group at a time; all closed after every load.
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   return (
     <div
@@ -120,8 +122,14 @@ export function Layout({ children }: { children: ReactNode }) {
           <ul className={clsx('flex gap-1 lg:flex-col', collapsed && 'lg:items-center')}>
             {NAV.map((entry) =>
               isGroup(entry) ? (
-                <li key={entry.id} className={clsx('flex gap-1 lg:flex-col', collapsed && 'lg:items-center')}>
-                  <NavGroupEntry group={entry} compact={collapsed} />
+                // Never squeezed by the top bar of a phone: there the group opens sideways and scrolls.
+                <li key={entry.id} className={clsx('flex shrink-0 lg:flex-col', collapsed && 'lg:items-center')}>
+                  <NavGroupEntry
+                    group={entry}
+                    compact={collapsed}
+                    open={openGroup === entry.id}
+                    onToggle={() => setOpenGroup(openGroup === entry.id ? null : entry.id)}
+                  />
                 </li>
               ) : (
                 <li key={entry.to}>
@@ -185,10 +193,11 @@ function NavEntry({ item, compact }: { item: NavItem; compact: boolean }) {
   );
 }
 
-/** The heading opens and closes its entries; closed, it shows when one of them is the current page. */
-function NavGroupEntry({ group, compact }: { group: NavGroup; compact: boolean }) {
-  // Closed after every load; closed, the heading shows when one of its pages is open.
-  const [open, setOpen] = useState(false);
+/**
+ * The heading opens and closes its entries – downwards in the sidebar, sideways in the top bar of a phone; closed, it
+ * shows when one of them is the current page.
+ */
+function NavGroupEntry({ group, compact, open, onToggle }: { group: NavGroup; compact: boolean; open: boolean; onToggle: () => void }) {
   const { pathname } = useLocation();
   const current = group.children.some((child) => pathname === child.to || pathname.startsWith(`${child.to}/`));
   const Icon = group.icon;
@@ -198,24 +207,39 @@ function NavGroupEntry({ group, compact }: { group: NavGroup; compact: boolean }
         type="button"
         aria-expanded={open}
         aria-controls={`nav-${group.id}`}
-        onClick={() => setOpen(!open)}
+        onClick={onToggle}
         title={compact ? `${group.label} – ${open ? 'zuklappen' : 'aufklappen'}` : undefined}
         className={clsx(entryClass(compact), 'lg:w-full', current && !open ? activeClass : current ? 'font-medium text-ink hover:bg-card/60' : idleClass)}
       >
         <Icon className="size-4 shrink-0" aria-hidden />
         <span className={clsx(compact && 'lg:sr-only')}>{group.label}</span>
-        <ChevronDown className={clsx('size-4 shrink-0 text-ink-3 transition lg:ml-auto', !open && '-rotate-90', compact && 'lg:hidden')} aria-hidden />
+        <ChevronDown
+          className={clsx('size-4 shrink-0 text-ink-3 transition-transform duration-300 ease-out lg:ml-auto', !open && '-rotate-90', compact && 'lg:hidden')}
+          aria-hidden
+        />
       </button>
-      <ul
-        id={`nav-${group.id}`}
-        className={clsx(open ? 'flex' : 'hidden', 'gap-1 lg:flex-col', compact ? 'lg:items-center' : 'lg:ml-[1.125rem] lg:border-l lg:border-line lg:pl-2')}
+      {/* Grows from nothing to its full size; closed, its links are out of reach for keyboard and screen readers. */}
+      <div
+        inert={!open}
+        className={clsx(
+          'grid transition-[grid-template-rows,grid-template-columns,opacity] duration-300 ease-out motion-reduce:transition-none',
+          open ? 'grid-cols-[1fr] grid-rows-[1fr] opacity-100' : 'grid-cols-[0fr] grid-rows-[1fr] opacity-0 lg:grid-cols-[1fr] lg:grid-rows-[0fr]',
+        )}
       >
-        {group.children.map((child) => (
-          <li key={child.to}>
-            <NavEntry item={child} compact={compact} />
-          </li>
-        ))}
-      </ul>
+        {/* The padding keeps the rings of the links inside what the clipping shows. */}
+        <div className="min-h-0 min-w-0 overflow-hidden">
+          <ul
+            id={`nav-${group.id}`}
+            className={clsx('flex gap-1 py-px pl-1 lg:flex-col lg:pt-1 lg:pr-px lg:pb-0.5', compact ? 'lg:items-center lg:pl-0' : 'lg:ml-[1.125rem] lg:border-l lg:border-line lg:pl-2')}
+          >
+            {group.children.map((child) => (
+              <li key={child.to}>
+                <NavEntry item={child} compact={compact} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </>
   );
 }

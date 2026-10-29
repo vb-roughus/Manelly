@@ -44,8 +44,11 @@ export interface JellyfinClient {
   getScheduledTask(id: string): Promise<JfTaskInfo>;
   /** Runs a scheduled task now; Jellyfin answers before it is done. */
   startScheduledTask(id: string): Promise<void>;
-  /** Scans one library (or any folder item) for new, changed and deleted files, as Jellyfin's «Mediathek scannen» does. */
-  refreshLibrary(id: string): Promise<void>;
+  /**
+   * Scans the folder of one item – a library, a series, a season – for new, changed and deleted files, as Jellyfin's
+   * «Mediathek scannen» or «Nach neuen und aktualisierten Dateien suchen» does.
+   */
+  refreshItem(id: string): Promise<void>;
   stopScheduledTask(id: string): Promise<void>;
   /** The raw response, so the caller can read just the start of a large log. */
   getLogFile(name: string): Promise<Response>;
@@ -132,7 +135,7 @@ export function createJellyfinClient(
     getScheduledTask: (id) => getJson<JfTaskInfo>(`/ScheduledTasks/${encodeURIComponent(id)}`),
     startScheduledTask: (id) => send(`/ScheduledTasks/Running/${encodeURIComponent(id)}`, 'POST'),
     stopScheduledTask: (id) => send(`/ScheduledTasks/Running/${encodeURIComponent(id)}`, 'DELETE'),
-    refreshLibrary: (id) =>
+    refreshItem: (id) =>
       send(
         `/Items/${encodeURIComponent(id)}/Refresh?${new URLSearchParams({ Recursive: 'true', MetadataRefreshMode: 'Default', ImageRefreshMode: 'Default', ReplaceAllMetadata: 'false', ReplaceAllImages: 'false' })}`,
         'POST',

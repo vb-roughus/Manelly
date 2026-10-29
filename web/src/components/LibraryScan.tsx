@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { LibraryScanEntry, LibraryScanStatus } from '@manelly/shared';
-import { ChevronDown, CircleCheck, CircleMinus, CircleX, FolderSearch, LoaderCircle, X, type LucideIcon } from 'lucide-react';
+import { ChevronDown, CircleCheck, CircleMinus, CircleX, FolderSearch, LoaderCircle, Tv, X, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
-import { useLibraryScan, useLibraryScanAction } from '../hooks/queries';
+import { useLibraryScan, useLibraryScanAction, useLibrarySeries, useScanItem, useSeriesSeasons } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { formatAgo } from '../lib/format';
 import { LIBRARY_TYPE_LABELS } from '../lib/media';
 import { formatSpan } from '../lib/timeline';
 import { Message } from './ConnectionForm';
+import { Modal } from './Modal';
 
 type Result = NonNullable<LibraryScanStatus['lastRun']>['result'];
 
@@ -22,6 +23,11 @@ const RESULTS: Record<Result, { label: string; icon: LucideIcon; tone: string }>
 const HINT =
   'Jellyfin sucht in den Ordnern der Mediatheken nach neuen, geänderten und gelöschten Dateien – in allen auf einmal oder nur in einer. Ist der Scan fertig, liest Manelly die Medien neu ein.';
 const SINGLE_HINT = 'Viel schneller als alle, wenn andere gross sind – etwa Serien mit vielen Ordnern. Jellyfin kann diesen Scan nicht abbrechen.';
+export const SERIES_HINT =
+  'Jellyfin sucht nur im Ordner dieser Serie nach neuen, geänderten und gelöschten Dateien – meist in Sekunden statt Minuten. Eine ganz neue Serie findet erst der Scan der Mediathek.';
+
+/** A library whose series can be scanned one by one. */
+const hasSeries = (library: LibraryScanEntry) => library.type === 'tvshows' && library.id !== null;
 
 /** The kind of library, unless its name says it already («Filme · Filme»). */
 function typeLabel(library: LibraryScanEntry): string | null {
@@ -88,6 +94,7 @@ export function LibraryScanPanel() {
   const scan = useLibraryScan(true, 30_000);
   const action = useLibraryScanAction();
   const now = useNow(30_000);
+  const [seriesOf, setSeriesOf] = useState<LibraryScanEntry | null>(null);
   const status = scan.data;
   if (!status) {
     return scan.error ? <Message tone="critical">{scan.error.message}</Message> : <div aria-busy className="h-24 animate-pulse rounded-xl bg-card-2" />;
@@ -134,17 +141,31 @@ export function LibraryScanPanel() {
                   </span>
                 ) : (
                   library.id && (
-                    <button
-                      type="button"
-                      onClick={() => action.mutate({ libraryId: library.id! })}
-                      // The scan of all libraries takes this one in as well.
-                      disabled={busy || starting(library)}
-                      aria-label={`«${library.name}» scannen`}
-                      title={busy ? 'Wird beim Scan aller Mediatheken mitgescannt' : `Nur «${library.name}» scannen. ${SINGLE_HINT}`}
-                      className={smallButton}
-                    >
-                      <FolderSearch className="size-3.5" aria-hidden /> Scannen
-                    </button>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      {hasSeries(library) && (
+                        <button
+                          type="button"
+                          onClick={() => setSeriesOf(library)}
+                          disabled={busy}
+                          aria-label={`Einzelne Serie aus «${library.name}» scannen`}
+                          title={busy ? 'Wird beim Scan aller Mediatheken mitgescannt' : SERIES_HINT}
+                          className={smallButton}
+                        >
+                          <Tv className="size-3.5" aria-hidden /> Serie …
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => action.mutate({ libraryId: library.id! })}
+                        // The scan of all libraries takes this one in as well.
+                        disabled={busy || starting(library)}
+                        aria-label={`«${library.name}» scannen`}
+                        title={busy ? 'Wird beim Scan aller Mediatheken mitgescannt' : `Nur «${library.name}» scannen. ${SINGLE_HINT}`}
+                        className={smallButton}
+                      >
+                        <FolderSearch className="size-3.5" aria-hidden /> Scannen
+                      </button>
+                    </div>
                   )
                 )}
               </div>
@@ -153,6 +174,7 @@ export function LibraryScanPanel() {
           ))}
         </ul>
       )}
+      <SeriesScanDialog library={seriesOf} onClose={() => setSeriesOf(null)} />
     </div>
   );
 }
@@ -162,8 +184,10 @@ export function LibraryScanButton() {
   const scan = useLibraryScan(true);
   const action = useLibraryScanAction();
   const [open, setOpen] = useState(false);
+  const [seriesOf, setSeriesOf] = useState<LibraryScanEntry | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const status = scan.data;
+  const seriesLibraries = status?.libraries.filter(hasSeries) ?? [];
 
   // A click elsewhere or Escape closes the menu.
   useEffect(() => {
@@ -242,9 +266,144 @@ export function LibraryScanButton() {
               </button>
             </li>
           ))}
+          {seriesLibraries.length > 0 && <li role="separator" className="my-1 border-t border-line" />}
+          {seriesLibraries.map((library) => (
+            <li key={`series-${library.id}`} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItem}
+                disabled={all}
+                onClick={() => {
+                  setOpen(false);
+                  setSeriesOf(library);
+                }}
+                title={SERIES_HINT}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Tv className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+                  <span className="truncate">Einzelne Serie{seriesLibraries.length > 1 ? ` aus ${library.name}` : ''} …</span>
+                </span>
+              </button>
+            </li>
+          ))}
         </ul>
       )}
+      <SeriesScanDialog library={seriesOf} onClose={() => setSeriesOf(null)} />
     </div>
+  );
+}
+
+/** Scanning one series of `library`, or one of its season folders, alone. */
+function SeriesScanDialog({ library, onClose }: { library: LibraryScanEntry | null; onClose: () => void }) {
+  return (
+    <Modal
+      open={library !== null}
+      onClose={onClose}
+      icon={Tv}
+      title="Einzelne Serie scannen"
+      description={library && `Aus «${library.name}»: Jellyfin sucht nur im Ordner der Serie nach neuen, geänderten und gelöschten Dateien.`}
+    >
+      {library?.id && <SeriesScanForm libraryId={library.id} onClose={onClose} />}
+    </Modal>
+  );
+}
+
+function SeriesScanForm({ libraryId, onClose }: { libraryId: string; onClose: () => void }) {
+  const seriesList = useLibrarySeries(libraryId);
+  const [seriesId, setSeriesId] = useState('');
+  const show = seriesList.data?.find((candidate) => candidate.id === seriesId) ?? null;
+  const seasonList = useSeriesSeasons(show?.id ?? null);
+  const seasons = seasonList.data ?? [];
+  const [seasonChoice, setSeasonChoice] = useState<{ series: string; id: string } | null>(null);
+  const season = show && seasonChoice?.series === show.id ? (seasons.find((candidate) => candidate.id === seasonChoice.id) ?? null) : null;
+  const scan = useScanItem();
+  const folder = season?.path ?? show?.path;
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (show) scan.mutate((season ?? show).id);
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4 text-sm">
+      {seriesList.error ? (
+        <Message tone="critical">{seriesList.error.message}</Message>
+      ) : (
+        <div>
+          <label htmlFor="scan-series" className="mb-1.5 block font-medium">
+            Serie
+          </label>
+          <select
+            id="scan-series"
+            value={seriesId}
+            onChange={(event) => {
+              setSeriesId(event.target.value);
+              scan.reset();
+            }}
+            disabled={!seriesList.data}
+            className={fieldClass}
+          >
+            <option value="" disabled>
+              {!seriesList.data ? 'Serien werden geladen …' : seriesList.data.length ? 'Serie wählen …' : 'Jellyfin kennt hier keine Serie'}
+            </option>
+            {seriesList.data?.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.name}
+                {candidate.year && !candidate.name.includes(String(candidate.year)) ? ` (${candidate.year})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {show && seasons.length > 0 && (
+        <div>
+          <label htmlFor="scan-season" className="mb-1.5 block font-medium">
+            Staffel
+          </label>
+          <select
+            id="scan-season"
+            value={season?.id ?? ''}
+            onChange={(event) => {
+              setSeasonChoice({ series: show.id, id: event.target.value });
+              scan.reset();
+            }}
+            className={fieldClass}
+          >
+            <option value="">Ganze Serie</option>
+            {seasons.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {folder && (
+        <p className="rounded-lg bg-card-2/50 px-3 py-2 text-xs ring-1 ring-line">
+          <span className="text-ink-2">Ordner: </span>
+          <span className="font-mono break-all">{folder}</span>
+        </p>
+      )}
+      <p className="text-xs text-ink-3">Eine ganz neue Serie, deren Ordner Jellyfin noch nicht kennt, findet erst der Scan der ganzen Mediathek.</p>
+      {scan.isSuccess && (
+        <Message tone="good">
+          Jellyfin prüft jetzt «{scan.data.name}» – meist in wenigen Sekunden. Manelly liest die Medien danach neu ein, nach etwa einer halben Minute.
+        </Message>
+      )}
+      {scan.isError && <Message tone="critical">{scan.error.message}</Message>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onClose} className={dialogButton}>
+          {scan.isSuccess ? 'Schliessen' : 'Abbrechen'}
+        </button>
+        <button type="submit" disabled={!show || scan.isPending || scan.isSuccess} className={primaryButton}>
+          {scan.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <FolderSearch className="size-4" aria-hidden />}
+          Scannen
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -268,6 +427,13 @@ function Bar({ progress, className }: { progress: number | null; className?: str
     </div>
   );
 }
+
+const fieldClass =
+  'block w-full rounded-lg border border-line bg-card px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent focus:ring-3 focus:ring-accent/20 disabled:opacity-60';
+const dialogButton =
+  'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2';
+const primaryButton =
+  'bg-brand inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50';
 
 const smallButton =
   'inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-card px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:opacity-50';

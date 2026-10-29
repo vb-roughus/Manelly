@@ -37,16 +37,24 @@ function fakeJellyfin() {
         { Name: 'Gemischt', ItemId: 'b' },
       ]);
     }
-    if (url.pathname === '/Items/a/Refresh') {
+    if (/^\/Items\/[^/]+\/Refresh$/.test(url.pathname)) {
       jf.calls[jf.calls.length - 1] += `?${url.searchParams}`;
       return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/Items') {
+      const items = [
+        { Id: 'aa11', Name: 'Dark', Type: 'Series', Path: 'D:\\Serien\\Dark (2017)' },
+        { Id: 'bb22', Name: 'Staffel 1', Type: 'Season', SeriesName: 'Dark', Path: 'D:\\Serien\\Dark (2017)\\Season 01' },
+        { Id: 'cc33', Name: 'Dune', Type: 'Movie', Path: 'D:\\Filme\\Dune.mkv' },
+      ];
+      return Response.json({ Items: items.filter((item) => item.Id === url.searchParams.get('ids')) });
     }
     return new Response(null, { status: 404 });
   };
   return { jf, fetch };
 }
 
-function setup(options: { startTimeoutMs?: number } = {}) {
+function setup(options: { startTimeoutMs?: number; itemRereadsMs?: number[] } = {}) {
   const { jf, fetch } = fakeJellyfin();
   const connection = { client: createJellyfinClient({ url: 'http://jellyfin.test', apiKey: 'key' }, { fetch }) } as JellyfinConnection;
   const store = { refreshes: 0, refresh: () => void store.refreshes++ };
@@ -163,6 +171,23 @@ describe('library scan', () => {
     scanner.stop();
   });
 
+  it('scans a single series or season and reads the media again after a while', async () => {
+    const { jf, store, scanner } = setup({ itemRereadsMs: [20, 60] });
+    expect(await scanner.startItem('aa11')).toEqual({ id: 'aa11', name: 'Dark' });
+    expect(jf.calls).toEqual(['POST /Items/aa11/Refresh?Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default&ReplaceAllMetadata=false&ReplaceAllImages=false']);
+    // Another one takes over the reads still to come.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(await scanner.startItem('bb22')).toEqual({ id: 'bb22', name: 'Dark › Staffel 1' });
+    await until(() => store.refreshes === 2);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(store.refreshes).toBe(2);
+
+    await expect(scanner.startItem('cc33')).rejects.toThrow('Einzeln scannen lassen sich nur Serien und Staffeln.');
+    await expect(scanner.startItem('ff99')).rejects.toThrow('Diese Serie oder Staffel kennt Jellyfin nicht (mehr).');
+    expect(jf.calls).toHaveLength(2);
+    scanner.stop();
+  });
+
   it('explains a Jellyfin without the scan task', async () => {
     const { jf, scanner } = setup();
     jf.hasTask = false;
@@ -193,6 +218,13 @@ describe('library scan', () => {
     expect((await app.inject({ method: 'POST', url: '/api/media/scan', payload: { libraryId: 'zz' } })).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: '/api/media/scan', payload: { libraryId: '' } })).statusCode).toBe(400);
     expect(jf.calls.map((call) => call.split('?')[0])).toEqual([`POST /ScheduledTasks/Running/${TASK_ID}`, `DELETE /ScheduledTasks/Running/${TASK_ID}`, 'POST /Items/a/Refresh']);
+
+    // One series or season alone.
+    expect((await app.inject({ method: 'POST', url: '/api/media/items/aa11/scan' })).json()).toEqual({ id: 'aa11', name: 'Dark' });
+    expect((await app.inject({ method: 'POST', url: '/api/media/items/cc33/scan' })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/media/items/ff99/scan' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/media/items/a%2Fb/scan' })).statusCode).toBe(400);
+    expect(jf.calls.at(-1)?.split('?')[0]).toBe('POST /Items/aa11/Refresh');
     await app.close();
   });
 });

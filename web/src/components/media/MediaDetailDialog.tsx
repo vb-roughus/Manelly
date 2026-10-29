@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AudioTrack, MediaDetail, MediaVersion, SeasonDetail } from '@manelly/shared';
-import { Check, ExternalLink, Star, WandSparkles, X } from 'lucide-react';
+import { Check, CircleCheck, ExternalLink, FolderSearch, LoaderCircle, Star, WandSparkles, X } from 'lucide-react';
 import clsx from 'clsx';
-import { useMediaDetail, useServerStatus } from '../../hooks/queries';
+import { useMediaDetail, useScanItem, useServerStatus } from '../../hooks/queries';
 import { itemImageUrl } from '../../lib/api';
 import { channelsLabel, codecLabel, formatBytes, joinParts } from '../../lib/format';
 import { AUDIO_FORMAT_LABELS, AUDIO_FORMAT_SHORT, DYNAMIC_RANGE_LABELS, audioLanguageName, hasAudioCondition, type MediaFilters } from '../../lib/media';
 import { ErrorPanel } from '../ErrorPanel';
+import { SERIES_HINT } from '../LibraryScan';
 import { ConvertDialog } from './ConvertDialog';
 
 interface MediaDetailDialogProps {
@@ -103,17 +104,15 @@ function DetailContent({ detail, audioFilterActive }: { detail: MediaDetail; aud
               {summary.genres.length > 0 && <span>{summary.genres.join(', ')}</span>}
             </p>
             {detail.overview && <p className="line-clamp-5 text-sm leading-relaxed text-ink-2">{detail.overview}</p>}
-            {jellyfinLink && (
-              <a
-                href={jellyfinLink}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 pt-1 text-sm font-medium text-accent hover:underline"
-              >
-                In Jellyfin öffnen
-                <ExternalLink className="size-3.5" aria-hidden />
-              </a>
-            )}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">
+              {jellyfinLink && (
+                <a href={jellyfinLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline">
+                  In Jellyfin öffnen
+                  <ExternalLink className="size-3.5" aria-hidden />
+                </a>
+              )}
+              {summary.type === 'Series' && <ScanSeriesButton key={summary.id} id={summary.id} />}
+            </div>
           </div>
         </div>
       </header>
@@ -138,6 +137,38 @@ function DetailContent({ detail, audioFilterActive }: { detail: MediaDetail; aud
       </div>
       <ConvertDialog open={convert !== undefined} itemId={summary.id} mediaSourceId={convert?.mediaSourceId ?? null} onClose={() => setConvert(undefined)} />
     </article>
+  );
+}
+
+/** Jellyfin looks for new episodes in the folder of this series only; the answer goes on a line of its own. */
+function ScanSeriesButton({ id }: { id: string }) {
+  const scan = useScanItem();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => scan.mutate(id)}
+        disabled={scan.isPending || scan.isSuccess}
+        title={SERIES_HINT}
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline disabled:cursor-default disabled:no-underline"
+      >
+        {scan.isPending ? (
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        ) : scan.isSuccess ? (
+          <CircleCheck className="size-3.5 text-good" aria-hidden />
+        ) : (
+          <FolderSearch className="size-3.5" aria-hidden />
+        )}
+        {scan.isSuccess ? 'Scan angestossen' : 'Diese Serie scannen'}
+      </button>
+      {(scan.isSuccess || scan.isError) && (
+        <p role={scan.isError ? 'alert' : 'status'} className={clsx('basis-full text-xs', scan.isError ? 'text-critical' : 'text-ink-2')}>
+          {scan.isError
+            ? scan.error.message
+            : 'Jellyfin prüft jetzt den Ordner dieser Serie – meist in wenigen Sekunden. Neue Folgen zeigt Manelly nach dem Neueinlesen, nach etwa einer halben Minute.'}
+        </p>
+      )}
+    </>
   );
 }
 

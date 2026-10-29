@@ -24,6 +24,7 @@ import type {
   HardwareTestResult,
   HistoryResponse,
   HistorySettings,
+  ItemScanStarted,
   JDownloaderAccounts,
   JDownloaderAction,
   JDownloaderSettings,
@@ -210,6 +211,17 @@ export function useLibraryScanAction() {
     mutationFn: (action: 'cancel' | LibraryScanRequest) =>
       action === 'cancel' ? sendJson<LibraryScanStatus>('DELETE', '/api/media/scan') : sendJson<LibraryScanStatus>('POST', '/api/media/scan', action),
     onSuccess: (status) => queryClient.setQueryData(['library-scan'], status),
+  });
+}
+
+/** Scans one series or season in Jellyfin; the server reads the media again after 30 s and 2 min, this page after it. */
+export function useScanItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sendJson<ItemScanStarted>('POST', `/api/media/items/${encodeURIComponent(id)}/scan`),
+    onSuccess: () => {
+      for (const delay of [35_000, 125_000]) setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['media'] }), delay);
+    },
   });
 }
 

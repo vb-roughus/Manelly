@@ -1,4 +1,4 @@
-import type { LibraryScanStatus } from '@manelly/shared';
+import type { ItemScanStarted, LibraryScanStatus } from '@manelly/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { JellyfinConnection } from '../connection.js';
 import { AppError, requireClient } from '../errors.js';
@@ -42,6 +42,11 @@ export interface LibraryScannerOptions {
   pollMs?: number;
   /** A scan Jellyfin never reports as running is given up after this long. */
   startTimeoutMs?: number;
+  /**
+   * After the scan of a series or season, the media are read again this long after – Jellyfin reports no progress
+   * for it, and it is mostly done in seconds; the later read catches slow ones.
+   */
+  itemRereadsMs?: number[];
   now?: () => number;
   log?: Pick<FastifyBaseLogger, 'info' | 'warn'>;
 }
@@ -51,10 +56,11 @@ export interface LibraryScannerOptions {
  * media index again, so new titles show up without waiting for the next rebuild.
  */
 export function createLibraryScanner(connection: JellyfinConnection, store: Pick<MediaIndexStore, 'refresh'>, options: LibraryScannerOptions = {}) {
-  const { pollMs = 5000, startTimeoutMs = 60_000, now = Date.now, log } = options;
+  const { pollMs = 5000, startTimeoutMs = 60_000, itemRereadsMs = [30_000, 120_000], now = Date.now, log } = options;
   let watch: Watch | null = null;
   const libraryWatches = new Map<string, LibraryWatch>();
   let timer: NodeJS.Timeout | null = null;
+  let rereads: NodeJS.Timeout[] = [];
 
   async function findTask(client: JellyfinClient): Promise<JfTaskInfo & { Id: string }> {
     const task = (await client.getScheduledTasks()).find((candidate) => candidate.Key === TASK_KEY);
@@ -190,11 +196,37 @@ export function createLibraryScanner(connection: JellyfinConnection, store: Pick
       const library = (await client.getLibraries()).find((candidate) => candidate.ItemId === id);
       if (!library) throw new AppError('NOT_FOUND', 'Diese Mediathek gibt es in Jellyfin nicht (mehr).');
       if (!scanning(library)) {
-        await client.refreshLibrary(id);
+        await client.refreshItem(id);
         libraryWatches.set(id, { client, ran: false, since: now() });
         log?.info(`Mediathek «${library.Name ?? id}» wird in Jellyfin gescannt`);
       }
       return status(client);
+    },
+
+    /**
+     * Scans the folder of one series or season only – a matter of seconds, where the whole library takes minutes.
+     * Jellyfin does not say when it is done, so the media are read again after a while.
+     */
+    async startItem(id: string): Promise<ItemScanStarted> {
+      const client = requireClient(connection.client);
+      const query = new URLSearchParams({ ids: id, fields: 'Path', enableImages: 'false', enableUserData: 'false' });
+      const item = (await client.getItems(query)).Items?.[0];
+      if (!item?.Id) throw new AppError('NOT_FOUND', 'Diese Serie oder Staffel kennt Jellyfin nicht (mehr).');
+      if (item.Type !== 'Series' && item.Type !== 'Season') throw new AppError('BAD_REQUEST', 'Einzeln scannen lassen sich nur Serien und Staffeln.');
+      await client.refreshItem(item.Id);
+      const name = item.Type === 'Season' ? `${item.SeriesName ?? 'Serie'} › ${item.Name ?? 'Staffel'}` : (item.Name ?? 'Serie');
+      log?.info(`«${name}» wird in Jellyfin gescannt`);
+      // A newer scan takes over the reads still to come.
+      for (const reread of rereads) clearTimeout(reread);
+      rereads = itemRereadsMs.map((delay) => {
+        const reread = setTimeout(() => {
+          rereads = rereads.filter((other) => other !== reread);
+          store.refresh();
+        }, delay);
+        reread.unref();
+        return reread;
+      });
+      return { id: item.Id, name };
     },
 
     /** Stops a running scan of all libraries; what it found so far stays in Jellyfin. */
@@ -213,6 +245,8 @@ export function createLibraryScanner(connection: JellyfinConnection, store: Pick
 
     stop() {
       if (timer) clearTimeout(timer);
+      for (const reread of rereads) clearTimeout(reread);
+      rereads = [];
       timer = null;
       watch = null;
     },

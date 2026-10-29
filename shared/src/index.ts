@@ -1331,6 +1331,8 @@ export interface AgentCheckResponse {
 export interface WorkFolderStatus {
   directory: string | null;
   freeBytes: number | null;
+  /** Size of the disk the work folder is on; missing before agent 0.25.0. */
+  totalBytes?: number | null;
   /** Why the agent cannot use it right now, e.g. the disk is gone. */
   error: string | null;
   /** How fast conversions copy to and from it; missing before agent 0.21.0. */

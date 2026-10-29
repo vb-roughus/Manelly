@@ -23,7 +23,7 @@ import type {
   WorkFolderRequest,
   WorkFolderStatus,
 } from '@manelly/shared';
-import { defaultFreeBytes } from './convert.js';
+import { defaultFreeBytes, defaultTotalBytes } from './convert.js';
 import type { Drives } from './drives.js';
 import { AgentError } from './errors.js';
 import { MAX_RANGE_MS, type Recorder } from './history.js';
@@ -71,6 +71,7 @@ export interface AgentServerOptions {
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
   tools: (refresh?: boolean) => Promise<Tools>;
   freeBytes?: (directory: string) => Promise<number | null>;
+  totalBytes?: (directory: string) => Promise<number | null>;
 }
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
@@ -108,7 +109,7 @@ function send(response: ServerResponse, status: number, body: unknown) {
 const JDOWNLOADER_ACTIONS: JDownloaderAction[] = ['start', 'stop', 'pause', 'resume'];
 
 export function createAgentServer(options: AgentServerOptions) {
-  const { token, roots, queue, settings, network, resources, jdownloader, recorder, tools, freeBytes = defaultFreeBytes } = options;
+  const { token, roots, queue, settings, network, resources, jdownloader, recorder, tools, freeBytes = defaultFreeBytes, totalBytes = defaultTotalBytes } = options;
   async function networkList(): Promise<AgentNetworkList> {
     const interfaces = await network.list().catch((error: Error) => {
       throw new AgentError(503, error.message);
@@ -128,15 +129,15 @@ export function createAgentServer(options: AgentServerOptions) {
     };
   }
 
-  /** The work folder as Manelly set it, with its free space – or why it cannot be used right now. */
+  /** The work folder as Manelly set it, with the free space and the size of its disk – or why it cannot be used right now. */
   async function workStatus(): Promise<WorkFolderStatus> {
     const { work: directory, copyLimit } = settings.get();
-    if (!directory) return { directory: null, freeBytes: null, error: null, copyLimit };
+    if (!directory) return { directory: null, freeBytes: null, totalBytes: null, error: null, copyLimit };
     await options.access?.prepare(directory);
     const there = await stat(directory).then((info) => info.isDirectory(), () => false);
     return there
-      ? { directory, freeBytes: await freeBytes(directory), error: null, copyLimit }
-      : { directory, freeBytes: null, error: `Den Arbeitsordner ${directory} gibt es auf dem Server nicht (mehr).`, copyLimit };
+      ? { directory, freeBytes: await freeBytes(directory), totalBytes: await totalBytes(directory), error: null, copyLimit }
+      : { directory, freeBytes: null, totalBytes: null, error: `Den Arbeitsordner ${directory} gibt es auf dem Server nicht (mehr).`, copyLimit };
   }
 
   /** Only a folder that is there and takes files; nothing is created or searched. */

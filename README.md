@@ -141,6 +141,9 @@ Arbeitsordner, Kopieren begrenzen).
   etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
   macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** wandelt wie bisher dort um, wo die Datei
   liegt
+- **Platz im Arbeitsordner:** Unter **Umwandlungen → Einstellungen** zeigt ein Balken, wie voll die Platte des
+  Arbeitsordners ist – frei, Gesamtgrösse (ab Agent 0.25.0), wie viel davon die **Backups** belegen, und bis zu welcher
+  Filmgrösse der Platz für eine Umwandlung reicht. Unter 20 % frei wird der Balken gelb, unter 10 % rot
 - **Kopieren begrenzen** (ab Agent 0.21.0, in Mbit/s ab Agent 0.23.0): Unter **Umwandlungen → Einstellungen** beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
   darf, damit auf dem Speicher genug für Streams bleibt. **Automatisch während Streams**: einmal eintragen, was der
   Speicher insgesamt schafft (den gemessenen Höchstwert, z. B. 1600 Mbit/s; zu sehen bei einer Umwandlung unter «Auslastung

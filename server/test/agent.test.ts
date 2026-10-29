@@ -522,6 +522,21 @@ describe('agent connection', () => {
     ]);
   });
 
+  it('removes from the link grabber and the downloads through the agent', async () => {
+    const { app, world } = await setup();
+    const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url: `/api/agent/jdownloader/${url}`, payload: payload as object });
+    expect((await post('linkgrabber/remove', { packageIds: [11], linkIds: [101] })).statusCode).toBe(200);
+    expect((await post('downloads/remove', { packageIds: [1], linkIds: [], deleteFiles: true })).statusCode).toBe(200);
+    // Whether the files go too is said every time.
+    expect((await post('downloads/remove', { packageIds: [1], linkIds: [] })).statusCode).toBe(400);
+    expect((await post('downloads/remove', { packageIds: [1], linkIds: [], deleteFiles: 'ja' })).statusCode).toBe(400);
+    expect((await post('linkgrabber/remove', { packageIds: [-1], linkIds: [] })).statusCode).toBe(400);
+    expect(world.sent.jdownloader).toEqual([
+      { method: 'POST', path: '/api/jdownloader/linkgrabber/remove', body: { packageIds: [11], linkIds: [101] } },
+      { method: 'POST', path: '/api/jdownloader/downloads/remove', body: { packageIds: [1], linkIds: [], deleteFiles: true } },
+    ]);
+  });
+
   it('passes DLC files on to the agent, up to 1 MB', async () => {
     const { app, world } = await setup();
     const dlc = { name: 'Dune.dlc', content: Buffer.from('dlc').toString('base64') };

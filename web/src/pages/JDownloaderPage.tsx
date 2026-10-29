@@ -1,6 +1,14 @@
 import { addTransitionType, startTransition, useEffect, useRef, useState, ViewTransition, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import type { JDownloaderAccount, JDownloaderAccounts, JDownloaderAccountState, LinkAvailability, LinkGrabberPackage, LinkGrabberStatus } from '@manelly/shared';
+import type {
+  JDownloaderAccount,
+  JDownloaderAccounts,
+  JDownloaderAccountState,
+  LinkAvailability,
+  LinkGrabberPackage,
+  LinkGrabberRemoveRequest,
+  LinkGrabberStatus,
+} from '@manelly/shared';
 import {
   ArrowRightToLine,
   ChevronDown,
@@ -17,6 +25,7 @@ import {
   PackageOpen,
   RefreshCw,
   Settings,
+  Trash2,
   TriangleAlert,
   X,
   type LucideIcon,
@@ -26,6 +35,8 @@ import { Downloads, downloadsSummary, isActivePackage } from '../components/Dash
 import { Code, Message } from '../components/ConnectionForm';
 import { ExtractedList } from '../components/ExtractedList';
 import { JDownloaderForm } from '../components/JDownloaderForm';
+import { Modal } from '../components/Modal';
+import { keepTextOnShift, Tick } from '../components/Tick';
 import {
   useAddLinkGrabberContainer,
   useAgent,
@@ -36,10 +47,14 @@ import {
   useLinkGrabber,
   useMoveFromLinkGrabber,
   useRefreshJDownloaderAccounts,
+  useRemoveFromLinkGrabber,
 } from '../hooks/queries';
 import { containerProblem } from '../lib/containers';
 import {
   allState,
+  clickLink,
+  clickPackage,
+  describeSelection,
   isEmpty,
   linkSelected,
   NOTHING_SELECTED,
@@ -48,11 +63,9 @@ import {
   selectedLinks,
   selectionRequest,
   toggleAll,
-  toggleLink,
-  togglePackage,
-  type GrabberSelection,
-  type TickState,
-} from '../lib/grabberSelection';
+  type PackageSelection,
+  type SelectionAnchor,
+} from '../lib/packageSelection';
 import { formatBytes } from '../lib/format';
 
 type Tab = 'downloads' | 'linkgrabber' | 'accounts' | 'extracted';
@@ -71,6 +84,10 @@ const button =
   'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait disabled:opacity-60';
 const primaryButton =
   'bg-brand inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-wait disabled:opacity-70';
+const dangerButton =
+  'inline-flex items-center gap-1.5 rounded-lg bg-critical px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60';
+/** Agents before 0.29.0 cannot delete in JDownloader. */
+const REMOVE_TOO_OLD = 'Löschen geht ab Agent 0.29.0 – unter Server → Agent «Aktualisieren & neu starten».';
 
 /** JDownloader on the Jellyfin server: its downloads and its link grabber; the settings sit behind the gear. */
 export function JDownloaderPage() {
@@ -159,7 +176,13 @@ export function JDownloaderPage() {
               !downloads.data ? (
                 downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
               ) : (
-                <Card>{downloads.data.reachable ? <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable /> : <p className="text-sm text-critical">{downloads.data.error}</p>}</Card>
+                <Card>
+                  {downloads.data.reachable ? (
+                    <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable removable={Boolean(status.jdownloader?.remove)} />
+                  ) : (
+                    <p className="text-sm text-critical">{downloads.data.error}</p>
+                  )}
+                </Card>
               )
             ) : tab === 'extracted' ? (
               extractedSupported ? (
@@ -197,6 +220,7 @@ export function JDownloaderPage() {
             ) : (
               <LinkGrabber
                 status={grabber.data}
+                removable={Boolean(status.jdownloader?.remove)}
                 tooOld={
                   status.jdownloader?.containers
                     ? null
@@ -445,30 +469,18 @@ function useContainerUploads(tooOld: string | null) {
 
 const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files');
 
-/** A checkbox that also shows "in part". */
-function Tick({ state, label, onChange }: { state: TickState; label: string; onChange: () => void }) {
-  return (
-    <input
-      type="checkbox"
-      aria-label={label}
-      checked={state === 'all'}
-      ref={(element) => {
-        if (element) element.indeterminate = state === 'some';
-      }}
-      onChange={onChange}
-      className="size-4 shrink-0 cursor-pointer accent-accent"
-    />
-  );
-}
-
 /** What waits in JDownloader's link grabber, and moving it to the download list; DLC files are picked or dropped onto it. */
-function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: string | null }) {
+function LinkGrabber({ status, removable, tooOld }: { status: LinkGrabberStatus; removable: boolean; tooOld: string | null }) {
   const move = useMoveFromLinkGrabber();
+  const remove = useRemoveFromLinkGrabber();
+  // What to remove, asked first.
+  const [removing, setRemoving] = useState<LinkGrabberRemoveRequest | null>(null);
+  const [anchor, setAnchor] = useState<SelectionAnchor>(null);
   const { uploads, upload, busy, clear } = useContainerUploads(tooOld);
   const picker = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [open, setOpen] = useState<Set<number>>(new Set());
-  const [ticked, setTicked] = useState<GrabberSelection>(NOTHING_SELECTED);
+  const [ticked, setTicked] = useState<PackageSelection>(NOTHING_SELECTED);
   // What JDownloader moved or removed meanwhile is no longer ticked.
   const selection = pruneSelection(ticked, status.packages);
   const chosen = selectedLinks(selection, status.packages);
@@ -562,13 +574,25 @@ function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: st
               <ArrowRightToLine className="size-4" aria-hidden /> Alle in die Downloads
             </button>
           ) : (
-            <button type="button" className={primaryButton} disabled={move.isPending} onClick={moveSelection}>
-              <ArrowRightToLine className="size-4" aria-hidden /> Auswahl in die Downloads
-            </button>
+            <>
+              <button
+                type="button"
+                className={button}
+                disabled={!removable || remove.isPending}
+                title={removable ? undefined : REMOVE_TOO_OLD}
+                onClick={() => setRemoving(selectionRequest(selection))}
+              >
+                <Trash2 className="size-4" aria-hidden /> Löschen
+              </button>
+              <button type="button" className={primaryButton} disabled={move.isPending} onClick={moveSelection}>
+                <ArrowRightToLine className="size-4" aria-hidden /> Auswahl in die Downloads
+              </button>
+            </>
           )}
         </div>
       </div>
       {move.isError && <Message tone="critical">{move.error.message}</Message>}
+      {remove.isError && <Message tone="critical">{remove.error.message}</Message>}
       <Uploads uploads={uploads} busy={busy} onClear={clear} />
 
       {status.packages.length === 0 && (
@@ -584,7 +608,7 @@ function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: st
       )}
 
       {status.packages.length > 0 && (
-        <ul className="space-y-2">
+        <ul className="space-y-2" onMouseDown={keepTextOnShift}>
           {status.packages.map((pkg) => (
             <GrabberPackage
               key={pkg.uuid}
@@ -593,11 +617,85 @@ function LinkGrabber({ status, tooOld }: { status: LinkGrabberStatus; tooOld: st
               onToggle={() => toggle(pkg.uuid)}
               move={move}
               selection={selection}
-              onSelect={setTicked}
+              onPick={(shift) => {
+                setTicked(clickPackage(selection, status.packages, pkg, anchor, shift));
+                setAnchor({ package: pkg.uuid, link: null });
+              }}
+              onPickLink={(uuid, shift) => {
+                setTicked(clickLink(selection, pkg, pkg.links.map((link) => link.uuid), uuid, anchor, shift));
+                setAnchor({ package: pkg.uuid, link: uuid });
+              }}
+              onRemove={removable ? () => setRemoving({ packageIds: [pkg.uuid], linkIds: [] }) : undefined}
             />
           ))}
         </ul>
       )}
+      <Modal open={removing !== null} onClose={() => setRemoving(null)} icon={Trash2} tone="critical" title="Aus dem Link Grabber entfernen">
+        {removing && (
+          <RemoveFromGrabber
+            request={removing}
+            packages={status.packages}
+            pending={remove.isPending}
+            onCancel={() => setRemoving(null)}
+            onConfirm={() =>
+              remove.mutate(removing, {
+                onSuccess: () => {
+                  setRemoving(null);
+                  setTicked(NOTHING_SELECTED);
+                },
+              })
+            }
+          />
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+/** What leaves the link grabber, asked first; nothing of it was downloaded yet. */
+function RemoveFromGrabber({
+  request,
+  packages,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  request: LinkGrabberRemoveRequest;
+  packages: LinkGrabberPackage[];
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const whole = packages.filter((pkg) => request.packageIds.includes(pkg.uuid));
+  const names = [
+    ...whole.map((pkg) => pkg.name),
+    ...packages.flatMap((pkg) => pkg.links.filter((link) => request.linkIds.includes(link.uuid)).map((link) => link.name)),
+  ];
+  const inPackages = whole.reduce((sum, pkg) => sum + pkg.childCount, 0);
+  return (
+    <div className="space-y-4 text-sm">
+      <p>
+        <span className="font-medium">
+          {describeSelection(whole.length, inPackages, request.linkIds.length, { item: ['Link', 'Links'], single: ['einzelner Link', 'einzelne Links'] })}
+        </span>{' '}
+        – heruntergeladen ist davon noch nichts. Wer sie später doch will, fügt sie in JDownloader neu hinzu.
+      </p>
+      <ul className="rounded-xl bg-card-2/50 p-3 text-xs text-ink-2 ring-1 ring-line">
+        {names.slice(0, 6).map((name, index) => (
+          <li key={`${index}-${name}`} className="truncate">
+            {name}
+          </li>
+        ))}
+        {names.length > 6 && <li>und {names.length - 6} weitere</li>}
+      </ul>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onCancel} className={button}>
+          Abbrechen
+        </button>
+        <button type="button" onClick={onConfirm} disabled={pending} className={dangerButton}>
+          {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Trash2 className="size-4" aria-hidden />} Entfernen
+        </button>
+      </div>
     </div>
   );
 }
@@ -647,11 +745,15 @@ interface GrabberPackageProps {
   open: boolean;
   onToggle: () => void;
   move: ReturnType<typeof useMoveFromLinkGrabber>;
-  selection: GrabberSelection;
-  onSelect: (selection: GrabberSelection) => void;
+  selection: PackageSelection;
+  /** A click on the package's box, or on one of its links' boxes; with shift, for a range. */
+  onPick: (shift: boolean) => void;
+  onPickLink: (uuid: number, shift: boolean) => void;
+  /** Missing while the agent cannot delete. */
+  onRemove?: () => void;
 }
 
-function GrabberPackage({ pkg, open, onToggle, move, selection, onSelect }: GrabberPackageProps) {
+function GrabberPackage({ pkg, open, onToggle, move, selection, onPick, onPickLink, onRemove }: GrabberPackageProps) {
   const details = [`${pkg.childCount} ${pkg.childCount === 1 ? 'Datei' : 'Dateien'}`, pkg.bytesTotal ? formatBytes(pkg.bytesTotal) : null, pkg.hosts.join(', ') || null, !pkg.enabled ? 'deaktiviert' : null].filter(Boolean);
   const state = packageState(selection, pkg);
   return (
@@ -660,7 +762,7 @@ function GrabberPackage({ pkg, open, onToggle, move, selection, onSelect }: Grab
         {/* On a phone the name gets its own row; status and button follow below. */}
         <div className="flex w-full min-w-0 items-start gap-2.5 sm:w-auto sm:flex-1">
           <span className="flex h-5 items-center">
-            <Tick state={state} label={`${pkg.name} auswählen`} onChange={() => onSelect(togglePackage(selection, pkg))} />
+            <Tick state={state} label={`${pkg.name} auswählen`} onChange={onPick} />
           </span>
           <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={`grabber-${pkg.uuid}`} className="flex min-w-0 flex-1 items-start gap-2 text-left">
             <ChevronDown className={clsx('mt-0.5 size-4 shrink-0 text-ink-3 transition', !open && '-rotate-90')} aria-hidden />
@@ -677,15 +779,22 @@ function GrabberPackage({ pkg, open, onToggle, move, selection, onSelect }: Grab
           {pkg.offline > 0 && <Availability state="OFFLINE" count={pkg.offline} />}
           {pkg.unknown > 0 && <Availability state="UNKNOWN" count={pkg.unknown} />}
         </span>
-        <button
-          type="button"
-          className={clsx(button, 'ml-auto sm:ml-0')}
-          disabled={move.isPending}
-          onClick={() => move.mutate({ packageIds: [pkg.uuid], linkIds: [] })}
-          aria-label={`${pkg.name} in die Downloads übernehmen`}
-        >
-          <ArrowRightToLine className="size-4" aria-hidden /> In die Downloads
-        </button>
+        <span className="ml-auto flex gap-2 sm:ml-0">
+          {onRemove && (
+            <button type="button" className={clsx(button, 'px-2')} onClick={onRemove} aria-label={`${pkg.name} aus dem Link Grabber entfernen`} title="Aus dem Link Grabber entfernen">
+              <Trash2 className="size-4" aria-hidden />
+            </button>
+          )}
+          <button
+            type="button"
+            className={button}
+            disabled={move.isPending}
+            onClick={() => move.mutate({ packageIds: [pkg.uuid], linkIds: [] })}
+            aria-label={`${pkg.name} in die Downloads übernehmen`}
+          >
+            <ArrowRightToLine className="size-4" aria-hidden /> In die Downloads
+          </button>
+        </span>
       </div>
       {open && (
         <ul id={`grabber-${pkg.uuid}`} className="divide-y divide-line border-t border-line">
@@ -695,7 +804,7 @@ function GrabberPackage({ pkg, open, onToggle, move, selection, onSelect }: Grab
               {/* The whole row ticks the link. */}
               <label className="grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-card-2/50 sm:grid-cols-[auto_1fr_auto_auto]">
                 <span className="flex items-center pl-6">
-                  <Tick state={linkSelected(selection, pkg, link.uuid) ? 'all' : 'none'} label={`${link.name} auswählen`} onChange={() => onSelect(toggleLink(selection, pkg, link.uuid))} />
+                  <Tick state={linkSelected(selection, pkg, link.uuid) ? 'all' : 'none'} label={`${link.name} auswählen`} onChange={(shift) => onPickLink(link.uuid, shift)} />
                 </span>
                 <span className="min-w-0 truncate" title={link.name}>
                   {link.name}

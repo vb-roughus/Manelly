@@ -217,17 +217,24 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
 - **Entpacken** nach dem Download (ab Agent 0.10.0): Ein Paket, dessen Archive JDownloader gerade entpackt, bleibt
   oben in der Liste, mit «Entpacken 40 %» und blauem Balken; schlägt das Entpacken fehl (z. B. falsches Passwort),
   steht es rot mit dem Grund von JDownloader da. Erfolgreich entpackte Pakete zählen zu den fertigen («entpackt»)
-- Seite **Server → JDownloader** mit drei Reitern:
+- Seite **Server → JDownloader** mit vier Reitern. Wo es Häkchen gibt, kreuzt ein **Shift-Klick** alles zwischen dem
+  zuletzt angeklickten Eintrag und diesem an (oder ab) – Pakete untereinander, Dateien bzw. Links innerhalb eines Pakets,
+  Einträge innerhalb eines Ordners:
   - **Downloads:** alle Pakete; ein Klick auf ein Paket klappt seine **einzelnen Dateien (Parts)** auf, jede mit
     Fortschritt, Tempo, Restzeit, Status und ob sie entpackt ist; «Fertige ausblenden» zeigt nur die Dateien, die noch
     nicht fertig sind (die Wahl gilt auch für die nächsten Pakete). Die fertigen Pakete klappen ebenfalls auf.
     **Starten, Stoppen, Pausieren, Fortsetzen** und das **Tempo-Limit** von JDownloader
     überschreiben (gilt sofort, auch während des Bremsens beim Streamen). Tempo und Limits zeigt Manelly in Mbit/s, wie
-    alle Datenraten
+    alle Datenraten.
+    **Löschen** (ab Agent 0.29.0): Pakete und – im aufgeklappten Paket – einzelne Dateien ankreuzen, die fertigen
+    Pakete auch alle auf einmal, dann «Löschen». Der Dialog zeigt, was aus der Download-Liste verschwindet; auf Wunsch
+    löscht JDownloader **auch die heruntergeladenen Dateien** (Archive und angefangene Teile) – was daraus schon
+    entpackt wurde, bleibt. Wird ein Paket gerade entpackt, warnt der Dialog davor
   - **Link Grabber:** was JDownloader gesammelt hat, nach Paketen, mit dem Status jedes Links (online, offline,
     unbekannt) und ob er noch sammelt. Pakete und – im aufgeklappten Paket – einzelne Links **per Häkchen auswählen**
     (z. B. ein Paket ohne seinen Offline-Teil) und mit «Auswahl in die Downloads» übernehmen; ein Paket mit seinem
-    Knopf oder alle auf einmal gehen auch direkt.
+    Knopf oder alle auf einmal gehen auch direkt. **Löschen** (ab Agent 0.29.0) entfernt die Auswahl oder – mit dem
+    Papierkorb – ein Paket aus dem Link Grabber, nach einer Rückfrage.
     **DLC-Dateien** (ab Agent 0.15.0) mit «DLC hochladen» auswählen oder auf den Link Grabber ziehen, auch mehrere
     auf einmal (je höchstens 1 MB): Manelly gibt sie über den Agent an JDownloader weiter, der sie entschlüsselt – die
     Pakete erscheinen ein paar Sekunden später im Link Grabber

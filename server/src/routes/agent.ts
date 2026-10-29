@@ -13,6 +13,7 @@ import type {
   CopyLimit,
   ConversionOptions,
   ConversionSchedule,
+  DownloadsRemoveRequest,
   DriveCredentialRequest,
   ExtractedFolder,
   ExtractedMove,
@@ -28,6 +29,7 @@ import type {
   LinkGrabberContainerAnswer,
   LinkGrabberContainerRequest,
   LinkGrabberMoveRequest,
+  LinkGrabberRemoveRequest,
   LinkGrabberStatus,
   NetworkDrives,
   NetworkInterfacesRequest,
@@ -539,6 +541,40 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     async (request): Promise<LinkGrabberStatus> => {
       const status = await requireAgent(agent).moveFromLinkGrabber(request.body);
       request.log.info(`JDownloader: ${request.body.packageIds.length} Pakete und ${request.body.linkIds.length} Links in die Downloads übernommen`);
+      return status;
+    },
+  );
+
+  app.post<{ Body: LinkGrabberRemoveRequest }>(
+    '/jdownloader/linkgrabber/remove',
+    {
+      schema: {
+        body: { type: 'object', additionalProperties: false, required: ['packageIds', 'linkIds'], properties: { packageIds: ids, linkIds: ids } },
+      },
+    },
+    async (request): Promise<LinkGrabberStatus> => {
+      const status = await requireAgent(agent).removeFromLinkGrabber(request.body);
+      request.log.info(`JDownloader: ${request.body.packageIds.length} Pakete und ${request.body.linkIds.length} Links aus dem Link Grabber entfernt`);
+      return status;
+    },
+  );
+
+  app.post<{ Body: DownloadsRemoveRequest }>(
+    '/jdownloader/downloads/remove',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['packageIds', 'linkIds', 'deleteFiles'],
+          properties: { packageIds: ids, linkIds: ids, deleteFiles: { type: 'boolean' } },
+        },
+      },
+    },
+    async (request): Promise<JDownloaderStatus> => {
+      const { packageIds, linkIds, deleteFiles } = request.body;
+      const status = await requireAgent(agent).removeDownloads(request.body);
+      request.log.info(`JDownloader: ${packageIds.length} Pakete und ${linkIds.length} Links aus den Downloads entfernt${deleteFiles ? ', samt Dateien' : ''}`);
       return status;
     },
   );

@@ -1152,6 +1152,17 @@ export interface LinkGrabberMoveRequest {
   linkIds: number[];
 }
 
+/** POST /api/jdownloader/linkgrabber/remove (from agent 0.29.0): whole packages and single links out of the link grabber. */
+export type LinkGrabberRemoveRequest = LinkGrabberMoveRequest;
+
+/** POST /api/jdownloader/downloads/remove (from agent 0.29.0): whole packages and single links out of the download list. */
+export interface DownloadsRemoveRequest {
+  packageIds: number[];
+  linkIds: number[];
+  /** Also deletes their downloaded files on the disk (archives, parts); what was unpacked from them stays. */
+  deleteFiles: boolean;
+}
+
 /** What JDownloader says about an account: works, or why not. */
 export type JDownloaderAccountState = 'ok' | 'disabled' | 'expired' | 'invalid' | 'blocked' | 'error' | 'unchecked';
 
@@ -1420,9 +1431,18 @@ export interface AgentStatus {
   /**
    * Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0,
    * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0, newFolders (moving into a new folder)
-   * before 0.28.0.
+   * before 0.28.0, remove (deleting in the link grabber and the downloads) before 0.29.0.
    */
-  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean; extracted?: boolean; moves?: boolean; newFolders?: boolean };
+  jdownloader?: {
+    enabled: boolean;
+    linkgrabber?: boolean;
+    accounts?: boolean;
+    containers?: boolean;
+    extracted?: boolean;
+    moves?: boolean;
+    newFolders?: boolean;
+    remove?: boolean;
+  };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
   /** The work folder for conversions; missing before agent 0.17.0. */

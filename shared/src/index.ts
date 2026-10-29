@@ -519,12 +519,15 @@ export interface SeriesSeason {
 
 /**
  * POST /api/agent/jdownloader/extracted/move: entries of the extraction folder into a folder of a library – the
- * library's own folder (`target`), or the folder of a series or season in it (`itemId`), as Jellyfin names it.
+ * library's own folder (`target`), the folder of a series or season in it (`itemId`), as Jellyfin names it, or a new
+ * folder in the library's folder (`newFolder`, e.g. for a new series).
  */
 export interface ExtractedMoveTarget {
   paths: string[];
   target: string;
   itemId?: string;
+  /** The name of a folder the agent creates in `target` (from agent 0.28.0); not with `itemId`. */
+  newFolder?: string;
 }
 
 /** POST /api/media/scan: one library, or all of them without an id. */
@@ -967,10 +970,12 @@ export interface ExtractedFolder {
 export interface ExtractedMoveRequest {
   /** Inside the extraction folder, with "/" between the names. */
   paths: string[];
-  /** A folder of a Jellyfin library, as Jellyfin names it. */
+  /** A folder of a Jellyfin library, as Jellyfin names it – or with `create`, a new folder in one. */
   target: string;
   /** The library's name, to show. */
   label: string;
+  /** From 0.28.0: `target` does not exist yet; the agent creates it in its parent folder, which must exist. */
+  create?: boolean;
 }
 
 /** Moving entries of the extraction folder into a library: renamed on the same disk, else copied and then deleted. */
@@ -1407,9 +1412,10 @@ export interface AgentStatus {
   resources?: { supported: boolean };
   /**
    * Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0,
-   * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0.
+   * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0, newFolders (moving into a new folder)
+   * before 0.28.0.
    */
-  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean; extracted?: boolean; moves?: boolean };
+  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean; extracted?: boolean; moves?: boolean; newFolders?: boolean };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
   /** The work folder for conversions; missing before agent 0.17.0. */

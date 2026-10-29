@@ -234,8 +234,11 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter. Bei einer Serien-Mediathek folgt
     die **Serie** (aus Jellyfin, mit dem Ordner, in dem Jellyfin sie führt; vorgeschlagen nach dem Namen, z. B. «The
     Expanse S06» → The Expanse) und, wenn die Serie Staffelordner hat, die **Staffel** (für einzelne Folgen wie
-    «S05E11» schlägt Manelly die passende vor). Ohne Serie kommt der Ordner als neue Serie direkt in die Mediathek. Unten
-    steht der Zielordner. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
+    «S05E11» schlägt Manelly die passende vor). Für eine **neue Serie** gibst du den Namen des Serienordners an
+    (ab Agent 0.28.0; vorgeschlagen aus dem Namen, z. B. «Dark.2017.S01.German.1080p» → «Dark (2017)»): Der Agent legt
+    ihn in der Mediathek an und verschiebt die Einträge hinein. Gibt es die Serie in Jellyfin schon, weist der Dialog
+    darauf hin. Mit einem älteren Agent kommt der Ordner als neue Serie direkt in die Mediathek. Unten steht der
+    Zielordner. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
     Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt) und löscht erst
     danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich
     von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.

@@ -26,6 +26,8 @@ interface Source {
 interface Job {
   view: ExtractedMove;
   sources: Source[];
+  /** The target is a new folder, created right before the first entry moves. */
+  create: boolean;
   copying: boolean;
   samples: Array<{ t: number; bytes: number }>;
 }
@@ -125,7 +127,12 @@ export function createMover(options: MoverOptions = {}) {
   async function execute(job: Job) {
     job.view.state = 'running';
     const created: string[] = [];
-    for (const source of job.sources) {
+    const folderError = job.create ? await mkdir(job.view.target, { recursive: true }).then(() => null, (error: Error) => error.message) : null;
+    if (folderError) {
+      for (const source of job.sources) job.view.problems.push({ path: source.path, error: `Den Ordner ${job.view.target} kann der Agent nicht anlegen: ${folderError}` });
+      options.log?.(`Ordner ${job.view.target} nicht angelegt: ${folderError}`);
+    }
+    for (const source of folderError ? [] : job.sources) {
       try {
         created.push(await moveOne(job, source));
         options.log?.(`«${source.path}» nach ${job.view.target} verschoben`);
@@ -162,10 +169,11 @@ export function createMover(options: MoverOptions = {}) {
 
   return {
     /**
-     * Queues moving `paths` of the extraction folder `directory` into `target`, a folder the server checked. A folder
-     * and something in it count once; nothing can move into itself.
+     * Queues moving `paths` of the extraction folder `directory` into `target`, a folder the server checked – with
+     * `create`, a new one in a folder the server checked, created when the move starts. A folder and something in it
+     * count once; nothing can move into itself.
      */
-    async add(directory: string, paths: string[], target: string, label: string): Promise<ExtractedMove> {
+    async add(directory: string, paths: string[], target: string, label: string, create = false): Promise<ExtractedMove> {
       const fulls = paths.map((path) => ({ path, full: resolveExtracted(directory, path) }));
       const outer = fulls.filter((entry) => !fulls.some((other) => other !== entry && other.full !== entry.full && isWithin(entry.full, other.full, pathApiFor(other.full))));
       const unique = outer.filter((entry, index) => outer.findIndex((other) => other.full === entry.full) === index);
@@ -192,6 +200,7 @@ export function createMover(options: MoverOptions = {}) {
           finishedAt: null,
         },
         sources,
+        create,
         copying: false,
         samples: [],
       };

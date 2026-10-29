@@ -814,7 +814,7 @@ describe('resources', () => {
 
 describe('JDownloader routes', () => {
   it('checks the settings and refuses to control a JDownloader that is switched off', async () => {
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: true, newFolders: true });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
     expect((await call('/api/jdownloader/accounts')).status).toBe(409);
@@ -881,7 +881,7 @@ describe('JDownloader routes', () => {
     await writeFile(path.join(extracted, 'Dune (2024)', 'Sample', 'dune-sample.mkv'), 'sm');
     await mkdir(library);
     const move = { paths: ['Dune (2024)'], target: library, label: 'Filme' };
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader?.moves).toBe(true);
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toMatchObject({ moves: true, newFolders: true });
     // Without an extraction folder there is nothing to move.
     expect((await post('/api/jdownloader/extracted/move', move)).status).toBe(409);
     await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 }, extractTo: extracted });
@@ -894,6 +894,14 @@ describe('JDownloader routes', () => {
     expect((await post('/api/jdownloader/extracted/move', { ...move, target: path.join(root, 'gibts-nicht') })).status).toBe(404);
     expect((await post('/api/jdownloader/extracted/move', { ...move, label: '' })).status).toBe(400);
     expect((await post('/api/jdownloader/extracted/move', { ...move, paths: ['../filme'] })).status).toBe(400);
+    // A new folder: only a valid name, in a folder that is there.
+    const refusedFolder = async (target: string) => {
+      const response = await post('/api/jdownloader/extracted/move', { ...move, target, create: true });
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refusedFolder(path.join(root, 'gibts-nicht', 'Dune'))).toEqual([404, `Den Ordner ${path.join(root, 'gibts-nicht')} gibt es auf dem Server nicht – zuerst anlegen.`]);
+    expect(await refusedFolder(`${library}/..`)).toEqual([400, '«..» ist kein gültiger Ordnername.']);
+    expect(await refusedFolder(path.join(library, 'Dune: Part Two'))).toEqual([400, '«Dune: Part Two» ist kein gültiger Ordnername.']);
 
     // A restart would interrupt a move: asked first.
     exits = [];
@@ -916,6 +924,14 @@ describe('JDownloader routes', () => {
     expect(await readdir(path.join(library, 'Dune (2024)'))).toEqual(['Dune.mkv']);
     expect(exits).toEqual([]);
     restartable = false;
+
+    await writeFile(path.join(extracted, 'Dark.S01E01.mkv'), 'dark');
+    const created = await post('/api/jdownloader/extracted/move', { paths: ['Dark.S01E01.mkv'], target: path.join(library, 'Dark'), label: 'Serien › Dark', create: true });
+    expect(created.status).toBe(202);
+    for (let i = 0; i < 50 && (((await (await call('/api/jdownloader/extracted/moves')).json()) as ExtractedMove[])[0]?.state ?? 'running') !== 'done'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(await readdir(path.join(library, 'Dark'))).toEqual(['Dark.S01E01.mkv']);
   });
 
   it('hands DLC files to the link grabber', async () => {

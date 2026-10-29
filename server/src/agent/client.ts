@@ -14,6 +14,7 @@ import type {
   ConversionRequest,
   ConversionSchedule,
   DriveCredentialRequest,
+  ExtractedFolder,
   HardwareTestRequest,
   HardwareTestResult,
   HistoryResponse,
@@ -73,6 +74,8 @@ export interface AgentClient {
   moveFromLinkGrabber(request: LinkGrabberMoveRequest): Promise<LinkGrabberStatus>;
   /** From agent 0.13.0. */
   jdownloaderAccounts(): Promise<JDownloaderAccounts>;
+  /** From agent 0.26.0: the extraction folder, or a folder in it ("a/b"; "" for itself). */
+  extracted(path: string): Promise<ExtractedFolder>;
   /** No ids: all of them. */
   refreshJDownloaderAccounts(ids: number[]): Promise<{ refreshing: number }>;
   /** Recorded load and streams between two times (milliseconds since the epoch). */
@@ -159,6 +162,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     addLinkGrabberContainer: (request) => call('POST', '/api/jdownloader/linkgrabber/container', request, 30_000),
     moveFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/move', request, 30_000),
     jdownloaderAccounts: () => call('GET', '/api/jdownloader/accounts', undefined, 20_000),
+    // Adds up the size of every folder; on a NAS that takes a moment.
+    extracted: (path) => call('GET', `/api/jdownloader/extracted?${new URLSearchParams({ path })}`, undefined, 30_000),
     refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),
     // A long range means reading many days of records.
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),

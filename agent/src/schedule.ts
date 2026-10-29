@@ -64,10 +64,10 @@ export function parseJellyfinAccess(input: unknown): AgentJellyfinAccess {
   return { url: url.replace(/\/+$/, ''), apiKey };
 }
 
-export const DEFAULT_JDOWNLOADER: JDownloaderSettings = { enabled: false, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } };
+export const DEFAULT_JDOWNLOADER: JDownloaderSettings = { enabled: false, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 }, extractTo: null };
 
 export function parseJDownloaderSettings(input: unknown): JDownloaderSettings {
-  const { enabled, url, throttle } = (input ?? {}) as Partial<JDownloaderSettings>;
+  const { enabled, url, throttle, extractTo } = (input ?? {}) as Partial<JDownloaderSettings>;
   if (typeof enabled !== 'boolean' || typeof url !== 'string' || !/^https?:\/\/[^\s/]+(:\d+)?\/?$/i.test(url)) {
     throw new AgentError(400, 'Die JDownloader-Adresse ist ungültig, z. B. http://127.0.0.1:3128.');
   }
@@ -75,7 +75,8 @@ export function parseJDownloaderSettings(input: unknown): JDownloaderSettings {
   const limitKBps = Number(throttle?.limitKBps);
   if (mode !== 'off' && mode !== 'limit' && mode !== 'pause') throw new AgentError(400, 'Unbekannte Art der Drosselung.');
   if (!Number.isInteger(limitKBps) || limitKBps < 1 || limitKBps > 10_000_000) throw new AgentError(400, 'Das Tempo-Limit muss zwischen 1 KB/s und 10 GB/s liegen.');
-  return { enabled, url: url.replace(/\/+$/, ''), throttle: { mode, limitKBps } };
+  // The server checks a new extraction folder before it gets here.
+  return { enabled, url: url.replace(/\/+$/, ''), throttle: { mode, limitKBps }, extractTo: typeof extractTo === 'string' && extractTo.trim() ? extractTo.trim() : null };
 }
 
 export const DEFAULT_HISTORY: HistorySettings = { enabled: false, retentionDays: 30 };

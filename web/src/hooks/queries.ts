@@ -15,6 +15,7 @@ import type {
   ConversionSchedule,
   CopyLimit,
   DriveCredentialRequest,
+  ExtractedFolder,
   ManellyStatus,
   HardwareTestResult,
   HistoryResponse,
@@ -654,8 +655,26 @@ function useJDownloaderMutation<T>(send: (request: T) => Promise<JDownloaderStat
   });
 }
 
-export const useSaveJDownloaderSettings = () =>
-  useJDownloaderMutation((settings: JDownloaderSettings) => sendJson<JDownloaderStatus>('PUT', '/api/agent/jdownloader/settings', settings));
+export function useSaveJDownloaderSettings() {
+  const queryClient = useQueryClient();
+  return useJDownloaderMutation(async (settings: JDownloaderSettings) => {
+    const status = await sendJson<JDownloaderStatus>('PUT', '/api/agent/jdownloader/settings', settings);
+    // Perhaps another extraction folder now.
+    void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
+    return status;
+  });
+}
+
+/** What JDownloader extracted: the folder from its settings, or the folder `path` in it (agent from 0.26.0). */
+export function useExtracted(path: string, enabled: boolean, pollMs: number | false = false) {
+  return useQuery({
+    queryKey: ['jdownloader', 'extracted', path],
+    queryFn: ({ signal }) => fetchJson<ExtractedFolder>(`/api/agent/jdownloader/extracted?${new URLSearchParams({ path })}`, signal),
+    refetchInterval: pollMs,
+    enabled: useAgentLive(enabled),
+    retry: false,
+  });
+}
 
 export const useControlJDownloader = () =>
   useJDownloaderMutation((action: JDownloaderAction) => sendJson<JDownloaderStatus>('POST', '/api/agent/jdownloader/control', { action }));

@@ -54,13 +54,21 @@ function Fields({ status }: { status: JDownloaderStatus }) {
   const [url, setUrl] = useState(status.settings.url);
   const [mode, setMode] = useState(status.settings.throttle.mode);
   const [limitMbit, setLimitMbit] = useState(mbitField(kibToMbit(status.settings.throttle.limitKBps)));
+  // Missing before agent 0.26.0.
+  const extractSupported = status.settings.extractTo !== undefined;
+  const [extractTo, setExtractTo] = useState(status.settings.extractTo ?? '');
 
   const limitKBps = mbitToKib(Number(limitMbit.replace(',', '.')));
   const limitInvalid = mode === 'limit' && !(limitKBps >= 1);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const settings: JDownloaderSettings = { enabled, url: url.trim(), throttle: { mode, limitKBps: limitKBps >= 1 ? limitKBps : status.settings.throttle.limitKBps } };
+    const settings: JDownloaderSettings = {
+      enabled,
+      url: url.trim(),
+      throttle: { mode, limitKBps: limitKBps >= 1 ? limitKBps : status.settings.throttle.limitKBps },
+      ...(extractSupported ? { extractTo: extractTo.trim() || null } : {}),
+    };
     save.mutate(settings);
   }
 
@@ -82,6 +90,23 @@ function Fields({ status }: { status: JDownloaderStatus }) {
           <Field id={`${id}-url`} label="Adresse aus Sicht des Agents" hint={<>Meist <Code>http://127.0.0.1:3128</Code> – JDownloader läuft ja auf demselben Rechner.</>}>
             <input id={`${id}-url`} required spellCheck={false} value={url} onChange={(event) => setUrl(event.target.value)} className={inputClass} />
           </Field>
+
+          {extractSupported && (
+            <Field
+              id={`${id}-extract`}
+              label="Entpack-Ordner"
+              hint="Der Ordner auf dem Jellyfin-Server, in den JDownloader die Archive entpackt – wie beim Archiv-Entpacker von JDownloader eingestellt. Der Reiter «Extracted» zeigt, was darin liegt. Leer lassen: keiner."
+            >
+              <input
+                id={`${id}-extract`}
+                spellCheck={false}
+                value={extractTo}
+                onChange={(event) => setExtractTo(event.target.value)}
+                placeholder="z. B. D:\Downloads\Entpackt"
+                className={clsx(inputClass, 'font-mono placeholder:font-sans')}
+              />
+            </Field>
+          )}
 
           <fieldset>
             <legend className="mb-2 text-sm font-medium">Wenn jemand streamt</legend>

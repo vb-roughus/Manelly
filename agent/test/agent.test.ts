@@ -12,6 +12,7 @@ import type {
   ArchivedOriginals,
   ConversionJob,
   ConversionStep,
+  ExtractedFolder,
   HistoryResponse,
   JDownloaderStatus,
   WorkFolderStatus,
@@ -803,7 +804,7 @@ describe('resources', () => {
 
 describe('JDownloader routes', () => {
   it('checks the settings and refuses to control a JDownloader that is switched off', async () => {
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toEqual({ enabled: false, linkgrabber: true, accounts: true, containers: true, extracted: true });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
     expect((await call('/api/jdownloader/accounts')).status).toBe(409);
@@ -812,11 +813,54 @@ describe('JDownloader routes', () => {
     expect((await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'fast', limitKBps: 1024 } })).status).toBe(400);
     const saved = await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128/', throttle: { mode: 'limit', limitKBps: 2048 } });
     expect(saved.status).toBe(200);
-    expect(((await saved.json()) as JDownloaderStatus).settings).toEqual({ enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'limit', limitKBps: 2048 } });
+    expect(((await saved.json()) as JDownloaderStatus).settings).toEqual({ enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'limit', limitKBps: 2048 }, extractTo: null });
     expect((await post('/api/jdownloader/control', { action: 'jump' })).status).toBe(400);
     expect((await post('/api/jdownloader/linkgrabber/move', { packageIds: [], linkIds: [] })).status).toBe(400);
     expect((await post('/api/jdownloader/linkgrabber/move', { packageIds: ['1'] })).status).toBe(400);
     expect(await (await call('/api/jdownloader/linkgrabber')).json()).toEqual({ collecting: false, packages: [] });
+  });
+
+  it('keeps the extraction folder Manelly names and lists what lies in it', async () => {
+    const settings = { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } };
+    const extracted = path.join(root, 'entpackt');
+    const listing = async (folder = '') => (await call(`/api/jdownloader/extracted?path=${encodeURIComponent(folder)}`)).json() as Promise<ExtractedFolder>;
+    expect(await listing()).toEqual({ directory: null, path: '', entries: [], freeBytes: null, error: null });
+
+    const missing = await put('/api/jdownloader/settings', { ...settings, extractTo: extracted });
+    expect(missing.status).toBe(404);
+    await mkdir(path.join(extracted, 'Dune (2024)', 'Sample'), { recursive: true });
+    await writeFile(path.join(extracted, 'Dune (2024)', 'Dune.mkv'), '12345678');
+    await writeFile(path.join(extracted, 'Dune (2024)', 'Sample', 'sample.mkv'), 'abc');
+    await writeFile(path.join(extracted, 'readme.nfo'), 'nfo');
+    const saved = await put('/api/jdownloader/settings', { ...settings, extractTo: ` ${extracted} ` });
+    expect(((await saved.json()) as JDownloaderStatus).settings.extractTo).toBe(extracted);
+    // An older Manelly leaves it out: it stays.
+    await put('/api/jdownloader/settings', settings);
+
+    const top = await listing();
+    expect(top).toMatchObject({ directory: extracted, path: '', error: null, freeBytes: free });
+    expect(top.entries.map(({ name, path: entry, kind, bytes, files, complete }) => ({ name, entry, kind, bytes, files, complete }))).toEqual(
+      expect.arrayContaining([
+        { name: 'Dune (2024)', entry: 'Dune (2024)', kind: 'directory', bytes: 11, files: 2, complete: true },
+        { name: 'readme.nfo', entry: 'readme.nfo', kind: 'file', bytes: 3, files: null, complete: true },
+      ]),
+    );
+    const inside = await listing('Dune (2024)');
+    expect(inside.entries.map((entry) => [entry.path, entry.kind])).toEqual([
+      ['Dune (2024)/Sample', 'directory'],
+      ['Dune (2024)/Dune.mkv', 'file'],
+    ]);
+    expect(inside.freeBytes).toBeNull();
+
+    // Nothing outside the folder, and a folder that is gone says so.
+    expect((await call(`/api/jdownloader/extracted?path=${encodeURIComponent('../data')}`)).status).toBe(400);
+    expect((await call(`/api/jdownloader/extracted?path=${encodeURIComponent('Dune (2024)\\..\\..')}`)).status).toBe(400);
+    expect((await call('/api/jdownloader/extracted?path=Arrival')).status).toBe(404);
+    await rm(extracted, { recursive: true });
+    expect((await listing()).error).toBe(`Den Entpack-Ordner ${extracted} gibt es auf dem Server nicht (mehr).`);
+
+    // Emptied in Manelly: none.
+    expect(((await (await put('/api/jdownloader/settings', { ...settings, extractTo: '' })).json()) as JDownloaderStatus).settings.extractTo).toBeNull();
   });
 
   it('hands DLC files to the link grabber', async () => {

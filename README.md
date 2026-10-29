@@ -222,7 +222,12 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     (aktiv, vorübergehend gesperrt, abgelaufen, ungültig, ausgeschaltet), dem **restlichen Traffic** (mit Balken, oder
     «unbegrenzt») und wie lange das **Premium** noch läuft (rot ab sieben Tagen). «Neu prüfen» lässt JDownloader die
     Hoster sofort nach den aktuellen Werten fragen
-- Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite
+  - **Extracted** (ab Agent 0.26.0): was im **Entpack-Ordner** liegt, das zuletzt Entpackte zuoberst – mit Grösse, Anzahl
+    Dateien und Zeitpunkt; Ordner klappen auf und zeigen ihren Inhalt (Filme, Untertitel, Samples …). Den Entpack-Ordner
+    legst du in den Einstellungen fest (so wie beim Archiv-Entpacker von JDownloader eingestellt, z. B. `D:\Downloads\Entpackt`
+    oder `\\NAS\Downloads\Entpackt`). Der Agent liest nur diesen Ordner und nur, solange der Reiter offen ist (jede Minute neu)
+- Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite: einbinden, Adresse, Entpack-Ordner und das
+  Bremsen beim Streamen
 - **Bremsen, solange jemand streamt** (in den JDownloader-Einstellungen): Beginnt ein Stream, begrenzt der Agent
   JDownloader auf ein Tempo (z. B. 16 Mbit/s) oder pausiert ihn. Fünf Minuten nach dem letzten Stream stellt er ihn wieder
   so ein wie vorher – auch nach einem Neustart des Servers. Was du in der Zwischenzeit von Hand änderst, bleibt; ein von

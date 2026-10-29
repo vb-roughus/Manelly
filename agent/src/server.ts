@@ -13,6 +13,7 @@ import type {
   ArchivedOriginals,
   ConversionRequest,
   DriveCredentialRequest,
+  ExtractedMoveRequest,
   HardwareTestRequest,
   JDownloaderAction,
   JDownloaderSettings,
@@ -30,7 +31,8 @@ import { AgentError } from './errors.js';
 import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
-import { listExtracted } from './extracted.js';
+import { deleteSamples, findSamples, listExtracted } from './extracted.js';
+import type { Mover } from './moves.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
 import type { Originals } from './originals.js';
@@ -68,6 +70,8 @@ export interface AgentServerOptions {
   access?: PathAccess;
   /** The originals that conversions in the work folder replaced and kept there. */
   originals?: Pick<Originals, 'list' | 'remove'>;
+  /** Moves from the extraction folder into the libraries; from 0.27.0. */
+  mover?: Mover;
   /** The user's network drives, whether the agent reaches them, and the logins Manelly hands over for them. */
   drives?: Pick<Drives, 'list' | 'setCredential' | 'removeCredential'>;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
@@ -164,6 +168,13 @@ export function createAgentServer(options: AgentServerOptions) {
     return folder;
   }
 
+  /** The extraction folder from the settings; without one, nothing there can be moved or deleted. */
+  function requireExtractTo(): string {
+    const directory = settings.get().jdownloader.extractTo;
+    if (!directory) throw new AgentError(409, 'In den JDownloader-Einstellungen ist kein Entpack-Ordner festgelegt.');
+    return directory;
+  }
+
   /** JDownloader must be switched on in Manelly; its errors are reported as such. */
   async function jdownloaderCall<T>(action: () => Promise<T>): Promise<T> {
     if (!settings.get().jdownloader.enabled) throw new AgentError(409, 'JDownloader ist in Manelly nicht eingeschaltet.');
@@ -194,7 +205,7 @@ export function createAgentServer(options: AgentServerOptions) {
         schedule: schedule(),
         network: { selected: settings.get().network.map((entry) => entry.id) },
         resources: { supported: resources.supported },
-        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true, extracted: true },
+        jdownloader: { enabled: settings.get().jdownloader.enabled, linkgrabber: true, accounts: true, containers: true, extracted: true, moves: Boolean(options.mover) },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
         drives: (await options.drives?.list()) ?? [],
@@ -284,6 +295,11 @@ export function createAgentServer(options: AgentServerOptions) {
         const progress = busy.progress === null ? '' : ` (${Math.round(busy.progress * 100)} %)`;
         throw new AgentError(409, `Gerade läuft die Umwandlung «${busy.title}»${progress}. Ein Neustart würde sie unterbrechen – warte, bis sie fertig ist, oder bestätige den Neustart.`);
       }
+      const moving = options.mover?.running();
+      if (moving && force !== true) {
+        const progress = moving.bytesTotal ? ` (${Math.round((moving.bytesDone / moving.bytesTotal) * 100)} %)` : '';
+        throw new AgentError(409, `Gerade verschiebt der Agent «${moving.paths[0]}» nach ${moving.label}${progress}. Ein Neustart würde das unterbrechen – warte, bis es fertig ist, oder bestätige den Neustart.`);
+      }
       // Looks for a newer version first and keeps answering meanwhile; restarts only when there was one.
       if (update === true && options.updater) return send(response, 202, { restarting: false, update: options.updater.start({ force: force === true }) });
       send(response, 202, { restarting: true });
@@ -305,6 +321,29 @@ export function createAgentServer(options: AgentServerOptions) {
     if (route === 'DELETE /api/history') {
       await recorder.clear();
       return send(response, 204, undefined);
+    }
+    if (route === 'GET /api/jdownloader/extracted/moves' && options.mover) return send(response, 200, options.mover.list());
+    if (route === 'POST /api/jdownloader/extracted/move' && options.mover) {
+      const directory = requireExtractTo();
+      const { paths, target, label } = await readJson<Partial<ExtractedMoveRequest>>(request);
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500 || paths.some((path) => typeof path !== 'string') || typeof label !== 'string' || !label.trim()) {
+        throw new AgentError(400, 'Einträge, Zielordner und Mediathek erwartet.');
+      }
+      await options.access?.prepare(directory);
+      const folder = await checkFolder(target, 'D:\\Filme');
+      return send(response, 202, await options.mover.add(directory, paths, folder, label.trim()));
+    }
+    if (route === 'GET /api/jdownloader/extracted/samples') {
+      const directory = requireExtractTo();
+      await options.access?.prepare(directory);
+      return send(response, 200, await findSamples(directory));
+    }
+    if (route === 'POST /api/jdownloader/extracted/samples/delete') {
+      const directory = requireExtractTo();
+      const { paths } = await readJson<{ paths?: unknown }>(request);
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 2000 || paths.some((path) => typeof path !== 'string')) throw new AgentError(400, 'Die Samples zum Löschen erwartet.');
+      await options.access?.prepare(directory);
+      return send(response, 200, await deleteSamples(directory, paths as string[]));
     }
     if (route === 'GET /api/jdownloader/extracted') {
       const directory = settings.get().jdownloader.extractTo ?? null;

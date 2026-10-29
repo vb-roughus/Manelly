@@ -1,6 +1,6 @@
 import type { AgentJellyfinAccess, ConversionJob } from '@manelly/shared';
 
-export const AGENT_VERSION = '0.26.0';
+export const AGENT_VERSION = '0.27.0';
 const TIMEOUT_MS = 8000;
 
 interface JfMediaStream {
@@ -104,17 +104,23 @@ export function mediaUpdatesFor(job: ConversionJob): Parameters<JellyfinApi['med
   return updates;
 }
 
-/** Tells Jellyfin about finished conversions, so it scans the new file right away – even when Manelly is not running. */
-export function createNotifier(access: () => AgentJellyfinAccess | null, options: { fetch?: typeof fetch; log?: (message: string) => void } = {}) {
-  return async (job: ConversionJob): Promise<boolean> => {
+/** Tells Jellyfin about changed paths, so it scans them right away – even when Manelly is not running. */
+export function createMediaNotifier(access: () => AgentJellyfinAccess | null, options: { fetch?: typeof fetch; log?: (message: string) => void } = {}) {
+  return async (updates: Parameters<JellyfinApi['mediaUpdated']>[0]): Promise<boolean> => {
     const current = access();
     if (!current) return false;
     try {
-      await createJellyfinApi(current, options.fetch).mediaUpdated(mediaUpdatesFor(job));
+      await createJellyfinApi(current, options.fetch).mediaUpdated(updates);
       return true;
     } catch (error) {
-      options.log?.(`Jellyfin konnte nicht über die neue Datei informiert werden: ${(error as Error).message}`);
+      options.log?.(`Jellyfin konnte nicht über ${updates.length === 1 ? 'die neue Datei' : 'die neuen Dateien'} informiert werden: ${(error as Error).message}`);
       return false;
     }
   };
+}
+
+/** Tells Jellyfin about finished conversions, so it scans the new file right away. */
+export function createNotifier(access: () => AgentJellyfinAccess | null, options: { fetch?: typeof fetch; log?: (message: string) => void } = {}) {
+  const notify = createMediaNotifier(access, options);
+  return (job: ConversionJob): Promise<boolean> => notify(mediaUpdatesFor(job));
 }

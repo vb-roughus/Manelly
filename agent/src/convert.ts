@@ -320,14 +320,15 @@ export async function metered<T>(file: string, ctx: Pick<ConversionContext, 'onR
 const PACE_SLICE_MS = 500;
 
 /**
- * Waits until a chunk of `bytes` that took from `since` until now fits the copy limit of the moment. Pacing chunk by
- * chunk, a pause or a faster stretch builds up no allowance that would come out as a burst later.
+ * Waits until a chunk of `bytes` that took from `since` until now fits the copy limit of the moment (bytes per second,
+ * null: none). Pacing chunk by chunk, a pause or a faster stretch builds up no allowance that would come out as a burst
+ * later.
  */
-async function pace(bytes: number, since: number, ctx: ConversionContext): Promise<void> {
+export async function pace(bytes: number, since: number, limit: (() => number | null) | undefined, signal: AbortSignal): Promise<void> {
   for (;;) {
-    const limit = ctx.copyLimit?.() ?? null;
-    const wait = limit === null ? 0 : since + (bytes / limit) * 1000 - Date.now();
-    if (wait <= 0 || ctx.signal.aborted) return;
+    const current = limit?.() ?? null;
+    const wait = current === null ? 0 : since + (bytes / current) * 1000 - Date.now();
+    if (wait <= 0 || signal.aborted) return;
     await new Promise((resolve) => setTimeout(resolve, Math.min(wait, PACE_SLICE_MS)));
   }
 }
@@ -354,7 +355,7 @@ async function copyResumable(from: string, to: string, step: 'fetch' | 'store', 
       if (!writer.write(chunk)) await once(writer, 'drain');
       copied += chunk.length;
       ctx.onProgress(step, total ? copied / total : 1);
-      await pace(chunk.length, since, ctx);
+      await pace(chunk.length, since, ctx.copyLimit, ctx.signal);
       since = Date.now();
     }
     writer.end();

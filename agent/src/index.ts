@@ -7,8 +7,9 @@ import type { AgentUpdateResult } from '@manelly/shared';
 import { dataDirFrom, loadConfig } from './config.js';
 import { createRecorder } from './history.js';
 import { createJDownloader } from './jdownloader.js';
-import { AGENT_VERSION, createNotifier } from './jellyfin.js';
+import { AGENT_VERSION, createMediaNotifier, createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
+import { createMover } from './moves.js';
 import { createOriginals } from './originals.js';
 import { conversionProcesses } from './convert.js';
 import { createCopyLimiter } from './copyLimit.js';
@@ -61,6 +62,8 @@ const access = { prepare: drives.prepare, networkHint: process.platform === 'win
 void drives.connectAll();
 // The originals that conversions in the work folder replaced and kept there.
 const originals = await createOriginals(dataDir);
+// Copying to and from the work folder, and into the libraries, leaves the storage enough for streams, as set in Manelly.
+const copyLimiter = createCopyLimiter({ settings });
 const queue = await createJobQueue({
   dataDir,
   roots: config.roots,
@@ -69,11 +72,12 @@ const queue = await createJobQueue({
   notify: createNotifier(() => settings.get().jellyfin, { log }),
   access,
   workFolder: () => settings.get().work,
-  // Copying to and from the work folder leaves the storage enough for streams, as set in Manelly.
-  copyLimit: createCopyLimiter({ settings }).current,
+  copyLimit: copyLimiter.current,
   originals,
   log,
 });
+// From the extraction folder into the libraries; Jellyfin hears about the new folders right away.
+const mover = createMover({ copyLimit: copyLimiter.current, notify: createMediaNotifier(() => settings.get().jellyfin, { log }), log });
 // Measures only the interfaces picked in Manelly, and only while somebody looks.
 const network = createNetworkMonitor({ source: defaultSource(), selection: () => settings.get().network, log });
 // CPU and GPU, with the shares of Jellyfin's FFmpeg and of the agent's own conversion; also only while somebody looks.
@@ -113,9 +117,10 @@ const updater = createUpdater({
   // A conversion that started while it built (from the schedule) finishes first, unless the update was forced.
   onRestart: (force) => {
     const busy = force ? null : queue.running();
-    if (!busy) return shutdown('Update fertig, Neustart', RESTART_EXIT);
-    log(`Update fertig – Neustart, sobald die Umwandlung ${busy.source} fertig ist.`);
-    void queue.idle().then(() => shutdown('Update fertig, Neustart nach der Umwandlung', RESTART_EXIT));
+    const moving = force ? null : mover.running();
+    if (!busy && !moving) return shutdown('Update fertig, Neustart', RESTART_EXIT);
+    log(`Update fertig – Neustart, sobald ${busy ? `die Umwandlung ${busy.source}` : `das Verschieben nach ${moving!.target}`} fertig ist.`);
+    void Promise.all([queue.idle(), mover.idle()]).then(() => shutdown('Update fertig, Neustart nach Umwandlung und Verschieben', RESTART_EXIT));
   },
   log,
 });
@@ -134,6 +139,7 @@ const server = createAgentServer({
   access,
   drives,
   originals,
+  mover,
   onExit: (how) =>
     how === 'stop'
       ? shutdown('Beenden angefordert (Manelly oder Installationsskript)')

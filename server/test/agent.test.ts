@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, HistoryResponse, HistorySettings, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule, ExtractedFolder, WorkFolderStatus } from '@manelly/shared';
+import type { AgentJellyfinAccess, AgentNetworkList, AgentNetworkStatus, AgentOverview, AgentResourceStatus, JDownloaderStatus, AgentScheduleStatus, HistoryResponse, HistorySettings, ConversionJob, ConversionOptions, ConversionRequest, ConversionSchedule, ExtractedFolder, ExtractedMove, WorkFolderStatus } from '@manelly/shared';
 import { createAgentClient, type AgentSettings } from '../src/agent/client.js';
 import { createAgentConnection, normalizeAgentUrl } from '../src/agent/connection.js';
 import { buildApp } from '../src/app.js';
@@ -98,6 +98,13 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         if (init?.method === 'POST') return Response.json({ refreshing: 2 }, { status: 202 });
         return Response.json({ accounts: [{ id: 7, hoster: 'rapidgator.net', username: 'rolf', state: 'ok', error: null, validUntil: null, trafficLeft: 87e9, trafficMax: 100e9, unlimited: false }] });
+      }
+      if (url.pathname.startsWith('/api/jdownloader/extracted/')) {
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        if (url.pathname.endsWith('/move')) return Response.json({ id: 'm1', ...body, state: 'queued', bytesTotal: 10, bytesDone: 0, bytesPerSecond: null, copyThrottle: null, problems: [], createdAt: '', finishedAt: null }, { status: 202 });
+        if (url.pathname.endsWith('/moves')) return Response.json([]);
+        if (url.pathname.endsWith('/samples')) return Response.json({ samples: [{ path: 'Dune/Sample/dune-sample.mkv', bytes: 2 }] });
+        return Response.json({ deleted: body.paths, problems: [] });
       }
       if (url.pathname === '/api/jdownloader/extracted') {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
@@ -425,6 +432,29 @@ describe('agent connection', () => {
       ['/api/jdownloader/extracted?path=', undefined],
       ['/api/jdownloader/extracted?path=Dune+%282024%29%2FSample', undefined],
     ]);
+  });
+
+  it('moves from the extraction folder only into a Jellyfin library, and passes the samples on', async () => {
+    const { app, world } = await setup();
+    const move = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: '/api/agent/jdownloader/extracted/move', payload });
+    const outside = await move({ paths: ['Dune'], target: 'C:\\Windows' });
+    expect(outside.statusCode).toBe(400);
+    expect(outside.json().error.message).toBe('Das Ziel ist kein Ordner einer Mediathek in Jellyfin.');
+    expect((await move({ paths: [], target: 'D:\\Filme' })).statusCode).toBe(400);
+    const moved = await move({ paths: ['Dune'], target: 'D:\\Filme' });
+    expect(moved.statusCode).toBe(202);
+    expect(moved.json<ExtractedMove>()).toMatchObject({ paths: ['Dune'], target: 'D:\\Filme', label: 'Filme' });
+    expect((await app.inject('/api/agent/jdownloader/extracted/moves')).json()).toEqual([]);
+    expect((await app.inject('/api/agent/jdownloader/extracted/samples')).json()).toEqual({ samples: [{ path: 'Dune/Sample/dune-sample.mkv', bytes: 2 }] });
+    const deleted = await app.inject({ method: 'POST', url: '/api/agent/jdownloader/extracted/samples/delete', payload: { paths: ['Dune/Sample/dune-sample.mkv'] } });
+    expect(deleted.json()).toEqual({ deleted: ['Dune/Sample/dune-sample.mkv'], problems: [] });
+    expect(world.sent.jdownloader.map((call) => [call.method, call.path])).toEqual([
+      ['POST', '/api/jdownloader/extracted/move'],
+      ['GET', '/api/jdownloader/extracted/moves'],
+      ['GET', '/api/jdownloader/extracted/samples'],
+      ['POST', '/api/jdownloader/extracted/samples/delete'],
+    ]);
+    expect(world.sent.jdownloader[0]?.body).toEqual({ paths: ['Dune'], target: 'D:\\Filme', label: 'Filme' });
   });
 
   it('passes the premium accounts on and has them checked again', async () => {

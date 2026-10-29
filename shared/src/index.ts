@@ -493,6 +493,14 @@ export interface LibraryScanEntry {
   progress: number | null;
 }
 
+/** GET /api/media/libraries: Jellyfin's libraries with the folders they read, as Jellyfin names them. */
+export interface MediaLibrary {
+  id: string | null;
+  name: string;
+  type: string | null;
+  locations: string[];
+}
+
 /** POST /api/media/scan: one library, or all of them without an id. */
 export interface LibraryScanRequest {
   libraryId?: string;
@@ -929,6 +937,47 @@ export interface ExtractedFolder {
   error: string | null;
 }
 
+/** POST /api/jdownloader/extracted/move on the agent (from 0.27.0): entries of the extraction folder into a library folder. */
+export interface ExtractedMoveRequest {
+  /** Inside the extraction folder, with "/" between the names. */
+  paths: string[];
+  /** A folder of a Jellyfin library, as Jellyfin names it. */
+  target: string;
+  /** The library's name, to show. */
+  label: string;
+}
+
+/** Moving entries of the extraction folder into a library: renamed on the same disk, else copied and then deleted. */
+export interface ExtractedMove {
+  id: string;
+  paths: string[];
+  target: string;
+  label: string;
+  state: 'queued' | 'running' | 'done' | 'failed';
+  /** All that is moved, and how much of it is through. */
+  bytesTotal: number;
+  bytesDone: number;
+  /** While it copies; null when renamed or idle. */
+  bytesPerSecond: number | null;
+  /** Why and how much the copy is held back right now, as for conversions. */
+  copyThrottle: CopyThrottle | null;
+  /** The entries that could not be moved, and why; the others are moved. */
+  problems: Array<{ path: string; error: string }>;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/** GET /api/jdownloader/extracted/samples on the agent (from 0.27.0): files with "sample" in the name, anywhere below. */
+export interface ExtractedSamples {
+  samples: Array<{ path: string; bytes: number }>;
+}
+
+/** POST /api/jdownloader/extracted/samples/delete: what was deleted, and what not. */
+export interface ExtractedSamplesDeleted {
+  deleted: string[];
+  problems: Array<{ path: string; error: string }>;
+}
+
 export interface ExtractedEntry {
   name: string;
   /** Inside the extraction folder, with "/" between the names; to list a folder's content. */
@@ -1332,9 +1381,9 @@ export interface AgentStatus {
   resources?: { supported: boolean };
   /**
    * Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0,
-   * extracted before 0.26.0.
+   * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0.
    */
-  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean; extracted?: boolean };
+  jdownloader?: { enabled: boolean; linkgrabber?: boolean; accounts?: boolean; containers?: boolean; extracted?: boolean; moves?: boolean };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
   /** The work folder for conversions; missing before agent 0.17.0. */

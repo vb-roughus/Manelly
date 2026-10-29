@@ -16,6 +16,9 @@ import type {
   CopyLimit,
   DriveCredentialRequest,
   ExtractedFolder,
+  ExtractedMove,
+  ExtractedSamples,
+  ExtractedSamplesDeleted,
   ManellyStatus,
   HardwareTestResult,
   HistoryResponse,
@@ -39,6 +42,7 @@ import type {
   MediaDiagnosisResponse,
   MediaFacetsResponse,
   MediaIndexStatus,
+  MediaLibrary,
   MediaSearchResponse,
   NetworkDrives,
   NetworkInterfacesRequest,
@@ -662,6 +666,66 @@ export function useSaveJDownloaderSettings() {
     // Perhaps another extraction folder now.
     void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
     return status;
+  });
+}
+
+const moving = (moves: ExtractedMove[] | undefined) => Boolean(moves?.some((move) => move.state === 'running' || move.state === 'queued'));
+
+/** Moves from the extraction folder into a library (agent from 0.27.0): often while one runs, the folder anew once it ended. */
+export function useExtractedMoves(enabled: boolean) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ['jdownloader', 'moves'],
+    queryFn: ({ signal }) => fetchJson<ExtractedMove[]>('/api/agent/jdownloader/extracted/moves', signal),
+    refetchInterval: (q) => (moving(q.state.data) ? 2_000 : false),
+    enabled: useAgentLive(enabled),
+    retry: false,
+  });
+  const busy = query.data ? moving(query.data) : undefined;
+  const previous = useRef(busy);
+  useEffect(() => {
+    if (previous.current && busy === false) void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
+    previous.current = busy;
+  }, [busy, queryClient]);
+  return query;
+}
+
+export function useMoveExtracted() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: { paths: string[]; target: string }) => sendJson<ExtractedMove>('POST', '/api/agent/jdownloader/extracted/move', request),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'moves'] });
+      void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
+    },
+  });
+}
+
+/** Jellyfin's libraries with their folders. */
+export function useMediaLibraries(enabled: boolean) {
+  return useQuery({
+    queryKey: ['media', 'libraries'],
+    queryFn: ({ signal }) => fetchJson<MediaLibrary[]>('/api/media/libraries', signal),
+    enabled,
+  });
+}
+
+/** Files with "sample" in the name, anywhere in the extraction folder; looked for when asked, each time anew. */
+export function useExtractedSamples(enabled: boolean) {
+  return useQuery({
+    queryKey: ['jdownloader', 'samples'],
+    queryFn: ({ signal }) => fetchJson<ExtractedSamples>('/api/agent/jdownloader/extracted/samples', signal),
+    enabled: useAgentLive(enabled),
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+export function useDeleteSamples() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (paths: string[]) => sendJson<ExtractedSamplesDeleted>('POST', '/api/agent/jdownloader/extracted/samples/delete', { paths }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] }),
   });
 }
 

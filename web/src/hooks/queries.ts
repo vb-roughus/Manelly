@@ -17,6 +17,7 @@ import type {
   DriveCredentialRequest,
   ExtractedFolder,
   ExtractedMove,
+  ExtractedMoveTarget,
   ExtractedSamples,
   ExtractedSamplesDeleted,
   ManellyStatus,
@@ -29,6 +30,7 @@ import type {
   JDownloaderStatus,
   LibraryScanRequest,
   LibraryScanStatus,
+  LibrarySeries,
   LinkGrabberContainerAnswer,
   LinkGrabberMoveRequest,
   LinkGrabberStatus,
@@ -46,6 +48,7 @@ import type {
   MediaSearchResponse,
   NetworkDrives,
   NetworkInterfacesRequest,
+  SeriesSeason,
   WorkFolderStatus,
   SaveSettingsRequest,
   SaveSettingsResponse,
@@ -693,7 +696,7 @@ export function useExtractedMoves(enabled: boolean) {
 export function useMoveExtracted() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: { paths: string[]; target: string }) => sendJson<ExtractedMove>('POST', '/api/agent/jdownloader/extracted/move', request),
+    mutationFn: (request: ExtractedMoveTarget) => sendJson<ExtractedMove>('POST', '/api/agent/jdownloader/extracted/move', request),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'moves'] });
       void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
@@ -707,6 +710,24 @@ export function useMediaLibraries(enabled: boolean) {
     queryKey: ['media', 'libraries'],
     queryFn: ({ signal }) => fetchJson<MediaLibrary[]>('/api/media/libraries', signal),
     enabled,
+  });
+}
+
+/** The series of a library with their folders; null: none asked for. */
+export function useLibrarySeries(libraryId: string | null) {
+  return useQuery({
+    queryKey: ['media', 'libraries', libraryId, 'series'],
+    queryFn: ({ signal }) => fetchJson<LibrarySeries[]>(`/api/media/libraries/${encodeURIComponent(libraryId!)}/series`, signal),
+    enabled: libraryId !== null,
+  });
+}
+
+/** The seasons of a series that have a folder of their own; null: none asked for. */
+export function useSeriesSeasons(seriesId: string | null) {
+  return useQuery({
+    queryKey: ['media', 'series', seriesId, 'seasons'],
+    queryFn: ({ signal }) => fetchJson<SeriesSeason[]>(`/api/media/series/${encodeURIComponent(seriesId!)}/seasons`, signal),
+    enabled: seriesId !== null,
   });
 }
 

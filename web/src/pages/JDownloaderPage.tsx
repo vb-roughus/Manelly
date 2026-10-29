@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { addTransitionType, startTransition, useEffect, useRef, useState, ViewTransition, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type { JDownloaderAccount, JDownloaderAccounts, JDownloaderAccountState, LinkAvailability, LinkGrabberPackage, LinkGrabberStatus } from '@manelly/shared';
 import {
@@ -64,6 +64,8 @@ const TABS: Array<{ id: Tab; label: string; short?: string; icon: LucideIcon }> 
   { id: 'extracted', label: 'Extracted', icon: PackageOpen },
 ];
 const isTab = (value: string | null): value is Tab => TABS.some((entry) => entry.id === value);
+const TAB_ENTER = { 'tab-next': 'tab-in-next', 'tab-previous': 'tab-in-previous', default: 'none' };
+const TAB_EXIT = { 'tab-next': 'tab-out-next', 'tab-previous': 'tab-out-previous', default: 'none' };
 
 const button =
   'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait disabled:opacity-60';
@@ -107,6 +109,13 @@ export function JDownloaderPage() {
   const extracted = useExtracted('', enabled && extractedSupported && tab === 'extracted');
 
   const openSettings = () => change((next) => next.set('settings', ''));
+  // Animated by direction: a tab further right slides in from the right.
+  const selectTab = (id: Tab) =>
+    startTransition(() => {
+      const order = (entry: Tab) => TABS.findIndex((candidate) => candidate.id === entry);
+      addTransitionType(order(id) > order(tab) ? 'tab-next' : 'tab-previous');
+      change((next) => (id === 'downloads' ? next.delete('tab') : next.set('tab', id)));
+    });
 
   let content: ReactNode;
   if (agentSettings.data && !agentSettings.data.url) {
@@ -142,58 +151,61 @@ export function JDownloaderPage() {
     };
     content = (
       <>
-        <TabList tab={tab} counts={counts} onSelect={(id) => change((next) => (id === 'downloads' ? next.delete('tab') : next.set('tab', id)))} />
-        <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="mt-4">
-          {tab === 'downloads' ? (
-            !downloads.data ? (
-              downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
-            ) : (
-              <Card>{downloads.data.reachable ? <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable /> : <p className="text-sm text-critical">{downloads.data.error}</p>}</Card>
-            )
-          ) : tab === 'extracted' ? (
-            extractedSupported ? (
-              <ExtractedList onOpenSettings={openSettings} actions={Boolean(status.jdownloader?.moves)} />
-            ) : (
+        <TabList tab={tab} counts={counts} onSelect={selectTab} />
+        {/* The new tab slides in from the side it sits on (see index.css); other updates of the panel stay still. */}
+        <ViewTransition key={tab} enter={TAB_ENTER} exit={TAB_EXIT} default="none">
+          <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="mt-4">
+            {tab === 'downloads' ? (
+              !downloads.data ? (
+                downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+              ) : (
+                <Card>{downloads.data.reachable ? <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable /> : <p className="text-sm text-critical">{downloads.data.error}</p>}</Card>
+              )
+            ) : tab === 'extracted' ? (
+              extractedSupported ? (
+                <ExtractedList onOpenSettings={openSettings} actions={Boolean(status.jdownloader?.moves)} />
+              ) : (
+                <Message tone="critical">
+                  Der Agent auf {status.hostname} ist zu alt für den Entpack-Ordner (Version {status.version}). Unter{' '}
+                  <Link to="/server/agent" className="font-medium underline">
+                    Server → Agent
+                  </Link>{' '}
+                  «Aktualisieren & neu starten».
+                </Message>
+              )
+            ) : tab === 'accounts' ? (
+              !accountsSupported ? (
+                <Message tone="critical">
+                  Der Agent auf {status.hostname} ist zu alt für die Premium-Accounts (Version {status.version}). Unter{' '}
+                  <Link to="/server/agent" className="font-medium underline">
+                    Server → Agent
+                  </Link>{' '}
+                  «Aktualisieren & neu starten».
+                </Message>
+              ) : !accounts.data ? (
+                accounts.error ? <Message tone="critical">{accounts.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+              ) : (
+                <Accounts data={accounts.data} />
+              )
+            ) : !grabberSupported ? (
               <Message tone="critical">
-                Der Agent auf {status.hostname} ist zu alt für den Entpack-Ordner (Version {status.version}). Unter{' '}
-                <Link to="/server/agent" className="font-medium underline">
-                  Server → Agent
-                </Link>{' '}
-                «Aktualisieren & neu starten».
+                Der Agent auf {status.hostname} ist zu alt für den Link Grabber (Version {status.version}). Auf dem Jellyfin-Server <Code>git pull</Code> und{' '}
+                <Code>scripts\start-agent.cmd -Install</Code> ausführen.
               </Message>
-            )
-          ) : tab === 'accounts' ? (
-            !accountsSupported ? (
-              <Message tone="critical">
-                Der Agent auf {status.hostname} ist zu alt für die Premium-Accounts (Version {status.version}). Unter{' '}
-                <Link to="/server/agent" className="font-medium underline">
-                  Server → Agent
-                </Link>{' '}
-                «Aktualisieren & neu starten».
-              </Message>
-            ) : !accounts.data ? (
-              accounts.error ? <Message tone="critical">{accounts.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+            ) : !grabber.data ? (
+              grabber.error ? <Message tone="critical">{grabber.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
             ) : (
-              <Accounts data={accounts.data} />
-            )
-          ) : !grabberSupported ? (
-            <Message tone="critical">
-              Der Agent auf {status.hostname} ist zu alt für den Link Grabber (Version {status.version}). Auf dem Jellyfin-Server <Code>git pull</Code> und{' '}
-              <Code>scripts\start-agent.cmd -Install</Code> ausführen.
-            </Message>
-          ) : !grabber.data ? (
-            grabber.error ? <Message tone="critical">{grabber.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
-          ) : (
-            <LinkGrabber
-              status={grabber.data}
-              tooOld={
-                status.jdownloader?.containers
-                  ? null
-                  : `Der Agent auf ${status.hostname} ist zu alt für DLC-Dateien (Version ${status.version}). Unter Server → Agent «Aktualisieren & neu starten».`
-              }
-            />
-          )}
-        </div>
+              <LinkGrabber
+                status={grabber.data}
+                tooOld={
+                  status.jdownloader?.containers
+                    ? null
+                    : `Der Agent auf ${status.hostname} ist zu alt für DLC-Dateien (Version ${status.version}). Unter Server → Agent «Aktualisieren & neu starten».`
+                }
+              />
+            )}
+          </div>
+        </ViewTransition>
       </>
     );
   }

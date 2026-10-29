@@ -501,6 +501,32 @@ export interface MediaLibrary {
   locations: string[];
 }
 
+/** GET /api/media/libraries/:id/series: a series of a library, with the folder Jellyfin has it in. */
+export interface LibrarySeries {
+  id: string;
+  name: string;
+  year: number | null;
+  path: string;
+}
+
+/** GET /api/media/series/:id/seasons: a season with a folder of its own in the series folder. */
+export interface SeriesSeason {
+  id: string;
+  name: string;
+  index: number | null;
+  path: string;
+}
+
+/**
+ * POST /api/agent/jdownloader/extracted/move: entries of the extraction folder into a folder of a library – the
+ * library's own folder (`target`), or the folder of a series or season in it (`itemId`), as Jellyfin names it.
+ */
+export interface ExtractedMoveTarget {
+  paths: string[];
+  target: string;
+  itemId?: string;
+}
+
 /** POST /api/media/scan: one library, or all of them without an id. */
 export interface LibraryScanRequest {
   libraryId?: string;

@@ -184,12 +184,23 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname === '/api/jobs') return Response.json(jobs);
       return new Response(null, { status: 404 });
     }
-    if (url.pathname === '/Items') return Response.json({ Items: url.searchParams.get('ids') === 'movie' ? [movie(options.videoRangeType ?? 'DOVIWithEL', options.dvProfile ?? 7)] : [] });
+    if (url.pathname === '/Items') {
+      const [ids, parent, type] = ['ids', 'parentId', 'includeItemTypes'].map((key) => url.searchParams.get(key));
+      if (ids === 'movie') return Response.json({ Items: [movie(options.videoRangeType ?? 'DOVIWithEL', options.dvProfile ?? 7)] });
+      const series = { Id: 'aa11', Name: 'The Expanse', Type: 'Series', ProductionYear: 2015, Path: 'D:\\Serien\\The Expanse' };
+      const season = { Id: 'bb22', Name: 'Season 5', IndexNumber: 5, Type: 'Season', SeriesName: 'The Expanse', Path: 'D:\\Serien\\The Expanse\\Season 05' };
+      const elsewhere = { Id: 'cc33', Name: 'Woanders', Type: 'Series', Path: 'E:\\UHD\\Woanders' };
+      if (parent === 'f4' && type === 'Series') return Response.json({ Items: [series, { Id: 'dd44', Name: 'Ohne Ordner', Type: 'Series' }] });
+      // Episodes right in the series folder make a season without a folder of its own.
+      if (parent === 'aa11' && type === 'Season') return Response.json({ Items: [season, { Id: 'ee55', Name: 'Specials', Type: 'Season', Path: 'd:\\serien\\the expanse\\' }] });
+      return Response.json({ Items: [series, season, elsewhere].filter((item) => item.Id === ids) });
+    }
     if (url.pathname === '/Library/VirtualFolders') {
       return Response.json([
         { Name: 'Filme', ItemId: 'f1', CollectionType: 'movies', Locations: ['D:\\Filme'] },
         { Name: 'UHD', ItemId: 'f2', CollectionType: 'movies', Locations: ['E:\\UHD'] },
         { Name: 'Musik', ItemId: 'f3', CollectionType: 'music', Locations: ['D:\\Musik'] },
+        { Name: 'Serien', ItemId: 'f4', CollectionType: 'tvshows', Locations: ['D:\\Serien'] },
       ]);
     }
     if (url.pathname === '/Library/Media/Updated') {
@@ -455,6 +466,26 @@ describe('agent connection', () => {
       ['POST', '/api/jdownloader/extracted/samples/delete'],
     ]);
     expect(world.sent.jdownloader[0]?.body).toEqual({ paths: ['Dune'], target: 'D:\\Filme', label: 'Filme' });
+
+    // Into a series or season, with the folder Jellyfin has it in – and only inside the library chosen.
+    await move({ paths: ['The Expanse S06'], target: 'D:\\Serien', itemId: 'aa11' });
+    await move({ paths: ['S05E11.mkv'], target: 'D:\\Serien', itemId: 'bb22' });
+    expect(world.sent.jdownloader.filter((call) => call.path.endsWith('/move')).slice(1).map((call) => call.body)).toEqual([
+      { paths: ['The Expanse S06'], target: 'D:\\Serien\\The Expanse', label: 'Serien › The Expanse' },
+      { paths: ['S05E11.mkv'], target: 'D:\\Serien\\The Expanse\\Season 05', label: 'Serien › The Expanse › Season 5' },
+    ]);
+    const elsewhere = await move({ paths: ['Dune'], target: 'D:\\Serien', itemId: 'cc33' });
+    expect(elsewhere.json().error.message).toBe('«Woanders» liegt nicht im Ordner D:\\Serien von Serien.');
+    expect((await move({ paths: ['Dune'], target: 'D:\\Serien', itemId: 'ff99' })).json().error.message).toBe('Diese Serie oder Staffel kennt Jellyfin nicht (mehr).');
+    expect((await move({ paths: ['Dune'], target: 'D:\\Serien', itemId: '../x' })).statusCode).toBe(400);
+  });
+
+  it('lists the series of a library and their season folders, with the folders from Jellyfin', async () => {
+    const { app } = await setup();
+    expect((await app.inject('/api/media/libraries/f4/series')).json()).toEqual([{ id: 'aa11', name: 'The Expanse', year: 2015, path: 'D:\\Serien\\The Expanse' }]);
+    expect((await app.inject('/api/media/series/aa11/seasons')).json()).toEqual([{ id: 'bb22', name: 'Season 5', index: 5, path: 'D:\\Serien\\The Expanse\\Season 05' }]);
+    expect((await app.inject('/api/media/series/ff99/seasons')).statusCode).toBe(404);
+    expect((await app.inject('/api/media/libraries/a%2Fb/series')).statusCode).toBe(400);
   });
 
   it('passes the premium accounts on and has them checked again', async () => {

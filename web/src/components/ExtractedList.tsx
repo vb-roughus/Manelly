@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type FormEvent } from 'react';
-import type { ExtractedEntry, ExtractedMove, MediaLibrary } from '@manelly/shared';
+import type { ExtractedEntry, ExtractedMove, LibrarySeries, SeriesSeason } from '@manelly/shared';
 import {
   ChevronDown,
   CircleCheck,
@@ -19,10 +19,18 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useDeleteSamples, useExtracted, useExtractedMoves, useExtractedSamples, useMediaLibraries, useMoveExtracted } from '../hooks/queries';
+import {
+  useDeleteSamples,
+  useExtracted,
+  useExtractedMoves,
+  useExtractedSamples,
+  useLibrarySeries,
+  useMediaLibraries,
+  useMoveExtracted,
+  useSeriesSeasons,
+} from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
-import { LIBRARY_TYPE_LABELS } from '../lib/media';
 import { Message } from './ConnectionForm';
 import { Modal } from './Modal';
 
@@ -66,16 +74,22 @@ function details(entry: ExtractedEntry, now: number): string {
   ]);
 }
 
-/** The ticked entries, by path with their size; a ticked folder covers everything in it. */
+/** A ticked entry: its size, and whether it is a folder. */
+interface Ticked {
+  bytes: number;
+  folder: boolean;
+}
+
+/** The ticked entries, by path; a ticked folder covers everything in it. */
 interface Selection {
   enabled: boolean;
-  selected: Map<string, number>;
+  selected: Map<string, Ticked>;
   toggle: (entry: ExtractedEntry) => void;
 }
 
 const SelectionContext = createContext<Selection>({ enabled: false, selected: new Map(), toggle: () => {} });
 
-const coveredBy = (selected: Map<string, number>, path: string) => [...selected.keys()].some((other) => path.startsWith(`${other}/`));
+const coveredBy = (selected: Map<string, Ticked>, path: string) => [...selected.keys()].some((other) => path.startsWith(`${other}/`));
 
 /**
  * What lies in the folder JDownloader extracts into: newest first, folders open to show what is in them. Ticked
@@ -86,7 +100,7 @@ export function ExtractedList({ onOpenSettings, actions }: { onOpenSettings: () 
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
   const now = useNow(60_000);
-  const [selected, setSelected] = useState<Map<string, number>>(new Map());
+  const [selected, setSelected] = useState<Map<string, Ticked>>(new Map());
   const [dialog, setDialog] = useState<'move' | 'samples' | null>(null);
 
   function toggle(entry: ExtractedEntry) {
@@ -95,7 +109,7 @@ export function ExtractedList({ onOpenSettings, actions }: { onOpenSettings: () 
     else {
       // Ticking a folder takes in what was ticked inside it.
       for (const path of next.keys()) if (path.startsWith(`${entry.path}/`)) next.delete(path);
-      next.set(entry.path, entry.bytes);
+      next.set(entry.path, { bytes: entry.bytes, folder: entry.kind === 'directory' });
     }
     setSelected(next);
   }
@@ -117,7 +131,7 @@ export function ExtractedList({ onOpenSettings, actions }: { onOpenSettings: () 
   }
 
   const total = entries.reduce((sum, entry) => sum + entry.bytes, 0);
-  const selectedBytes = [...selected.values()].reduce((sum, bytes) => sum + bytes, 0);
+  const selectedBytes = [...selected.values()].reduce((sum, ticked) => sum + ticked.bytes, 0);
   const recentMoves = (moves.data ?? []).filter((move) => !move.finishedAt || now - Date.parse(move.finishedAt) < RECENT_MOVE_MS).slice(0, 4);
 
   return (
@@ -340,22 +354,76 @@ function readLastTarget(): string | null {
   }
 }
 
-/** Where the ticked entries go: one folder of a Jellyfin library, with its path. */
-function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, number>; onDone: () => void; onCancel: () => void }) {
+/** Whether `path` is `folder` or lies in it; Windows paths in any case. */
+function isInFolder(path: string, folder: string): boolean {
+  const fold = (value: string) => value.replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase();
+  const [inner, outer] = [fold(path), fold(folder)];
+  return inner === outer || inner.startsWith(`${outer}/`);
+}
+
+/** Lower case words only: "The.Expanse.S05" and "The Expanse (2015)" become comparable. */
+const words = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/** The series the ticked entries most likely belong to: the longest series name their names start with. */
+function guessSeries(series: LibrarySeries[], names: string[]): LibrarySeries | null {
+  let best: LibrarySeries | null = null;
+  for (const candidate of series) {
+    const plain = words(candidate.name);
+    const forms = [plain, words(candidate.name.replace(/\(\d{4}\)/, ''))];
+    const fits = names.every((name) => forms.some((form) => form && (words(name) === form || words(name).startsWith(`${form} `))));
+    if (fits && (!best || plain.length > words(best.name).length)) best = candidate;
+  }
+  return best;
+}
+
+/** For episode files of one season (S05E11 …), that season's folder, if the series has one. */
+function guessSeason(seasons: SeriesSeason[], entries: Array<{ name: string; folder: boolean }>): SeriesSeason | null {
+  if (entries.length === 0 || entries.some((entry) => entry.folder)) return null;
+  const numbers = new Set(entries.map((entry) => Number(/s(\d{1,2})e\d{1,3}/i.exec(entry.name)?.[1] ?? NaN)));
+  if (numbers.size !== 1) return null;
+  const [number] = [...numbers];
+  return seasons.find((season) => season.index === number) ?? null;
+}
+
+const fieldClass =
+  'block w-full rounded-lg border border-line bg-card px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent focus:ring-3 focus:ring-accent/20';
+
+/**
+ * Where the ticked entries go: a folder of a Jellyfin library – in a series library also into a series, and there
+ * perhaps into one of its season folders. Series and seasons come from Jellyfin, with the folders it has them in.
+ */
+function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked>; onDone: () => void; onCancel: () => void }) {
   const libraries = useMediaLibraries(true);
   const move = useMoveExtracted();
   const options = (libraries.data ?? []).flatMap((library) => library.locations.map((location) => ({ library, location })));
   const remembered = readLastTarget();
-  const [target, setTarget] = useState<string | null>(null);
-  const chosen = target ?? (options.some((option) => option.location === remembered) ? remembered : null);
+  const [location, setLocation] = useState<string | null>(null);
+  const chosen = location ?? (options.some((option) => option.location === remembered) ? remembered : null);
+  const option = options.find((candidate) => candidate.location === chosen) ?? null;
+  const seriesLibrary = option?.library.type === 'tvshows';
+
+  const entries = [...selected].map(([path, ticked]) => ({ name: lastName(path), folder: ticked.folder }));
+  const seriesList = useLibrarySeries(seriesLibrary && option?.library.id ? option.library.id : null);
+  const series = (seriesList.data ?? []).filter((candidate) => chosen && isInFolder(candidate.path, chosen));
+  // A choice counts for the folder it was made in; until then, the guess from the names.
+  const [seriesChoice, setSeriesChoice] = useState<{ location: string | null; id: string } | null>(null);
+  const seriesId = seriesChoice?.location === chosen ? seriesChoice.id : (guessSeries(series, entries.map((entry) => entry.name))?.id ?? '');
+  const show = series.find((candidate) => candidate.id === seriesId) ?? null;
+  const seasonList = useSeriesSeasons(show?.id ?? null);
+  const seasons = seasonList.data ?? [];
+  const [seasonChoice, setSeasonChoice] = useState<{ series: string; id: string } | null>(null);
+  const seasonId = show ? (seasonChoice?.series === show.id ? seasonChoice.id : (guessSeason(seasons, entries)?.id ?? '')) : '';
+  const season = seasons.find((candidate) => candidate.id === seasonId) ?? null;
+
+  const target = season?.path ?? show?.path ?? chosen;
   const paths = [...selected.keys()];
-  const bytes = [...selected.values()].reduce((sum, value) => sum + value, 0);
+  const bytes = [...selected.values()].reduce((sum, value) => sum + value.bytes, 0);
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!chosen) return;
     move.mutate(
-      { paths, target: chosen },
+      { paths, target: chosen, ...(season || show ? { itemId: (season ?? show)!.id } : {}) },
       {
         onSuccess: () => {
           try {
@@ -385,17 +453,82 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, number
         </ul>
       </div>
 
-      <fieldset>
-        <legend className="mb-2 font-medium">Wohin?</legend>
-        {libraries.error && <Message tone="critical">{libraries.error.message}</Message>}
-        {!libraries.data && !libraries.error && <div aria-busy className="h-24 animate-pulse rounded-xl bg-card-2" />}
-        {libraries.data && options.length === 0 && <p className="text-ink-2">Jellyfin hat keine Mediathek mit einem Ordner.</p>}
-        <div className="space-y-2">
-          {options.map(({ library, location }) => (
-            <LibraryOption key={`${library.id ?? library.name}-${location}`} library={library} location={location} checked={chosen === location} onChange={() => setTarget(location)} />
-          ))}
+      {libraries.error && <Message tone="critical">{libraries.error.message}</Message>}
+      {!libraries.data && !libraries.error && <div aria-busy className="h-10 animate-pulse rounded-lg bg-card-2" />}
+      {libraries.data && options.length === 0 && <p className="text-ink-2">Jellyfin hat keine Mediathek mit einem Ordner.</p>}
+      {options.length > 0 && (
+        <div>
+          <label htmlFor="move-library" className="mb-1.5 block font-medium">
+            Mediathek
+          </label>
+          <select id="move-library" value={chosen ?? ''} onChange={(event) => setLocation(event.target.value)} className={fieldClass}>
+            {!chosen && (
+              <option value="" disabled>
+                Mediathek wählen …
+              </option>
+            )}
+            {options.map(({ library, location: folder }) => (
+              <option key={`${library.id ?? library.name}-${folder}`} value={folder}>
+                {library.name} – {folder}
+              </option>
+            ))}
+          </select>
         </div>
-      </fieldset>
+      )}
+
+      {seriesLibrary && (
+        <div>
+          <label htmlFor="move-series" className="mb-1.5 block font-medium">
+            Serie
+          </label>
+          {seriesList.error ? (
+            <Message tone="critical">{seriesList.error.message}</Message>
+          ) : (
+            <select
+              id="move-series"
+              value={seriesId}
+              onChange={(event) => setSeriesChoice({ location: chosen, id: event.target.value })}
+              disabled={!seriesList.data}
+              className={fieldClass}
+            >
+              <option value="">{seriesList.data ? 'Keine – neu, direkt in die Mediathek' : 'Serien werden geladen …'}</option>
+              {series.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                  {candidate.year && !candidate.name.includes(String(candidate.year)) ? ` (${candidate.year})` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="mt-1.5 text-xs text-ink-2">
+            {show ? 'In den Ordner der Serie – einzelne Folgen oder ganze Staffelordner.' : 'Für eine neue Serie: Der Ordner kommt direkt in die Mediathek.'}
+          </p>
+        </div>
+      )}
+
+      {show && seasons.length > 0 && (
+        <div>
+          <label htmlFor="move-season" className="mb-1.5 block font-medium">
+            Staffel
+          </label>
+          <select id="move-season" value={seasonId} onChange={(event) => setSeasonChoice({ series: show.id, id: event.target.value })} className={fieldClass}>
+            <option value="">Keine – direkt in den Serienordner</option>
+            {seasons.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-xs text-ink-2">Für Folgen einer bestehenden Staffel; ein ganzer Staffelordner gehört in den Serienordner.</p>
+        </div>
+      )}
+
+      {target && (
+        <p className="rounded-lg bg-card-2/50 px-3 py-2 text-xs ring-1 ring-line">
+          <span className="text-ink-2">Ziel: </span>
+          <span className="font-mono break-all">{target}</span>
+        </p>
+      )}
 
       <p className="text-xs text-ink-3">
         Auf derselben Platte geht das sofort. Sonst kopiert der Agent – so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt
@@ -412,22 +545,6 @@ function MoveForm({ selected, onDone, onCancel }: { selected: Map<string, number
         </button>
       </div>
     </form>
-  );
-}
-
-function LibraryOption({ library, location, checked, onChange }: { library: MediaLibrary; location: string; checked: boolean; onChange: () => void }) {
-  const type = LIBRARY_TYPE_LABELS[library.type ?? 'mixed'] ?? library.type;
-  return (
-    <label className={clsx('flex cursor-pointer items-start gap-3 rounded-xl p-3 ring-1 transition', checked ? 'bg-accent/8 ring-accent/50' : 'ring-line hover:bg-card-2/60')}>
-      <input type="radio" name="extracted-target" checked={checked} onChange={onChange} className="mt-1 accent-accent" />
-      <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3">
-        <span>
-          <span className="font-medium">{library.name}</span>
-          {type && type.toLowerCase() !== library.name.toLowerCase() && <span className="text-xs text-ink-3"> · {type}</span>}
-        </span>
-        <span className="font-mono text-xs break-all text-ink-2">{location}</span>
-      </span>
-    </label>
   );
 }
 

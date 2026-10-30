@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import {
+  useDeleteExtracted,
   useDeleteSamples,
   useExtracted,
   useExtractedMoves,
@@ -99,13 +100,24 @@ const coveredBy = (selected: Map<string, Ticked>, path: string) => [...selected.
  * entries go into a library; samples can be looked for and deleted. The agent reads only that folder, and only while
  * this list is open.
  */
-export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenSettings: () => void; actions: boolean; newFolders: boolean }) {
+export function ExtractedList({
+  onOpenSettings,
+  actions,
+  newFolders,
+  deletable,
+}: {
+  onOpenSettings: () => void;
+  actions: boolean;
+  newFolders: boolean;
+  /** Agent from 0.30.0: ticked entries can be deleted. */
+  deletable: boolean;
+}) {
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
   const now = useNow(60_000);
   const [selected, setSelected] = useState<Map<string, Ticked>>(new Map());
   const [anchor, setAnchor] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<'move' | 'samples' | null>(null);
+  const [dialog, setDialog] = useState<'move' | 'samples' | 'delete' | null>(null);
 
   function toggle(entry: ExtractedEntry, siblings: ExtractedEntry[], shift: boolean) {
     const tick = !selected.has(entry.path);
@@ -176,6 +188,15 @@ export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenS
             <button type="button" onClick={() => setDialog('move')} disabled={selected.size === 0} className={primaryButton}>
               <FolderInput className="size-4" aria-hidden /> Move to Library
             </button>
+            <button
+              type="button"
+              onClick={() => setDialog('delete')}
+              disabled={selected.size === 0 || !deletable}
+              title={deletable ? undefined : 'Löschen geht ab Agent 0.30.0 – unter Server → Agent «Aktualisieren & neu starten».'}
+              className={button}
+            >
+              <Trash2 className="size-4" aria-hidden /> Löschen
+            </button>
             <button type="button" onClick={() => setDialog('samples')} className={button}>
               <ScanSearch className="size-4" aria-hidden /> Check for Samples
             </button>
@@ -187,7 +208,7 @@ export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenS
                 </button>
               </span>
             ) : (
-              <span className="text-xs text-ink-3">Ordner oder Dateien ankreuzen, um sie in eine Mediathek zu verschieben.</span>
+              <span className="text-xs text-ink-3">Ordner oder Dateien ankreuzen, um sie zu verschieben oder zu löschen – mit Shift einen ganzen Bereich.</span>
             )}
           </div>
         )}
@@ -222,6 +243,16 @@ export function ExtractedList({ onOpenSettings, actions, newFolders }: { onOpenS
         <MoveForm
           selected={selected}
           newFolders={newFolders}
+          onDone={() => {
+            setSelected(new Map());
+            setDialog(null);
+          }}
+          onCancel={() => setDialog(null)}
+        />
+      </Modal>
+      <Modal open={dialog === 'delete'} onClose={() => setDialog(null)} icon={Trash2} tone="critical" title="Im Entpack-Ordner löschen">
+        <DeleteForm
+          selected={selected}
           onDone={() => {
             setSelected(new Map());
             setDialog(null);
@@ -602,6 +633,73 @@ function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<st
         </button>
       </div>
     </form>
+  );
+}
+
+/** The ticked entries, deleted for good after a look; what could not be deleted stays listed. */
+function DeleteForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked>; onDone: () => void; onCancel: () => void }) {
+  const remove = useDeleteExtracted();
+  const paths = [...selected.keys()];
+  const bytes = [...selected.values()].reduce((sum, value) => sum + value.bytes, 0);
+  const folders = [...selected.values()].filter((value) => value.folder).length;
+  const result = remove.data;
+
+  if (result) {
+    return (
+      <div className="space-y-4 text-sm">
+        {result.deleted.length > 0 && (
+          <Message tone="good">{result.deleted.length === 1 ? '1 Eintrag gelöscht.' : `${result.deleted.length} Einträge gelöscht.`}</Message>
+        )}
+        <div>
+          <p className="font-medium">Nicht gelöscht</p>
+          <ul className="mt-1 space-y-1 text-xs">
+            {result.problems.map((problem) => (
+              <li key={problem.path} className="break-all">
+                <span className="text-ink">{problem.path}</span> <span className="text-critical">– {problem.error}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="flex justify-end">
+          <button type="button" onClick={onDone} className={button}>
+            Schliessen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 text-sm">
+      <p>
+        <span className="font-medium">
+          {paths.length === 1 ? '1 Eintrag' : `${paths.length} Einträge`} · {size(bytes)}
+        </span>{' '}
+        – {folders > 0 ? 'Ordner samt allem, was darin liegt. ' : ''}Das Löschen ist endgültig, es gibt keinen Papierkorb.
+      </p>
+      <ul className="max-h-48 overflow-y-auto rounded-xl bg-card-2/50 p-3 text-xs text-ink-2 ring-1 ring-line">
+        {paths.map((path) => (
+          <li key={path} className="flex items-start gap-1.5 break-all">
+            {selected.get(path)?.folder ? <Folder className="mt-px size-3.5 shrink-0 text-accent" aria-hidden /> : <File className="mt-px size-3.5 shrink-0 text-ink-3" aria-hidden />}
+            {path}
+          </li>
+        ))}
+      </ul>
+      {remove.isError && <Message tone="critical">{remove.error.message}</Message>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onCancel} className={button}>
+          Abbrechen
+        </button>
+        <button
+          type="button"
+          disabled={remove.isPending}
+          onClick={() => remove.mutate(paths, { onSuccess: (answer) => answer.problems.length === 0 && onDone() })}
+          className={dangerButton}
+        >
+          {remove.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Trash2 className="size-4" aria-hidden />} Endgültig löschen
+        </button>
+      </div>
+    </div>
   );
 }
 

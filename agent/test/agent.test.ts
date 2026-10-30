@@ -823,6 +823,7 @@ describe('JDownloader routes', () => {
       moves: true,
       newFolders: true,
       remove: true,
+      extractedDelete: true,
     });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
@@ -907,6 +908,10 @@ describe('JDownloader routes', () => {
     const deleted = await post('/api/jdownloader/extracted/samples/delete', { paths: ['Dune (2024)/Sample/dune-sample.mkv'] });
     expect(await deleted.json()).toEqual({ deleted: ['Dune (2024)/Sample/dune-sample.mkv'], problems: [] });
     expect((await post('/api/jdownloader/extracted/samples/delete', { paths: [] })).status).toBe(400);
+    expect((await post('/api/jdownloader/extracted/delete', { paths: [] })).status).toBe(400);
+    await writeFile(path.join(extracted, 'alt.nfo'), 'nfo');
+    const removed = await post('/api/jdownloader/extracted/delete', { paths: ['alt.nfo', '../filme'] });
+    expect(await removed.json()).toEqual({ deleted: ['alt.nfo'], problems: [{ path: '../filme', error: 'Ungültiger Ordner im Entpack-Ordner.' }] });
 
     expect((await post('/api/jdownloader/extracted/move', { ...move, target: path.join(root, 'gibts-nicht') })).status).toBe(404);
     expect((await post('/api/jdownloader/extracted/move', { ...move, label: '' })).status).toBe(400);

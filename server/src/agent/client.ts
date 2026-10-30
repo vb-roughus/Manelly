@@ -15,6 +15,7 @@ import type {
   ConversionSchedule,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
+  ExtractedDeleted,
   ExtractedFolder,
   ExtractedMove,
   ExtractedMoveRequest,
@@ -91,6 +92,8 @@ export interface AgentClient {
   moveExtracted(request: ExtractedMoveRequest): Promise<ExtractedMove>;
   extractedSamples(): Promise<ExtractedSamples>;
   deleteExtractedSamples(paths: string[]): Promise<ExtractedSamplesDeleted>;
+  /** From agent 0.30.0: entries of the extraction folder, for good. */
+  deleteExtracted(paths: string[]): Promise<ExtractedDeleted>;
   /** No ids: all of them. */
   refreshJDownloaderAccounts(ids: number[]): Promise<{ refreshing: number }>;
   /** Recorded load and streams between two times (milliseconds since the epoch). */
@@ -187,6 +190,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     // Looks through the whole extraction folder.
     extractedSamples: () => call('GET', '/api/jdownloader/extracted/samples', undefined, 60_000),
     deleteExtractedSamples: (paths) => call('POST', '/api/jdownloader/extracted/samples/delete', { paths }, 60_000),
+    deleteExtracted: (paths) => call('POST', '/api/jdownloader/extracted/delete', { paths }, 120_000),
     refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),
     // A long range means reading many days of records.
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),

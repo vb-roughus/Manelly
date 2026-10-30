@@ -16,6 +16,7 @@ import type {
   CopyLimit,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
+  ExtractedDeleted,
   ExtractedFolder,
   ExtractedMove,
   ExtractedMoveTarget,
@@ -760,6 +761,15 @@ export function useDeleteSamples() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (paths: string[]) => sendJson<ExtractedSamplesDeleted>('POST', '/api/agent/jdownloader/extracted/samples/delete', { paths }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] }),
+  });
+}
+
+/** From agent 0.30.0: entries of the extraction folder, deleted for good. */
+export function useDeleteExtracted() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (paths: string[]) => sendJson<ExtractedDeleted>('POST', '/api/agent/jdownloader/extracted/delete', { paths }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] }),
   });
 }

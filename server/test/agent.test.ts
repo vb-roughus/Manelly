@@ -522,6 +522,16 @@ describe('agent connection', () => {
     ]);
   });
 
+  it('deletes in the extraction folder through the agent', async () => {
+    const { app, world } = await setup();
+    const remove = (payload: unknown) => app.inject({ method: 'POST', url: '/api/agent/jdownloader/extracted/delete', payload: payload as object });
+    const deleted = await remove({ paths: ['Dune', 'readme.nfo'] });
+    expect(deleted.json()).toEqual({ deleted: ['Dune', 'readme.nfo'], problems: [] });
+    expect((await remove({ paths: [] })).statusCode).toBe(400);
+    expect((await remove({ paths: [''] })).statusCode).toBe(400);
+    expect(world.sent.jdownloader).toEqual([{ method: 'POST', path: '/api/jdownloader/extracted/delete', body: { paths: ['Dune', 'readme.nfo'] } }]);
+  });
+
   it('removes from the link grabber and the downloads through the agent', async () => {
     const { app, world } = await setup();
     const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url: `/api/agent/jdownloader/${url}`, payload: payload as object });

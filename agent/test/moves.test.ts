@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ExtractedMove } from '@manelly/shared';
-import { deleteSamples, findSamples } from '../src/extracted.js';
+import { deleteExtracted, deleteSamples, findSamples } from '../src/extracted.js';
 import { createMover, type MoverOptions } from '../src/moves.js';
 
 let root: string;
@@ -118,6 +118,35 @@ describe('moving into a library', () => {
     expect(done.state).toBe('failed');
     expect(done.problems[0]?.error).toMatch(/^Den Ordner .*Dark kann der Agent nicht anlegen: /);
     expect(await readdir(extracted)).toContain('Arrival.mkv');
+  });
+});
+
+describe('deleting in the extraction folder', () => {
+  it('deletes files and whole folders, a folder and something in it once', async () => {
+    const result = await deleteExtracted(extracted, ['Dune (2024)/Dune.mkv', 'Dune (2024)', 'Arrival.mkv', 'Arrival.mkv']);
+    expect(result).toEqual({ deleted: ['Dune (2024)', 'Arrival.mkv'], problems: [] });
+    expect(await readdir(extracted)).toEqual([]);
+  });
+
+  it('deletes nothing outside the folder, nor the folder itself, nor what is being moved', async () => {
+    const result = await deleteExtracted(extracted, ['../filme', '', 'Weg.mkv', 'Dune (2024)/Sample'], ['Dune (2024)']);
+    expect(result).toEqual({
+      deleted: [],
+      problems: [
+        { path: '../filme', error: 'Ungültiger Ordner im Entpack-Ordner.' },
+        { path: '', error: 'Einen Eintrag im Entpack-Ordner erwartet.' },
+        { path: 'Weg.mkv', error: 'Gibt es im Entpack-Ordner nicht (mehr).' },
+        { path: 'Dune (2024)/Sample', error: 'Wird gerade verschoben – erst danach löschen.' },
+      ],
+    });
+    expect((await readdir(extracted)).sort()).toEqual(['Arrival.mkv', 'Dune (2024)']);
+  });
+
+  it('deletes a link, not what it points to', async () => {
+    await writeFile(path.join(library, 'keep.mkv'), 'keep');
+    await symlink(library, path.join(extracted, 'Verknüpfung'));
+    expect((await deleteExtracted(extracted, ['Verknüpfung'])).deleted).toEqual(['Verknüpfung']);
+    expect(await readdir(library)).toEqual(['keep.mkv']);
   });
 });
 

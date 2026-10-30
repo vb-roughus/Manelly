@@ -98,8 +98,9 @@ Knopf. Ist der Scan fertig – auch einer aller Mediatheken, der in Jellyfin sel
 Medien sofort neu ein, sodass neue Titel gleich auftauchen. Den Scan einer einzelnen Mediathek kann Jellyfin nicht
 abbrechen.
 
-**Einzelne Serie scannen:** Bei Serien-Mediatheken bietet das Menü zusätzlich **Einzelne Serie …**: Serie und, wenn sie
-Staffelordner hat, auf Wunsch eine Staffel wählen (beides aus Jellyfin, mit dem Ordner dazu) – Jellyfin sucht dann nur
+**Einzelne Serie scannen:** Bei Serien-Mediatheken bietet das Menü zusätzlich **Einzelne Serie …**: Serie – im Feld
+tippen sucht sie, alle getippten Wörter in beliebiger Reihenfolge, ohne auf Gross-/Kleinschreibung und Akzente zu achten;
+Pfeiltasten und Enter wählen – und, wenn sie Staffelordner hat, auf Wunsch eine Staffel wählen (beides aus Jellyfin, mit dem Ordner dazu) – Jellyfin sucht dann nur
 in diesem Ordner nach neuen, geänderten und gelöschten Dateien, meist in Sekunden statt Minuten. Dasselbe macht
 «Diese Serie scannen» in der Detailansicht einer Serie. Jellyfin meldet für diesen Scan keinen Fortschritt; Manelly liest
 die Medien nach einer halben und nach zwei Minuten neu ein. Eine ganz neue Serie, deren Ordner Jellyfin noch nicht

@@ -12,8 +12,8 @@ import { manellyRestartSummary } from '../lib/manellyRestart';
 import { restartsNow, type PendingRestart } from '../lib/restart';
 import { Message } from './ConnectionForm';
 
-const AGENT_PAGE = '/server/agent';
-const MANELLY_PAGE = '/server/general';
+/** Where restarts and updates are asked for, and followed in detail. */
+const UPDATES_PAGE = '/settings';
 
 /** Who restarts, for the sentences: «Der Agent startet neu», «baut den Agent». */
 export interface RestartSubject {
@@ -142,16 +142,14 @@ export function RestartNotices() {
     <>
       <RestartNotice
         label="Manelly"
-        page={MANELLY_PAGE}
-        hidden={path === MANELLY_PAGE}
+        hidden={path === UPDATES_PAGE}
         pending={manelly.pending ? pendingText(manelly.pending, MANELLY) : null}
         summary={manelly.finished ? manellyRestartSummary(manelly.finished) : null}
         onDismiss={manellyRestart.dismiss}
       />
       <RestartNotice
         label="Agent"
-        page={AGENT_PAGE}
-        hidden={path === AGENT_PAGE}
+        hidden={path === UPDATES_PAGE}
         pending={agent.pending ? pendingText(agent.pending, AGENT) : null}
         summary={agent.finished ? agentRestartSummary(agent.finished) : null}
         onDismiss={agentRestart.dismiss}
@@ -162,14 +160,12 @@ export function RestartNotices() {
 
 function RestartNotice({
   label,
-  page,
   hidden,
   pending,
   summary,
   onDismiss,
 }: {
   label: string;
-  page: string;
   hidden: boolean;
   pending: { title: string; detail: string } | null;
   summary: { ok: boolean; text: string } | null;
@@ -177,8 +173,8 @@ function RestartNotice({
 }) {
   const ok = summary?.ok ?? false;
   const link = (
-    <Link to={page} className="font-medium whitespace-nowrap text-accent hover:underline">
-      {page === AGENT_PAGE ? 'Zu Server → Agent' : 'Zu Server → Allgemein'}
+    <Link to={UPDATES_PAGE} className="font-medium whitespace-nowrap text-accent hover:underline">
+      Zu den Updates
     </Link>
   );
 

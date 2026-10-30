@@ -110,8 +110,8 @@ kennt, findet nur der Scan der Mediathek.
 
 Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** und **JDownloader**.
 
-- **Allgemein – Manelly selbst:** Stand (Git-Commit), Rechner, Prozess-ID, Startzeit und das letzte Update; Manelly
-  **neu starten** oder **aktualisieren und neu starten** – siehe [Manelly aktualisieren](#manelly-aktualisieren)
+- **Allgemein – Manelly selbst:** Stand (Git-Commit), Rechner, Prozess-ID, Startzeit und das letzte Update; neu
+  starten und aktualisieren unter **Einstellungen → Updates** – siehe [Manelly aktualisieren](#manelly-aktualisieren)
 - **Allgemein – Mediatheken:** die Mediatheken von Jellyfin mit ihren Ordnern, wann der letzte Scan aller Mediatheken
   lief und wie er ausging; den Scan aller Mediatheken **starten** und **abbrechen**, mit Fortschritt in Prozent; mit
   «Scannen» bei einer Mediathek nur diese scannen, mit eigenem Fortschritt; bei Serien-Mediatheken mit «Serie …» nur
@@ -125,11 +125,11 @@ Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** 
   Grafikeinheit wirklich funktionieren
 - **Agent:** Verbindung zum [Agent](#agent-auf-dem-jellyfin-server-windows) einrichten, seine Werkzeuge, Version,
   Prozess-ID, Startzeit, die Netzlaufwerke (mit **Anmeldedaten fürs NAS**, siehe Agent-Installation) und das letzte
-  Update sehen, ihn **neu starten**, **aktualisieren und neu starten** oder
-  **beenden**. Aktualisieren sucht zuerst eine neuere Version (`git fetch`) und lässt alles, wie es ist, wenn es keine
-  gibt; sonst holt es sie mit `git pull`, installiert bei Bedarf die Abhängigkeiten und baut den Agent, **während er
-  weiterläuft**, und startet ihn erst danach neu. Jeder Schritt erscheint auf der Seite, auch nach einem Neuladen oder in
-  einem anderen Browser; klappt etwas nicht, läuft die bisherige Version weiter
+  Update sehen und ihn **beenden**. Neu starten und aktualisieren unter **Einstellungen → Updates**: Aktualisieren
+  sucht zuerst eine neuere Version (`git fetch`) und lässt alles, wie es ist, wenn es keine gibt; sonst holt es sie mit
+  `git pull`, installiert bei Bedarf die Abhängigkeiten und baut den Agent, **während er weiterläuft**, und startet ihn
+  erst danach neu. Jeder Schritt erscheint dort, auch nach einem Neuladen oder in einem anderen Browser; klappt etwas
+  nicht, läuft die bisherige Version weiter
 - **JDownloader:** Downloads und Link Grabber, Einstellungen hinter dem Zahnrad – siehe [Downloads](#downloads-jdownloader-mit-agent)
 
 ### Umwandlungen (mit Agent)
@@ -320,7 +320,7 @@ installieren, falls es fehlt), installiert die Abhängigkeiten, baut Manelly, st
 <http://localhost:3000> im Browser. Dort richtest du beim ersten Start die Verbindung zu Jellyfin ein. Beenden mit
 `Ctrl+C`, ein anderer Port mit `PORT=3001 ./scripts/start-mac.sh`.
 
-Update: in Manelly unter **Server → Allgemein** «Aktualisieren & neu starten» (siehe
+Update: in Manelly unter **Einstellungen → Updates** «Aktualisieren & neu starten» oder «Alles aktualisieren» (siehe
 [Manelly aktualisieren](#manelly-aktualisieren)), oder von Hand `git pull` und das Skript erneut starten. Die
 Einstellungen liegen in `data/` und bleiben erhalten.
 
@@ -345,14 +345,15 @@ Windows fragt dabei eventuell nach Administratorrechten), installiert die Abhän
 - Beim ersten Start fragt die Windows-Firewall eventuell, ob Node.js Netzwerkzugriff erhält. Für den Zugriff von anderen
   Geräten zulassen; nur auf diesem PC funktioniert Manelly auch ohne.
 
-Update: in Manelly unter **Server → Allgemein** «Aktualisieren & neu starten» (siehe
+Update: in Manelly unter **Einstellungen → Updates** «Aktualisieren & neu starten» oder «Alles aktualisieren» (siehe
 [Manelly aktualisieren](#manelly-aktualisieren)), oder von Hand `git pull` und das Skript erneut starten. Die
 Einstellungen liegen in `data\` und bleiben erhalten.
 
 ## Manelly aktualisieren
 
-Läuft Manelly über `scripts/start-mac.sh` oder `scripts\start-windows.cmd`, aktualisiert es sich unter **Server →
-Allgemein** selbst:
+Läuft Manelly über `scripts/start-mac.sh` oder `scripts\start-windows.cmd`, aktualisiert es sich unter
+**Einstellungen → Updates** (unten links im Menü) selbst. **«Alles aktualisieren»** zuoberst aktualisiert Manelly und
+den Agent gleichzeitig; jeder für sich geht mit seinem eigenen «Aktualisieren & neu starten»:
 
 1. **Neuere Version suchen** (`git fetch`): Gibt es keine, bleibt alles, wie es ist – kein Neustart.
 2. **Änderungen holen** (`git pull`), **Abhängigkeiten installieren** (`npm ci`, nur wenn sie sich geändert haben) und
@@ -418,7 +419,8 @@ dem Jellyfin läuft:
 - Neu starten und Aktualisieren fragen nach, wenn gerade eine Umwandlung läuft (ab Agent 0.22.0 auch der Agent selbst):
   Ein Neustart unterbricht sie; danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Startet eine Umwandlung erst, während
   ein Update baut, wartet der Neustart, bis sie fertig ist
-- Update: in Manelly unter **Server → Agent** «Aktualisieren & neu starten» (ab Agent 0.9.0). Ab Agent 0.11.0 sucht
+- Update: in Manelly unter **Einstellungen → Updates** «Aktualisieren & neu starten» beim Agent oder «Alles
+  aktualisieren» (ab Agent 0.9.0). Ab Agent 0.11.0 sucht
   der Agent zuerst eine neuere Version und startet nur neu, wenn es eine gibt; `git pull`, falls nötig `npm ci`, und den
   Build erledigt er, während er weiterläuft, und meldet dabei jeden Schritt. Neu starten lässt ihn danach
   `scripts\run-agent.ps1`, unter dem er läuft (ältere Agents aktualisiert dieses Skript nach dem Beenden). Scheitert

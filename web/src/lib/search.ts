@@ -1,6 +1,10 @@
 /** Lower case without accents: "Haus des Geldes" and "Haus des Géldes" read the same. */
 export const plain = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
+/** A series as the dropdowns show it: «Dark (2017)», the year only where the name lacks it. */
+export const seriesLabel = (series: { name: string; year: number | null }) =>
+  series.year && !series.name.includes(String(series.year)) ? `${series.name} (${series.year})` : series.name;
+
 /** The items whose label holds every word typed, in any order: "expanse the" finds "The Expanse". */
 export function filterByWords<T extends { label: string }>(items: readonly T[], query: string): T[] {
   const words = plain(query).split(/\s+/).filter(Boolean);

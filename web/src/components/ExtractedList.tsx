@@ -35,8 +35,10 @@ import { useNow } from '../hooks/useNow';
 import { guessSeriesName, isFolderName, joinFolder, VIDEO } from '../lib/extracted';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 import { range } from '../lib/packageSelection';
+import { seriesLabel } from '../lib/search';
 import { Message } from './ConnectionForm';
 import { Modal } from './Modal';
+import { SearchSelect } from './SearchSelect';
 import { keepTextOnShift } from './Tick';
 
 const TEXT = /\.(nfo|txt|srt|ass|ssa|sub|idx|sfv|md5)$/i;
@@ -569,21 +571,15 @@ function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<st
           {seriesList.error ? (
             <Message tone="critical">{seriesList.error.message}</Message>
           ) : (
-            <select
+            <SearchSelect
               id="move-series"
+              pinned={{ value: '', label: newFolders ? 'Neue Serie …' : 'Keine – neu, direkt in die Mediathek' }}
+              options={series.map((candidate) => ({ value: candidate.id, label: seriesLabel(candidate) }))}
               value={seriesId}
-              onChange={(event) => setSeriesChoice({ location: chosen, id: event.target.value })}
+              onChange={(id) => setSeriesChoice({ location: chosen, id })}
               disabled={!seriesList.data}
-              className={fieldClass}
-            >
-              <option value="">{!seriesList.data ? 'Serien werden geladen …' : newFolders ? 'Neue Serie …' : 'Keine – neu, direkt in die Mediathek'}</option>
-              {series.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                  {candidate.year && !candidate.name.includes(String(candidate.year)) ? ` (${candidate.year})` : ''}
-                </option>
-              ))}
-            </select>
+              placeholder={seriesList.data ? 'Serie suchen …' : 'Serien werden geladen …'}
+            />
           )}
           <p className="mt-1.5 text-xs text-ink-2">
             {show

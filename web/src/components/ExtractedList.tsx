@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type FormEvent } from 'react';
-import type { ExtractedEntry, ExtractedMove, LibrarySeries, SeriesSeason } from '@manelly/shared';
+import type { ExtractedEntry, ExtractedMove, LibrarySeries, MoveScan, SeriesSeason } from '@manelly/shared';
 import {
   ChevronDown,
   CircleCheck,
@@ -10,6 +10,7 @@ import {
   Folder,
   FolderInput,
   FolderOpen,
+  FolderSearch,
   LoaderCircle,
   RefreshCw,
   ScanSearch,
@@ -364,6 +365,7 @@ function MoveRow({ move, now }: { move: ExtractedMove; now: number }) {
             `${Math.round(share * 100)} % von ${size(move.bytesTotal)}`,
             move.bytesPerSecond !== null && formatBitrate(move.bytesPerSecond * 8),
             move.copyThrottle && `höchstens ${formatBitrate(move.copyThrottle.bytesPerSecond * 8)}${move.copyThrottle.streams ? ', wegen Streams' : ''}`,
+            move.scan && `danach Scan von «${move.scan.name}»`,
           ])}
         </p>
       </li>
@@ -384,7 +386,31 @@ function MoveRow({ move, now }: { move: ExtractedMove; now: number }) {
           {lastName(problem.path)}: {problem.error}
         </p>
       ))}
+      {move.scan && <MoveScanLine scan={move.scan} />}
     </li>
+  );
+}
+
+/** What became of the scan after a move («Verschieben & scannen»). */
+function MoveScanLine({ scan }: { scan: MoveScan }) {
+  if (scan.state === 'waiting') {
+    return (
+      <p className="mt-0.5 ml-5 flex items-center gap-1.5 text-ink-2">
+        <LoaderCircle className="size-3 animate-spin text-accent" aria-hidden /> Scan von «{scan.name}» wird gestartet …
+      </p>
+    );
+  }
+  if (scan.state === 'started') {
+    return (
+      <p className="mt-0.5 ml-5 flex items-center gap-1.5 text-ink-2">
+        <FolderSearch className="size-3 text-accent" aria-hidden /> Jellyfin scannt «{scan.name}».
+      </p>
+    );
+  }
+  return (
+    <p className="mt-0.5 ml-5 text-critical">
+      Kein Scan von «{scan.name}»: {scan.error}
+    </p>
   );
 }
 
@@ -467,11 +493,17 @@ function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<st
   const paths = [...selected.keys()];
   const bytes = [...selected.values()].reduce((sum, value) => sum + value.bytes, 0);
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
+  const ready = Boolean(chosen) && !move.isPending && !(seriesLibrary && !seriesList.data) && !(newSeries && !isFolderName(folderName));
+
+  /** With `scan`, Jellyfin scans the series or season once the move is done. */
+  function send(scan: boolean) {
     if (!chosen) return;
     move.mutate(
-      { paths, target: chosen, ...(newSeries ? { newFolder: folderName } : season || show ? { itemId: (season ?? show)!.id } : {}) },
+      {
+        paths,
+        target: chosen,
+        ...(newSeries ? { newFolder: folderName } : season || show ? { itemId: (season ?? show)!.id, ...(scan ? { scan } : {}) } : {}),
+      },
       {
         onSuccess: () => {
           try {
@@ -483,6 +515,11 @@ function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<st
         },
       },
     );
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    send(false);
   }
 
   return (
@@ -622,15 +659,27 @@ function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<st
         Auf derselben Platte geht das sofort. Sonst kopiert der Agent – so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt
         – und löscht erst danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet.
       </p>
+      {show && (
+        <p className="text-xs text-ink-3">
+          «Verschieben & scannen»: Ist das Verschieben fertig, scannt Jellyfin nur {season ? 'diese Staffel' : 'diese Serie'} – das übernimmt Manelly,
+          auch wenn der Browser zu ist.
+        </p>
+      )}
       {move.isError && <Message tone="critical">{move.error.message}</Message>}
       <div className="flex flex-wrap justify-end gap-2">
         <button type="button" onClick={onCancel} className={button}>
           Abbrechen
         </button>
-        <button type="submit" disabled={!chosen || move.isPending || (seriesLibrary && !seriesList.data) || (newSeries && !isFolderName(folderName))} className={primaryButton}>
-          {move.isPending && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
+        <button type="submit" disabled={!ready} className={show ? button : primaryButton}>
+          {move.isPending && move.variables?.scan !== true && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
           Verschieben
         </button>
+        {show && (
+          <button type="button" onClick={() => send(true)} disabled={!ready} className={primaryButton}>
+            {move.isPending && move.variables?.scan === true ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <FolderSearch className="size-4" aria-hidden />}
+            Verschieben & scannen
+          </button>
+        )}
       </div>
     </form>
   );

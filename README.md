@@ -255,7 +255,9 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     (ab Agent 0.28.0; vorgeschlagen aus dem Namen, z. B. «Dark.2017.S01.German.1080p» → «Dark (2017)»): Der Agent legt
     ihn in der Mediathek an und verschiebt die Einträge hinein. Gibt es die Serie in Jellyfin schon, weist der Dialog
     darauf hin. Mit einem älteren Agent kommt der Ordner als neue Serie direkt in die Mediathek. Unten steht der
-    Zielordner. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
+    Zielordner. Bei einer bestehenden Serie gibt es zusätzlich **«Verschieben & scannen»**: Ist das Verschieben fertig,
+    lässt Manelly Jellyfin genau diese Serie oder Staffel scannen – der Manelly-Server wartet darauf, auch wenn der
+    Browser zu ist, und die Liste zeigt, ob der Scan lief. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
     Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt) und löscht erst
     danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich
     von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.

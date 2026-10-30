@@ -23,7 +23,10 @@ export function isFolderName(name: string): boolean {
  * always as Jellyfin names them, never a path from the browser – or a new folder right in the library's folder. The
  * label tells where, e.g. "Serien › The Expanse".
  */
-export async function resolveMoveTarget(client: JellyfinClient, request: ExtractedMoveTarget): Promise<{ target: string; label: string; create?: true }> {
+export async function resolveMoveTarget(
+  client: JellyfinClient,
+  request: ExtractedMoveTarget,
+): Promise<{ target: string; label: string; create?: true; title?: string }> {
   if (request.newFolder !== undefined && request.itemId) throw new AppError('BAD_REQUEST', 'Entweder eine Serie oder Staffel oder einen neuen Ordner erwartet.');
   const library = (await client.getLibraries()).find((candidate) => (candidate.Locations ?? []).includes(request.target));
   if (!library) throw new AppError('BAD_REQUEST', 'Das Ziel ist kein Ordner einer Mediathek in Jellyfin.');
@@ -41,5 +44,5 @@ export async function resolveMoveTarget(client: JellyfinClient, request: Extract
   if (!item || (item.Type !== 'Series' && item.Type !== 'Season')) throw new AppError('BAD_REQUEST', 'Diese Serie oder Staffel kennt Jellyfin nicht (mehr).');
   if (!item.Path || !isInFolder(item.Path, request.target)) throw new AppError('BAD_REQUEST', `«${item.Name ?? 'Serie'}» liegt nicht im Ordner ${request.target} von ${name}.`);
   const title = item.Type === 'Season' ? `${item.SeriesName ?? 'Serie'} › ${item.Name ?? 'Staffel'}` : (item.Name ?? 'Serie');
-  return { target: item.Path, label: `${name} › ${title}` };
+  return { target: item.Path, label: `${name} › ${title}`, title };
 }

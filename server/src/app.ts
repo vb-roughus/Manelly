@@ -77,7 +77,7 @@ export async function buildApp({ config, connection, mediaStore, agent, manelly 
   await app.register(mediaRoutes, { prefix: '/api/media', connection, store, scanner });
   await app.register(collectionsRoutes, { prefix: '/api/collections', connection, store });
   const agentConnection = agent ?? (await createAgentConnection({ store: noAgentStore }));
-  await app.register(agentRoutes, { prefix: '/api/agent', connection, store, agent: agentConnection });
+  await app.register(agentRoutes, { prefix: '/api/agent', connection, store, agent: agentConnection, scanner });
   await app.register(serverRoutes, { prefix: '/api/server', connection, agent: agentConnection, logs });
   await app.register(manellyRoutes, { prefix: '/api/manelly', manelly });
 

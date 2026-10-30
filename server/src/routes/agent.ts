@@ -41,16 +41,23 @@ import type {
   WorkFolderStatus,
 } from '@manelly/shared';
 import type { AgentClient } from '../agent/client.js';
+import { createMoveScans } from '../agent/moveScans.js';
 import { resolveMoveTarget } from '../agent/moveTarget.js';
 import type { AgentConnection } from '../agent/connection.js';
 import { normalizeAgentUrl } from '../agent/connection.js';
 import { conversionOptions, createConversionWatcher, requireAgent, startConversion } from '../agent/conversions.js';
 import type { JellyfinConnection } from '../connection.js';
 import { AppError, requireClient } from '../errors.js';
+import type { LibraryScanner } from '../media/scan.js';
 import type { MediaIndexStore } from '../media/store.js';
 
-export async function agentRoutes(app: FastifyInstance, opts: { connection: JellyfinConnection; agent: AgentConnection; store: MediaIndexStore }) {
-  const { connection, agent, store } = opts;
+export async function agentRoutes(
+  app: FastifyInstance,
+  opts: { connection: JellyfinConnection; agent: AgentConnection; store: MediaIndexStore; scanner: LibraryScanner },
+) {
+  const { connection, agent, store, scanner } = opts;
+  const moveScans = createMoveScans(agent, scanner, { log: app.log });
+  app.addHook('onClose', async () => moveScans.stop());
   const watcher = createConversionWatcher({ agent, jellyfin: () => connection.client, store, log: (message) => app.log.warn(message) });
   app.addHook('onClose', async () => watcher.stop());
 
@@ -446,7 +453,7 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
 
   app.get('/jdownloader/accounts', async (): Promise<JDownloaderAccounts> => requireAgent(agent).jdownloaderAccounts());
 
-  app.get('/jdownloader/extracted/moves', async (): Promise<ExtractedMove[]> => requireAgent(agent).extractedMoves());
+  app.get('/jdownloader/extracted/moves', async (): Promise<ExtractedMove[]> => moveScans.annotate(await requireAgent(agent).extractedMoves()));
 
   // Only into a folder of a Jellyfin library, or of a series or season in it: the agent gets the path from Jellyfin.
   app.post<{ Body: ExtractedMoveTarget }>(
@@ -462,16 +469,20 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
             target: { type: 'string', minLength: 1, maxLength: 1000 },
             itemId: { type: 'string', pattern: '^[0-9a-fA-F-]{1,64}$' },
             newFolder: { type: 'string', minLength: 1, maxLength: 200 },
+            scan: { type: 'boolean' },
           },
         },
       },
     },
     async (request, reply) => {
       const client = requireAgent(agent);
-      const { target, label, create } = await resolveMoveTarget(requireClient(connection.client), request.body);
+      const { itemId, scan } = request.body;
+      if (scan && !itemId) throw new AppError('BAD_REQUEST', 'Scannen geht nur nach dem Verschieben in eine Serie oder Staffel.');
+      const { target, label, create, title } = await resolveMoveTarget(requireClient(connection.client), request.body);
       const move = await client.moveExtracted({ paths: request.body.paths, target, label, ...(create ? { create } : {}) });
-      request.log.info(`Aus dem Entpack-Ordner nach ${label} (${target}): ${request.body.paths.join(', ')}`);
-      return reply.status(202).send(move);
+      request.log.info(`Aus dem Entpack-Ordner nach ${label} (${target}): ${request.body.paths.join(', ')}${scan ? ' – danach Scan' : ''}`);
+      if (scan && itemId) moveScans.watch(move.id, itemId, title ?? label);
+      return reply.status(202).send(moveScans.annotate([move])[0]);
     },
   );
 

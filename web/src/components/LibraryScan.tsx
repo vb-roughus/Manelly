@@ -9,6 +9,7 @@ import { LIBRARY_TYPE_LABELS } from '../lib/media';
 import { formatSpan } from '../lib/timeline';
 import { Message } from './ConnectionForm';
 import { Modal } from './Modal';
+import { SearchSelect } from './SearchSelect';
 
 type Result = NonNullable<LibraryScanStatus['lastRun']>['result'];
 
@@ -334,26 +335,21 @@ function SeriesScanForm({ libraryId, onClose }: { libraryId: string; onClose: ()
           <label htmlFor="scan-series" className="mb-1.5 block font-medium">
             Serie
           </label>
-          <select
+          <SearchSelect
             id="scan-series"
+            options={(seriesList.data ?? []).map((candidate) => ({
+              value: candidate.id,
+              label: candidate.year && !candidate.name.includes(String(candidate.year)) ? `${candidate.name} (${candidate.year})` : candidate.name,
+            }))}
             value={seriesId}
-            onChange={(event) => {
-              setSeriesId(event.target.value);
+            onChange={(id) => {
+              setSeriesId(id);
               scan.reset();
             }}
-            disabled={!seriesList.data}
-            className={fieldClass}
-          >
-            <option value="" disabled>
-              {!seriesList.data ? 'Serien werden geladen …' : seriesList.data.length ? 'Serie wählen …' : 'Jellyfin kennt hier keine Serie'}
-            </option>
-            {seriesList.data?.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.name}
-                {candidate.year && !candidate.name.includes(String(candidate.year)) ? ` (${candidate.year})` : ''}
-              </option>
-            ))}
-          </select>
+            disabled={!seriesList.data?.length}
+            placeholder={!seriesList.data ? 'Serien werden geladen …' : seriesList.data.length ? 'Serie suchen …' : 'Jellyfin kennt hier keine Serie'}
+            autoFocus
+          />
         </div>
       )}
 

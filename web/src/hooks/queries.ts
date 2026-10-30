@@ -687,7 +687,9 @@ export function useSaveJDownloaderSettings() {
   });
 }
 
-const moving = (moves: ExtractedMove[] | undefined) => Boolean(moves?.some((move) => move.state === 'running' || move.state === 'queued'));
+/** A move running or waiting – or one done whose scan Manelly is about to start. */
+const moving = (moves: ExtractedMove[] | undefined) =>
+  Boolean(moves?.some((move) => move.state === 'running' || move.state === 'queued' || move.scan?.state === 'waiting'));
 
 /** Moves from the extraction folder into a library (agent from 0.27.0): often while one runs, the folder anew once it ended. */
 export function useExtractedMoves(enabled: boolean) {

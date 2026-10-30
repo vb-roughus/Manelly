@@ -535,6 +535,8 @@ export interface ExtractedMoveTarget {
   itemId?: string;
   /** The name of a folder the agent creates in `target` (from agent 0.28.0); not with `itemId`. */
   newFolder?: string;
+  /** With `itemId`: once the move is done, Jellyfin scans that series or season. */
+  scan?: boolean;
 }
 
 /** POST /api/media/scan: one library, or all of them without an id. */
@@ -1003,6 +1005,15 @@ export interface ExtractedMove {
   problems: Array<{ path: string; error: string }>;
   createdAt: string;
   finishedAt: string | null;
+  /** Added by Manelly: the series or season Jellyfin scans once the move is done («Verschieben & scannen»). */
+  scan?: MoveScan;
+}
+
+/** The scan Manelly starts in Jellyfin after a move: waiting for the move, started, or not (and why). */
+export interface MoveScan {
+  name: string;
+  state: 'waiting' | 'started' | 'skipped' | 'failed';
+  error: string | null;
 }
 
 /** GET /api/jdownloader/extracted/samples on the agent (from 0.27.0): files with "sample" in the name, anywhere below. */

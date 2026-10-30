@@ -479,6 +479,12 @@ describe('agent connection', () => {
     expect((await move({ paths: ['Dune'], target: 'D:\\Serien', itemId: 'ff99' })).json().error.message).toBe('Diese Serie oder Staffel kennt Jellyfin nicht (mehr).');
     expect((await move({ paths: ['Dune'], target: 'D:\\Serien', itemId: '../x' })).statusCode).toBe(400);
 
+    // «Verschieben & scannen»: only into a series or season, which Manelly scans once the agent is done.
+    const scanned = await move({ paths: ['S05E11.mkv'], target: 'D:\\Serien', itemId: 'bb22', scan: true });
+    expect(scanned.statusCode).toBe(202);
+    expect(scanned.json<ExtractedMove>().scan).toEqual({ name: 'The Expanse › Season 5', state: 'waiting', error: null });
+    expect((await move({ paths: ['Dune'], target: 'D:\\Filme', scan: true })).json().error.message).toBe('Scannen geht nur nach dem Verschieben in eine Serie oder Staffel.');
+
     // A new series: a folder right in the library's folder, created by the agent – only with a plain name.
     await move({ paths: ['Dark.S01.German.1080p'], target: 'D:\\Serien', newFolder: ' Dark (2017) ' });
     expect(world.sent.jdownloader.at(-1)?.body).toEqual({ paths: ['Dark.S01.German.1080p'], target: 'D:\\Serien\\Dark (2017)', label: 'Serien › Dark (2017)', create: true });

@@ -1048,6 +1048,29 @@ export interface ExtractedEntry {
   complete: boolean;
   /** When it came into the folder or last changed, whichever is later – extracted files often keep the archive's old date. */
   updatedAt: string;
+  /** Video files, from agent 0.31.0: the Dolby Vision in them, null without; missing when not known. */
+  dolbyVision?: DolbyVisionInfo | null;
+}
+
+/** Dolby Vision in a video file, as ffprobe reads it from the header. */
+export interface DolbyVisionInfo {
+  profile: number;
+  /** What the base layer is without Dolby Vision: 1 HDR10, 2 SDR, 4 HLG, 6 Blu-ray HDR10; null when not said. */
+  compatibility: number | null;
+  /** The second, enhancement layer of profile 7 – FEL or MEL, which ffprobe does not tell apart. */
+  enhancementLayer: boolean;
+}
+
+/**
+ * POST /api/jdownloader/extracted/convert on the agent (from 0.31.0): a file of the extraction folder with Dolby Vision
+ * profile 7 into profile 8.1, replacing it – the original goes to the backups.
+ */
+export interface ExtractedConvertRequest {
+  /** Inside the extraction folder, with "/" between the names. */
+  path: string;
+  scheduled?: boolean;
+  /** In the work folder; the original then stays there under Umwandlungen → Backups. */
+  work?: boolean;
 }
 
 export interface JDownloaderPackage {
@@ -1451,7 +1474,7 @@ export interface AgentStatus {
    * Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0,
    * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0, newFolders (moving into a new folder)
    * before 0.28.0, remove (deleting in the link grabber and the downloads) before 0.29.0, extractedDelete (deleting in
-   * the extraction folder) before 0.30.0.
+   * the extraction folder) before 0.30.0, extractedConvert (Dolby Vision there) before 0.31.0.
    */
   jdownloader?: {
     enabled: boolean;
@@ -1463,6 +1486,7 @@ export interface AgentStatus {
     newFolders?: boolean;
     remove?: boolean;
     extractedDelete?: boolean;
+    extractedConvert?: boolean;
   };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];

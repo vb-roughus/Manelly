@@ -1,12 +1,15 @@
 import { lstat, readdir, rm, rmdir, unlink } from 'node:fs/promises';
 import type { ExtractedDeleted, ExtractedEntry, ExtractedFolder, ExtractedSamples, ExtractedSamplesDeleted } from '@manelly/shared';
+import type { DolbyVisionProbe } from './dvProbe.js';
 import { AgentError } from './errors.js';
-import { isWithin, pathApiFor, type PathApi } from './paths.js';
+import { isWithin, pathApiFor, SOURCE_EXTENSIONS, TEMP_FOLDER_PREFIX, type PathApi } from './paths.js';
 
 /** Files counted below one folder at most; a folder with more shows "at least". */
 const MAX_FILES = 20_000;
 /** Entries listed in one folder at most. */
 const MAX_ENTRIES = 2_000;
+/** Video files read for Dolby Vision at the same time. */
+const PROBES_AT_ONCE = 4;
 
 /** The names in "a/b"; refuses anything that could lead out of the extraction folder. */
 function namesOf(relative: string): string[] {
@@ -54,7 +57,12 @@ export async function measure(folder: string, api: PathApi): Promise<{ bytes: nu
  * What lies in the folder JDownloader extracts into, or in a folder below it. Only that folder is read – Manelly names
  * it, nothing else is searched.
  */
-export async function listExtracted(directory: string | null, relative: string, freeBytes: (directory: string) => Promise<number | null>): Promise<ExtractedFolder> {
+export async function listExtracted(
+  directory: string | null,
+  relative: string,
+  freeBytes: (directory: string) => Promise<number | null>,
+  dolbyVision?: DolbyVisionProbe,
+): Promise<ExtractedFolder> {
   const names = namesOf(relative);
   if (!directory) return { directory: null, path: '', entries: [], freeBytes: null, error: null };
   const api = pathApiFor(directory);
@@ -72,8 +80,10 @@ export async function listExtracted(directory: string | null, relative: string, 
   }
 
   const entries: ExtractedEntry[] = [];
+  const videos: Array<{ entry: ExtractedEntry; full: string; info: { size: number; mtimeMs: number } }> = [];
   for (const dirent of dirents.slice(0, MAX_ENTRIES)) {
-    if (!dirent.isDirectory() && !dirent.isFile()) continue;
+    // A conversion working right here leaves its scratch folder alone.
+    if ((!dirent.isDirectory() && !dirent.isFile()) || dirent.name.startsWith(TEMP_FOLDER_PREFIX)) continue;
     const full = api.join(folder, dirent.name);
     const info = await lstat(full).catch(() => null);
     if (!info) continue;
@@ -82,7 +92,19 @@ export async function listExtracted(directory: string | null, relative: string, 
       const { bytes, files, complete } = await measure(full, api);
       entries.push({ name: dirent.name, path, kind: 'directory', bytes, files, complete, updatedAt: updatedAt(info) });
     } else {
-      entries.push({ name: dirent.name, path, kind: 'file', bytes: info.size, files: null, complete: true, updatedAt: updatedAt(info) });
+      const entry: ExtractedEntry = { name: dirent.name, path, kind: 'file', bytes: info.size, files: null, complete: true, updatedAt: updatedAt(info) };
+      entries.push(entry);
+      if (SOURCE_EXTENSIONS.has(api.extname(dirent.name).toLowerCase())) videos.push({ entry, full, info });
+    }
+  }
+  if (dolbyVision) {
+    for (let start = 0; start < videos.length; start += PROBES_AT_ONCE) {
+      await Promise.all(
+        videos.slice(start, start + PROBES_AT_ONCE).map(async ({ entry, full, info }) => {
+          const found = await dolbyVision(full, info);
+          if (found !== undefined) entry.dolbyVision = found;
+        }),
+      );
     }
   }
   // What JDownloader just extracted comes first; inside a folder, the names give the order (episodes, parts).
@@ -143,19 +165,20 @@ export async function deleteSamples(directory: string, paths: string[]): Promise
 }
 
 /** "a/b" is "a" itself or lies in it. */
-const within = (inner: string, outer: string) => inner === outer || inner.startsWith(`${outer}/`);
+export const within = (inner: string, outer: string) => inner === outer || inner.startsWith(`${outer}/`);
 
 /**
  * Deletes entries of the extraction folder – a folder with all that is in it – for good, without a recycle bin. A
  * folder and something in it count once; what is being moved (`moving`, as paths in the folder) stays.
  */
-export async function deleteExtracted(directory: string, paths: string[], moving: readonly string[] = []): Promise<ExtractedDeleted> {
+export async function deleteExtracted(directory: string, paths: string[], moving: readonly string[] = [], converting: readonly string[] = []): Promise<ExtractedDeleted> {
   const result: ExtractedDeleted = { deleted: [], problems: [] };
   const unique = [...new Set(paths)];
   for (const path of unique.filter((candidate) => !unique.some((other) => other !== candidate && within(candidate, other)))) {
     try {
       const full = resolveExtracted(directory, path);
       if (moving.some((busy) => within(busy, path) || within(path, busy))) throw new AgentError(409, 'Wird gerade verschoben – erst danach löschen.');
+      if (converting.some((busy) => within(busy, path))) throw new AgentError(409, 'Wird gerade umgewandelt – erst danach löschen.');
       const info = await lstat(full).catch(() => null);
       if (!info) throw new AgentError(404, 'Gibt es im Entpack-Ordner nicht (mehr).');
       // A link goes, not what it points to.

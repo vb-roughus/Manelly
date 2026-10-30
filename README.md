@@ -246,7 +246,16 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
   - **Extracted** (ab Agent 0.26.0): was im **Entpack-Ordner** liegt, das zuletzt Entpackte zuoberst – mit Grösse, Anzahl
     Dateien und Zeitpunkt; Ordner klappen auf und zeigen ihren Inhalt (Filme, Untertitel, Samples …). Den Entpack-Ordner
     legst du in den Einstellungen fest (so wie beim Archiv-Entpacker von JDownloader eingestellt, z. B. `D:\Downloads\Entpackt`
-    oder `\\NAS\Downloads\Entpackt`). Der Agent liest nur diesen Ordner und nur, solange der Reiter offen ist (jede Minute neu).
+    oder `\\NAS\Downloads\Entpackt`). Der Agent liest nur diesen Ordner, jede Minute neu – auch für die Zahl am Reiter,
+    wenn ein anderer Reiter offen ist.
+    **Dolby Vision** (ab Agent 0.31.0): Videodateien zeigen ihr Profil – «DV P7» hervorgehoben, «DV P8.1» und andere
+    schlicht. Der Agent liest dafür mit ffprobe nur den Kopf jeder Datei, einmal pro Datei (neu erst, wenn sie sich
+    ändert). Bei Profil 7 wandelt **«In Profil 8.1 umwandeln»** die Datei um, bevor sie in die Mediathek kommt: Die neue
+    Datei ersetzt das Original im Entpack-Ordner; das Original kommt beim Umwandeln im Arbeitsordner unter Umwandlungen →
+    Backups, sonst in den Ordner `.manelly-backup` neben der Datei (Jellyfin ignoriert ihn, beim Verschieben des Ordners
+    kommt er aber mit – vorher löschen). Wie im Medien-Dialog wählst du «Wo umwandeln» und «Wann» (sofort oder nach
+    Zeitplan). Solange die Umwandlung wartet oder läuft, steht ihr Stand bei der Datei, und Verschieben und Löschen der
+    Datei (oder ihres Ordners) lehnt der Agent ab; danach liest er die Datei neu ein.
     **Move to Library** (ab Agent 0.27.0): Ordner und Dateien ankreuzen (ein angekreuzter Ordner nimmt alles darin mit),
     dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter. Bei einer Serien-Mediathek folgt
     die **Serie** (aus Jellyfin, mit dem Ordner, in dem Jellyfin sie führt; vorgeschlagen nach dem Namen, z. B. «The
@@ -263,7 +272,7 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.
     **Löschen** (ab Agent 0.30.0) löscht die angekreuzten Einträge – Ordner samt Inhalt – nach einer Rückfrage mit der
     Liste und der Grösse endgültig, ohne Papierkorb. Der Agent löscht nur im Entpack-Ordner und nichts, was gerade
-    verschoben wird; was nicht ging, nennt der Dialog mit dem Grund.
+    verschoben oder umgewandelt wird; was nicht ging, nennt der Dialog mit dem Grund.
     **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
     Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
     die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird

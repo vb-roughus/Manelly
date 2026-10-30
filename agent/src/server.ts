@@ -14,6 +14,7 @@ import type {
   ConversionRequest,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
+  ExtractedConvertRequest,
   ExtractedMoveRequest,
   HardwareTestRequest,
   JDownloaderAction,
@@ -33,7 +34,8 @@ import { AgentError } from './errors.js';
 import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
-import { deleteExtracted, deleteSamples, findSamples, listExtracted } from './extracted.js';
+import { createDolbyVisionProbe } from './dvProbe.js';
+import { deleteExtracted, deleteSamples, findSamples, listExtracted, resolveExtracted, within } from './extracted.js';
 import type { Mover } from './moves.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
@@ -170,6 +172,17 @@ export function createAgentServer(options: AgentServerOptions) {
     return folder;
   }
 
+  const dolbyVision = createDolbyVisionProbe(async () => (await options.tools()).ffprobe.path);
+
+  /** Entries of the extraction folder a conversion still works on, as paths in it. */
+  function convertingIn(directory: string): string[] {
+    const api = pathApiFor(directory);
+    return queue
+      .list()
+      .filter((job) => (job.state === 'queued' || job.state === 'running') && isWithin(job.source, directory, api))
+      .map((job) => api.relative(directory, job.source).split(api.sep).join('/'));
+  }
+
   /** The extraction folder from the settings; without one, nothing there can be moved or deleted. */
   function requireExtractTo(): string {
     const directory = settings.get().jdownloader.extractTo;
@@ -226,6 +239,7 @@ export function createAgentServer(options: AgentServerOptions) {
           newFolders: Boolean(options.mover),
           remove: true,
           extractedDelete: true,
+          extractedConvert: true,
         },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
@@ -351,6 +365,9 @@ export function createAgentServer(options: AgentServerOptions) {
         throw new AgentError(400, 'Einträge, Zielordner und Mediathek erwartet.');
       }
       await options.access?.prepare(directory);
+      const converting = convertingIn(directory);
+      const blocked = (paths as string[]).find((path) => converting.some((busy) => within(busy, path)));
+      if (blocked) throw new AgentError(409, `«${blocked}» wird gerade umgewandelt – erst danach verschieben.`);
       if (create !== true) return send(response, 202, await options.mover.add(directory, paths, await checkFolder(target, 'D:\\Filme'), label.trim()));
       // A new folder: only its name is new, the folder it goes into must exist and take writing.
       const wanted = typeof target === 'string' ? target.trim() : '';
@@ -378,12 +395,33 @@ export function createAgentServer(options: AgentServerOptions) {
       if (!Array.isArray(paths) || paths.length === 0 || paths.length > 2000 || paths.some((path) => typeof path !== 'string')) throw new AgentError(400, 'Die Einträge zum Löschen erwartet.');
       await options.access?.prepare(directory);
       const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths);
-      return send(response, 200, await deleteExtracted(directory, paths as string[], moving));
+      return send(response, 200, await deleteExtracted(directory, paths as string[], moving, convertingIn(directory)));
+    }
+    if (route === 'POST /api/jdownloader/extracted/convert') {
+      const directory = requireExtractTo();
+      const { path, scheduled, work } = await readJson<Partial<ExtractedConvertRequest>>(request);
+      if (typeof path !== 'string' || (scheduled !== undefined && typeof scheduled !== 'boolean') || (work !== undefined && typeof work !== 'boolean')) {
+        throw new AgentError(400, 'Die Datei im Entpack-Ordner erwartet.');
+      }
+      await options.access?.prepare(directory);
+      const source = resolveExtracted(directory, path);
+      const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths);
+      if (moving.some((busy) => within(path, busy))) throw new AgentError(409, `«${path}» wird gerade verschoben.`);
+      const info = await stat(source).catch(() => null);
+      if (!info?.isFile()) throw new AgentError(404, `«${path}» gibt es im Entpack-Ordner nicht (mehr).`);
+      // Only what really is profile 7; the conversion itself checks just for Dolby Vision.
+      const found = await dolbyVision(source, info);
+      if (found !== undefined && found?.profile !== 7) throw new AgentError(400, `«${path}» hat kein Dolby Vision Profil 7.`);
+      const job = await queue.add(
+        { source, output: { mode: 'replace' }, title: pathApiFor(source).basename(source), ...(scheduled ? { scheduled } : {}), ...(work ? { work } : {}) },
+        directory,
+      );
+      return send(response, 202, job);
     }
     if (route === 'GET /api/jdownloader/extracted') {
       const directory = settings.get().jdownloader.extractTo ?? null;
       if (directory) await options.access?.prepare(directory);
-      return send(response, 200, await listExtracted(directory, url.searchParams.get('path') ?? '', freeBytes));
+      return send(response, 200, await listExtracted(directory, url.searchParams.get('path') ?? '', freeBytes, dolbyVision));
     }
     if (route === 'GET /api/jdownloader/linkgrabber') return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
     if (route === 'GET /api/jdownloader/accounts') return send(response, 200, await jdownloaderCall(() => jdownloader.accounts()));

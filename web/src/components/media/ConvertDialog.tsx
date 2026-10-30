@@ -328,7 +328,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
 }
 
 /** A choice as a dropdown, with what the chosen option does below it and its own fields. */
-function Choice<T extends string>(props: {
+export function Choice<T extends string>(props: {
   id: string;
   label: string;
   value: T;

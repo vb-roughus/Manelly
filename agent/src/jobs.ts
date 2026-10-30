@@ -333,13 +333,18 @@ export async function createJobQueue(options: JobQueueOptions) {
     /** Looks at the schedule now, e.g. after it changed. */
     check,
 
-    /** Checks the request completely before accepting it, so mistakes show up in Manelly right away. */
-    async add(request: ConversionRequest): Promise<ConversionJob> {
+    /**
+     * Checks the request completely before accepting it, so mistakes show up in Manelly right away. With `allow`, a
+     * folder besides the roots, e.g. the extraction folder Manelly named.
+     */
+    async add(request: ConversionRequest, allow?: string): Promise<ConversionJob> {
       if (!request || typeof request.source !== 'string' || !request.output) throw new AgentError(400, 'Unvollständiger Auftrag.');
       if (!toolsReady(await tools())) {
         throw new AgentError(503, 'Es fehlen Werkzeuge (ffmpeg, dovi_tool oder mkvmerge) – siehe Agent-Status in Manelly.');
       }
-      const plan = await planOutput(request, roots, process.platform, access, workFolder());
+      // No roots allow every folder already.
+      const allowed = allow && roots.length > 0 ? [...roots, allow] : roots;
+      const plan = await planOutput(request, allowed, process.platform, access, workFolder());
       // Two jobs must not write the same file.
       const busy = entries.some(({ job }) => (job.state === 'queued' || job.state === 'running') && (job.output === plan.output || job.source === request.source));
       if (busy) throw new AgentError(409, 'Für diese Datei läuft schon eine Umwandlung.');

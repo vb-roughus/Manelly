@@ -16,6 +16,7 @@ import type {
   CopyLimit,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
+  ExtractedConvertRequest,
   ExtractedDeleted,
   ExtractedFolder,
   ExtractedMove,
@@ -777,6 +778,15 @@ export function useDeleteExtracted() {
 }
 
 /** What JDownloader extracted: the folder from its settings, or the folder `path` in it (agent from 0.26.0). */
+/** From agent 0.31.0: a file of the extraction folder with Dolby Vision profile 7 into profile 8.1, replacing it. */
+export function useConvertExtracted() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: ExtractedConvertRequest) => sendJson<ConversionJob>('POST', '/api/agent/jdownloader/extracted/convert', request),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['conversions'] }),
+  });
+}
+
 export function useExtracted(path: string, enabled: boolean, pollMs: number | false = false) {
   return useQuery({
     queryKey: ['jdownloader', 'extracted', path],

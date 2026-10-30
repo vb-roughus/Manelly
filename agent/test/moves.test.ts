@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ExtractedMove } from '@manelly/shared';
-import { deleteExtracted, deleteSamples, findSamples } from '../src/extracted.js';
+import { deleteExtracted, deleteSamples, findSamples, listExtracted } from '../src/extracted.js';
 import { createMover, type MoverOptions } from '../src/moves.js';
 
 let root: string;
@@ -142,11 +142,40 @@ describe('deleting in the extraction folder', () => {
     expect((await readdir(extracted)).sort()).toEqual(['Arrival.mkv', 'Dune (2024)']);
   });
 
+  it('keeps what a conversion still works on', async () => {
+    const result = await deleteExtracted(extracted, ['Dune (2024)', 'Arrival.mkv'], [], ['Dune (2024)/Dune.mkv']);
+    expect(result).toEqual({ deleted: ['Arrival.mkv'], problems: [{ path: 'Dune (2024)', error: 'Wird gerade umgewandelt – erst danach löschen.' }] });
+    expect(await readdir(extracted)).toEqual(['Dune (2024)']);
+  });
+
   it('deletes a link, not what it points to', async () => {
     await writeFile(path.join(library, 'keep.mkv'), 'keep');
     await symlink(library, path.join(extracted, 'Verknüpfung'));
     expect((await deleteExtracted(extracted, ['Verknüpfung'])).deleted).toEqual(['Verknüpfung']);
     expect(await readdir(library)).toEqual(['keep.mkv']);
+  });
+});
+
+describe('listing the extraction folder', () => {
+  it('reads Dolby Vision for video files only, and hides the scratch folder of a conversion', async () => {
+    await mkdir(path.join(extracted, '.manelly-tmp-1234'));
+    await writeFile(path.join(extracted, 'Arrival.nfo'), 'nfo');
+    await writeFile(path.join(extracted, 'Kaputt.mkv'), 'x');
+    const probed: string[] = [];
+    const probe = async (file: string) => {
+      probed.push(path.basename(file));
+      if (file.endsWith('Kaputt.mkv')) return undefined;
+      return file.endsWith('Arrival.mkv') ? { profile: 7, compatibility: 6, enhancementLayer: true } : null;
+    };
+    const listing = await listExtracted(extracted, '', async () => null, probe);
+    expect(probed.sort()).toEqual(['Arrival.mkv', 'Kaputt.mkv']);
+    expect(Object.fromEntries(listing.entries.map((entry) => [entry.name, entry.dolbyVision]))).toEqual({
+      'Dune (2024)': undefined,
+      'Arrival.mkv': { profile: 7, compatibility: 6, enhancementLayer: true },
+      'Arrival.nfo': undefined,
+      'Kaputt.mkv': undefined,
+    });
+    expect('dolbyVision' in listing.entries.find((entry) => entry.name === 'Kaputt.mkv')!).toBe(false);
   });
 });
 

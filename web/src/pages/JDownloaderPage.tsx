@@ -481,6 +481,8 @@ function LinkGrabber({ status, removable, tooOld }: { status: LinkGrabberStatus;
   const remove = useRemoveFromLinkGrabber();
   // What to remove, asked first.
   const [removing, setRemoving] = useState<LinkGrabberRemoveRequest | null>(null);
+  // «Alle in die Downloads», asked first: the packages shown when it was clicked.
+  const [movingAll, setMovingAll] = useState<number[] | null>(null);
   const [anchor, setAnchor] = useState<SelectionAnchor>(null);
   const { uploads, upload, busy, clear } = useContainerUploads(tooOld);
   const picker = useRef<HTMLInputElement>(null);
@@ -575,7 +577,10 @@ function LinkGrabber({ status, removable, tooOld }: { status: LinkGrabberStatus;
               type="button"
               className={button}
               disabled={move.isPending || status.packages.length === 0}
-              onClick={() => move.mutate({ packageIds: status.packages.map((pkg) => pkg.uuid), linkIds: [] })}
+              onClick={() => {
+                move.reset();
+                setMovingAll(status.packages.map((pkg) => pkg.uuid));
+              }}
             >
               <ArrowRightToLine className="size-4" aria-hidden /> Alle in die Downloads
             </button>
@@ -597,7 +602,7 @@ function LinkGrabber({ status, removable, tooOld }: { status: LinkGrabberStatus;
           )}
         </div>
       </div>
-      {move.isError && <Message tone="critical">{move.error.message}</Message>}
+      {move.isError && movingAll === null && <Message tone="critical">{move.error.message}</Message>}
       {remove.isError && <Message tone="critical">{remove.error.message}</Message>}
       <Uploads uploads={uploads} busy={busy} onClear={clear} />
 
@@ -636,6 +641,17 @@ function LinkGrabber({ status, removable, tooOld }: { status: LinkGrabberStatus;
           ))}
         </ul>
       )}
+      <Modal open={movingAll !== null} onClose={() => setMovingAll(null)} icon={ArrowRightToLine} title="Alle in die Downloads übernehmen">
+        {movingAll && (
+          <MoveAllToDownloads
+            packages={status.packages.filter((pkg) => movingAll.includes(pkg.uuid))}
+            pending={move.isPending}
+            error={move.error?.message ?? null}
+            onCancel={() => setMovingAll(null)}
+            onConfirm={(packageIds) => move.mutate({ packageIds, linkIds: [] }, { onSuccess: () => setMovingAll(null) })}
+          />
+        )}
+      </Modal>
       <Modal open={removing !== null} onClose={() => setRemoving(null)} icon={Trash2} tone="critical" title="Aus dem Link Grabber entfernen">
         {removing && (
           <RemoveFromGrabber
@@ -654,6 +670,60 @@ function LinkGrabber({ status, removable, tooOld }: { status: LinkGrabberStatus;
           />
         )}
       </Modal>
+    </div>
+  );
+}
+
+/** Everything in the link grabber goes to the download list, asked first; JDownloader then downloads it. */
+function MoveAllToDownloads({
+  packages,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  /** As far as they are still in the link grabber. */
+  packages: LinkGrabberPackage[];
+  pending: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: (packageIds: number[]) => void;
+}) {
+  const links = packages.reduce((sum, pkg) => sum + pkg.childCount, 0);
+  const bytes = packages.reduce((sum, pkg) => sum + pkg.bytesTotal, 0);
+  return (
+    <div className="space-y-4 text-sm">
+      {packages.length === 0 ? (
+        <p>Die Pakete sind nicht mehr im Link Grabber.</p>
+      ) : (
+        <>
+          <p>
+            <span className="font-medium">
+              {packages.length === 1 ? '1 Paket' : `${packages.length} Pakete`} · {links === 1 ? '1 Link' : `${links} Links`}
+              {bytes > 0 && ` · ${formatBytes(bytes)}`}
+            </span>{' '}
+            kommen in die Download-Liste; läuft JDownloader, lädt er sie gleich herunter.
+          </p>
+          <ul className="rounded-xl bg-card-2/50 p-3 text-xs text-ink-2 ring-1 ring-line">
+            {packages.slice(0, 6).map((pkg) => (
+              <li key={pkg.uuid} className="flex justify-between gap-3">
+                <span className="truncate">{pkg.name}</span>
+                {pkg.bytesTotal > 0 && <span className="shrink-0 tabular-nums">{formatBytes(pkg.bytesTotal)}</span>}
+              </li>
+            ))}
+            {packages.length > 6 && <li>und {packages.length - 6} weitere</li>}
+          </ul>
+        </>
+      )}
+      {error && <Message tone="critical">{error}</Message>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onCancel} className={button}>
+          Abbrechen
+        </button>
+        <button type="button" onClick={() => onConfirm(packages.map((pkg) => pkg.uuid))} disabled={pending || packages.length === 0} className={primaryButton}>
+          {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <ArrowRightToLine className="size-4" aria-hidden />} Alle in die Downloads
+        </button>
+      </div>
     </div>
   );
 }

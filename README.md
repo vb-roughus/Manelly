@@ -234,7 +234,7 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
   - **Link Grabber:** was JDownloader gesammelt hat, nach Paketen, mit dem Status jedes Links (online, offline,
     unbekannt) und ob er noch sammelt. Pakete und – im aufgeklappten Paket – einzelne Links **per Häkchen auswählen**
     (z. B. ein Paket ohne seinen Offline-Teil) und mit «Auswahl in die Downloads» übernehmen; ein Paket mit seinem
-    Knopf oder alle auf einmal gehen auch direkt. **Löschen** (ab Agent 0.29.0) entfernt die Auswahl oder – mit dem
+    Knopf geht auch direkt, «Alle in die Downloads» nach einer Rückfrage mit Paketen, Links und Grösse. **Löschen** (ab Agent 0.29.0) entfernt die Auswahl oder – mit dem
     Papierkorb – ein Paket aus dem Link Grabber, nach einer Rückfrage.
     **DLC-Dateien** (ab Agent 0.15.0) mit «DLC hochladen» auswählen oder auf den Link Grabber ziehen, auch mehrere
     auf einmal (je höchstens 1 MB): Manelly gibt sie über den Agent an JDownloader weiter, der sie entschlüsselt – die

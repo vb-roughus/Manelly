@@ -31,6 +31,13 @@ const STATES = {
 const SCHEDULED = { icon: CalendarClock, label: 'Geplant', className: 'text-ink-2' } as const;
 const PAUSED = { icon: Pause, label: 'Pausiert', className: 'text-ink-2' } as const;
 
+/** «Pitch Black (2000)» – Ergebnis zurückkopieren, 70 % */
+export function runningJob(job: ConversionJob): string {
+  const step = job.step ? ` – ${STEP_LABELS[job.step]}` : '';
+  const progress = job.progress === null ? '' : `, ${Math.round(job.progress * 100)} %`;
+  return `«${job.title}»${step}${progress}`;
+}
+
 export function StateBadge({ job }: { job: ConversionJob }) {
   const meta = isActive(job) && job.paused ? PAUSED : job.state === 'queued' && job.scheduled ? SCHEDULED : STATES[job.state];
   const Icon = meta.icon;

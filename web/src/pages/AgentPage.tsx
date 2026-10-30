@@ -1,16 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AgentOverview, AgentStatus, ConversionJob } from '@manelly/shared';
-import { Activity, CloudDownload, LoaderCircle, Plug, Power, RotateCw, TriangleAlert } from 'lucide-react';
+import { Link } from 'react-router';
+import type { AgentOverview, AgentStatus } from '@manelly/shared';
+import { Activity, LoaderCircle, Plug, Power } from 'lucide-react';
 import clsx from 'clsx';
 import { AgentForm } from '../components/AgentForm';
 import { NetworkDrives } from '../components/NetworkDrives';
 import { Code, Message } from '../components/ConnectionForm';
-import { STEP_LABELS } from '../components/ConversionStatus';
-import { AGENT, RestartProgress, RestartResult } from '../components/Restart';
+import { runningJob } from '../components/ConversionStatus';
 import { SettingsSection } from '../components/SettingsSection';
-import { useAgent, useAgentSettings, useConversions, useRestartAgent, useStopAgent } from '../hooks/queries';
-import { agentRestart, useAgentRestart } from '../hooks/useAgentRestart';
-import { agentRestartSummary, updatesWhileRunning } from '../lib/agentRestart';
+import { useAgent, useAgentSettings, useConversions, useStopAgent } from '../hooks/queries';
+import { useAgentRestart } from '../hooks/useAgentRestart';
 import { formatSpan } from '../lib/timeline';
 
 const PLATFORMS: Record<string, string> = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
@@ -24,19 +23,9 @@ export function AgentPage() {
   const overview = useAgent({ refreshTools: true, enabled: Boolean(settings.data?.url) });
   const { pending } = useAgentRestart();
   const agentUrl = settings.data?.url;
-  // An update this page did not start, e.g. in another browser, shows here too.
-  const running = overview.data?.status?.process?.update;
-  useEffect(() => {
-    if (running && overview.data?.status) agentRestart.adopt(overview.data.status, running);
-  }, [running, overview.data]);
-  // A restart shows its progress even before anything is loaded, e.g. after reloading the page meanwhile.
+  // During a restart the notice on top of the page tells how it goes.
   const process = !agentUrl ? null : pending ? (
-    <RestartProgress
-      pending={pending}
-      subject={AGENT}
-      slowHint="Dauert es zu lange, steht in agent\data\agent.log auf dem Server, woran es hängt."
-      onGiveUp={() => agentRestart.end(null)}
-    />
+    <p className="text-sm text-ink-2">Der Agent startet gerade neu oder wird aktualisiert.</p>
   ) : overview.data ? (
     <ProcessPanel overview={overview.data} agentUrl={agentUrl} />
   ) : null;
@@ -56,7 +45,7 @@ export function AgentPage() {
       </SettingsSection>
 
       {process && (
-        <SettingsSection icon={Activity} title="Prozess" description="Wo der Agent läuft, seit wann – und ihn beenden, z. B. vor einem Update.">
+        <SettingsSection icon={Activity} title="Prozess" description="Wo der Agent läuft, seit wann – und ihn beenden. Neu starten und aktualisieren unter Einstellungen → Updates.">
           {process}
         </SettingsSection>
       )}
@@ -83,33 +72,16 @@ const portOf = (url: string) => {
 
 function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUrl: string }) {
   const stop = useStopAgent();
-  const restart = useRestartAgent();
-  // Kept for the whole app: while it runs, no page shows errors of the absent agent.
-  const { finished } = useAgentRestart();
   const [confirming, setConfirming] = useState(false);
   // What was running when it was stopped; afterwards the agent no longer answers.
   const [stopped, setStopped] = useState<AgentStatus | null>(null);
-  // The restart (false) or update (true) that waits for a «trotzdem», because a conversion runs.
-  const [asking, setAsking] = useState<boolean | null>(null);
   const status = overview.status;
-  // A paused conversion stays paused over a restart; only a running one is interrupted.
+  // A paused conversion stays paused when the agent ends; only a running one is interrupted.
   const busy = useConversions(Boolean(status)).data?.find((job) => job.state === 'running' && !job.paused) ?? null;
-
-  function startRestart(update: boolean, force = false) {
-    if (!status) return;
-    if (busy && !force) return setAsking(update);
-    setAsking(null);
-    restart.mutate({ update, force, before: status });
-  }
 
   if (stopped) return <Stopped status={stopped} />;
   if (!status) {
-    return (
-      <div className="space-y-4">
-        {finished && <RestartResult summary={agentRestartSummary(finished)} />}
-        <Message tone="critical">{overview.error ?? 'Der Agent antwortet nicht.'} Läuft er auf dem Jellyfin-Server?</Message>
-      </div>
-    );
+    return <Message tone="critical">{overview.error ?? 'Der Agent antwortet nicht.'} Läuft er auf dem Jellyfin-Server?</Message>;
   }
 
   const windows = status.platform === 'win32';
@@ -138,8 +110,7 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
                 <NetworkDrives drives={status.drives} />
               </Detail>
             )}
-            {/* Right after an update, the result below says the same. */}
-            {process.lastUpdate && !(finished?.update && finished.after) && (
+            {process.lastUpdate && (
               <Detail label="Letztes Update">
                 <span className={clsx(!process.lastUpdate.ok && 'text-critical')}>
                   {new Date(process.lastUpdate.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })} · {process.lastUpdate.message}
@@ -150,68 +121,19 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
         )}
       </dl>
 
-      {finished && <RestartResult summary={agentRestartSummary(finished)} />}
-
       {process && windows && (
         <p className="text-xs text-ink-2">
           Der Agent ist kein Dienst: Im Task-Manager steht er unter «Details» als <Code>{executable}</Code> mit der PID {process.pid}
           {process.autostart && <>, gestartet von der Aufgabe «Manelly Agent» in der Aufgabenplanung</>}.
         </p>
       )}
-
-      {process?.restartable && !confirming && asking !== null && busy && (
-        <div className="space-y-3 rounded-xl bg-warning/10 p-4 ring-1 ring-warning/30 ring-inset">
-          <p className="flex gap-2 text-sm">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
-            <span>
-              <b className="font-semibold">Gerade läuft eine Umwandlung:</b> {runningJob(busy)}. {asking ? 'Das Update startet den Agent neu und unterbricht' : 'Ein Neustart unterbricht'}{' '}
-              sie. Danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Am besten wartest du, bis sie fertig ist.
-            </span>
-          </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" disabled={restart.isPending} onClick={() => startRestart(asking, true)} className={actionButton}>
-              {asking ? <CloudDownload className="size-4" aria-hidden /> : <RotateCw className="size-4" aria-hidden />}
-              {asking ? 'Trotzdem aktualisieren' : 'Trotzdem neu starten'}
-            </button>
-            <button type="button" onClick={() => setAsking(null)} className="text-sm text-ink-2 hover:text-ink">
-              Abbrechen
-            </button>
-          </div>
-        </div>
-      )}
-      {process?.restartable && !confirming && !(asking !== null && busy) && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={restart.isPending} onClick={() => startRestart(false)} className={actionButton}>
-              <RotateCw className="size-4" aria-hidden /> Neu starten
-            </button>
-            <button type="button" disabled={restart.isPending} onClick={() => startRestart(true)} className={actionButton}>
-              <CloudDownload className="size-4" aria-hidden /> Aktualisieren & neu starten
-            </button>
-          </div>
-          <p className="text-xs text-ink-3">
-            {updatesWhileRunning(status) ? (
-              <>
-                Aktualisieren sucht zuerst eine neuere Version von Manelly; gibt es keine, bleibt alles, wie es ist. Sonst holt es sie mit <Code>git pull</Code> auf den
-                Jellyfin-Server und baut den Agent, während er weiterläuft, und startet ihn erst danach neu. Klappt etwas nicht, läuft die bisherige Version weiter.
-              </>
-            ) : (
-              <>
-                Aktualisieren holt mit <Code>git pull</Code> den neuesten Stand von Manelly auf den Jellyfin-Server, baut den Agent und startet ihn neu. Klappt das
-                nicht, läuft die bisherige Version weiter.
-              </>
-            )}{' '}
-            Läuft gerade eine Umwandlung, fragt Manelly vorher nach.
-          </p>
-          {restart.isError && <p className="text-sm text-critical">{restart.error.message}</p>}
-        </div>
-      )}
-      {process && !process.restartable && (
-        <p className="text-xs text-ink-2">
-          Neu starten und Aktualisieren gehen hier, sobald der Agent über <Code>scripts\run-agent.ps1</Code> läuft: einmal <Code>git pull</Code> und{' '}
-          <Code>scripts\start-agent.cmd -Install</Code> als Administrator ausführen.
-        </p>
-      )}
+      <p className="text-xs text-ink-3">
+        Neu starten und aktualisieren – den Agent und Manelly auch beide auf einmal – unter{' '}
+        <Link to="/settings" className="font-medium text-accent hover:underline">
+          Einstellungen → Updates
+        </Link>
+        .
+      </p>
 
       {process ? (
         confirming ? (
@@ -258,13 +180,6 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
       )}
     </div>
   );
-}
-
-/** «Pitch Black (2000)» – Ergebnis zurückkopieren, 70 % */
-function runningJob(job: ConversionJob): string {
-  const step = job.step ? ` – ${STEP_LABELS[job.step]}` : '';
-  const progress = job.progress === null ? '' : `, ${Math.round(job.progress * 100)} %`;
-  return `«${job.title}»${step}${progress}`;
 }
 
 const actionButton =

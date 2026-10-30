@@ -11,6 +11,8 @@ export interface SearchOption {
 interface SearchSelectProps {
   id: string;
   options: readonly SearchOption[];
+  /** Always on top of the list, whatever is typed – e.g. «Neue Serie …». */
+  pinned?: SearchOption;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -23,7 +25,7 @@ interface SearchSelectProps {
  * A dropdown to type in: the list shows the options with every word typed; arrows and Enter pick, Escape closes the
  * list (and only the list, also in a dialog). The list opens in the flow below the field, so no dialog cuts it off.
  */
-export function SearchSelect({ id, options, value, onChange, placeholder, disabled = false, autoFocus = false }: SearchSelectProps) {
+export function SearchSelect({ id, options, pinned, value, onChange, placeholder, disabled = false, autoFocus = false }: SearchSelectProps) {
   const listId = useId();
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
@@ -31,8 +33,10 @@ export function SearchSelect({ id, options, value, onChange, placeholder, disabl
   // What was typed; null while nothing was, so the field shows the choice and the list all options.
   const [query, setQuery] = useState<string | null>(null);
   const [active, setActive] = useState(0);
-  const selected = options.find((option) => option.value === value) ?? null;
-  const shown = query === null ? options : filterByWords(options, query);
+  const all = pinned ? [pinned, ...options] : options;
+  const selected = all.find((option) => option.value === value) ?? null;
+  const matches = query === null ? options : filterByWords(options, query);
+  const shown = pinned ? [pinned, ...matches] : matches;
 
   useEffect(() => {
     if (autoFocus && !disabled && !window.matchMedia('(pointer: coarse)').matches) input.current?.focus();
@@ -44,7 +48,7 @@ export function SearchSelect({ id, options, value, onChange, placeholder, disabl
 
   function openList() {
     setOpen(true);
-    setActive(Math.max(0, options.findIndex((option) => option.value === value)));
+    setActive(Math.max(0, all.findIndex((option) => option.value === value)));
   }
 
   function close() {
@@ -92,7 +96,8 @@ export function SearchSelect({ id, options, value, onChange, placeholder, disabl
           spellCheck={false}
           onChange={(event) => {
             setQuery(event.target.value);
-            setActive(0);
+            // The first match, not the pinned option, is what Enter takes.
+            setActive(pinned && filterByWords(options, event.target.value).length > 0 ? 1 : 0);
             setOpen(true);
           }}
           onClick={() => {
@@ -109,7 +114,7 @@ export function SearchSelect({ id, options, value, onChange, placeholder, disabl
       </div>
       {open && (
         <div className="mt-1 overflow-hidden rounded-lg border border-line bg-card shadow-sm">
-          {shown.length === 0 && <p className="px-3 py-2 text-sm text-ink-3">Nichts gefunden für «{query}».</p>}
+          {query !== null && matches.length === 0 && <p className="px-3 py-2 text-sm text-ink-3">Nichts gefunden für «{query}».</p>}
           <ul ref={list} id={listId} role="listbox" aria-label={placeholder} className="max-h-60 overflow-y-auto py-1">
             {shown.map((option, index) => (
               <li
@@ -122,7 +127,12 @@ export function SearchSelect({ id, options, value, onChange, placeholder, disabl
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(option)}
                 onMouseMove={() => setActive(index)}
-                className={clsx('cursor-pointer px-3 py-1.5 text-sm', index === active && 'bg-card-2', option.value === value ? 'font-medium text-accent' : 'text-ink')}
+                className={clsx(
+                  'cursor-pointer px-3 py-1.5 text-sm',
+                  index === active && 'bg-card-2',
+                  option.value === value ? 'font-medium text-accent' : 'text-ink',
+                  pinned && index === 0 && 'border-b border-line italic',
+                )}
               >
                 {option.label}
               </li>

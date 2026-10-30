@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router';
-import { Network, Plug } from 'lucide-react';
+import { CloudDownload, Network, Plug } from 'lucide-react';
 import { ConnectionForm } from '../components/ConnectionForm';
 import { NetworkInterfacesForm } from '../components/NetworkInterfacesForm';
 import { SettingsSection } from '../components/SettingsSection';
+import { UpdatesPanel } from '../components/Updates';
 import { useAgentSettings } from '../hooks/queries';
 
 export function SettingsPage() {
@@ -17,8 +18,8 @@ export function SettingsPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Einstellungen</h1>
         <p className="mt-1 text-sm text-ink-2">
-          Verbindung zu deinem Jellyfin-Server, und welche Netzwerkschnittstellen der Agent darauf misst. Den Agent selbst und JDownloader
-          findest du unter{' '}
+          Manelly und den Agent aktualisieren, die Verbindung zu deinem Jellyfin-Server, und welche Netzwerkschnittstellen der Agent darauf
+          misst. Den Agent selbst und JDownloader findest du unter{' '}
           <Link to="/server/agent" className="font-medium text-accent hover:underline">
             Server → Agent
           </Link>{' '}
@@ -29,6 +30,10 @@ export function SettingsPage() {
           .
         </p>
       </header>
+
+      <SettingsSection id="updates" icon={CloudDownload} title="Updates" description="Manelly und den Agent auf den neuesten Stand bringen oder neu starten.">
+        <UpdatesPanel />
+      </SettingsSection>
 
       <SettingsSection icon={Plug} title="Jellyfin-Verbindung" description="Der API-Schlüssel bleibt auf dem Manelly-Server und wird nie angezeigt.">
         <ConnectionForm />

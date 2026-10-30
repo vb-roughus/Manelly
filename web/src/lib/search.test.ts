@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterByWords } from './search';
+import { filterByWords, seriesLabel } from './search';
 
 const items = ['The Expanse (2015)', 'Dark (2017)', 'Haus des Geldes', 'Café Fürstenberg', 'Expedition Arktis'].map((label) => ({ label }));
 
@@ -11,5 +11,11 @@ describe('search by words', () => {
     expect(filterByWords(items, '2017').map((item) => item.label)).toEqual(['Dark (2017)']);
     expect(filterByWords(items, 'xyz')).toEqual([]);
     expect(filterByWords(items, '  ')).toHaveLength(5);
+  });
+
+  it('shows a series with its year, once', () => {
+    expect(seriesLabel({ name: 'Dark', year: 2017 })).toBe('Dark (2017)');
+    expect(seriesLabel({ name: 'Dark (2017)', year: 2017 })).toBe('Dark (2017)');
+    expect(seriesLabel({ name: '1923', year: null })).toBe('1923');
   });
 });

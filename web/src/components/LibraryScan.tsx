@@ -6,6 +6,7 @@ import { useLibraryScan, useLibraryScanAction, useLibrarySeries, useScanItem, us
 import { useNow } from '../hooks/useNow';
 import { formatAgo } from '../lib/format';
 import { LIBRARY_TYPE_LABELS } from '../lib/media';
+import { seriesLabel } from '../lib/search';
 import { formatSpan } from '../lib/timeline';
 import { Message } from './ConnectionForm';
 import { Modal } from './Modal';
@@ -337,10 +338,7 @@ function SeriesScanForm({ libraryId, onClose }: { libraryId: string; onClose: ()
           </label>
           <SearchSelect
             id="scan-series"
-            options={(seriesList.data ?? []).map((candidate) => ({
-              value: candidate.id,
-              label: candidate.year && !candidate.name.includes(String(candidate.year)) ? `${candidate.name} (${candidate.year})` : candidate.name,
-            }))}
+            options={(seriesList.data ?? []).map((candidate) => ({ value: candidate.id, label: seriesLabel(candidate) }))}
             value={seriesId}
             onChange={(id) => {
               setSeriesId(id);

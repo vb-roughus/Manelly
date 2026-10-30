@@ -122,8 +122,8 @@ export function JDownloaderPage() {
   // Traffic and premium time change slowly; JDownloader itself checks the hosters only now and then.
   const accounts = useJDownloaderAccounts(enabled && accountsSupported, tab === 'accounts' ? 30_000 : false);
   const extractedSupported = Boolean(status?.jdownloader?.extracted);
-  // Read only while the tab is open, so the folder is not counted through on every visit; the count stays afterwards.
-  const extracted = useExtracted('', enabled && extractedSupported && tab === 'extracted');
+  // Always, for the count on the tab: the folder is small and on a local disk, and the agent reads only that folder.
+  const extracted = useExtracted('', enabled && extractedSupported, 60_000);
 
   const openSettings = () => change((next) => next.set('settings', ''));
   // Animated by direction: a tab further right slides in from the right.
@@ -191,6 +191,7 @@ export function JDownloaderPage() {
                   actions={Boolean(status.jdownloader?.moves)}
                   newFolders={Boolean(status.jdownloader?.newFolders)}
                   deletable={Boolean(status.jdownloader?.extractedDelete)}
+                  convertible={Boolean(status.jdownloader?.extractedConvert)}
                 />
               ) : (
                 <Message tone="critical">

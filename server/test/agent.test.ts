@@ -104,6 +104,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (url.pathname.endsWith('/move')) return Response.json({ id: 'm1', ...body, state: 'queued', bytesTotal: 10, bytesDone: 0, bytesPerSecond: null, copyThrottle: null, problems: [], createdAt: '', finishedAt: null }, { status: 202 });
         if (url.pathname.endsWith('/moves')) return Response.json([]);
         if (url.pathname.endsWith('/samples')) return Response.json({ samples: [{ path: 'Dune/Sample/dune-sample.mkv', bytes: 2 }] });
+        if (url.pathname.endsWith('/convert')) return Response.json({ id: 'j1', state: 'queued', source: `D:\\Entpackt\\${body.path}`, output: `D:\\Entpackt\\${body.path}` }, { status: 202 });
         return Response.json({ deleted: body.paths, problems: [] });
       }
       if (url.pathname === '/api/jdownloader/extracted') {
@@ -536,6 +537,22 @@ describe('agent connection', () => {
     expect((await remove({ paths: [] })).statusCode).toBe(400);
     expect((await remove({ paths: [''] })).statusCode).toBe(400);
     expect(world.sent.jdownloader).toEqual([{ method: 'POST', path: '/api/jdownloader/extracted/delete', body: { paths: ['Dune', 'readme.nfo'] } }]);
+  });
+
+  it('converts a file in the extraction folder through the agent', async () => {
+    const { app, world } = await setup();
+    const convert = (payload: unknown) => app.inject({ method: 'POST', url: '/api/agent/jdownloader/extracted/convert', payload: payload as object });
+    const started = await convert({ path: 'Dune.mkv', work: true });
+    expect(started.statusCode).toBe(202);
+    expect(started.json()).toMatchObject({ id: 'j1', source: 'D:\\Entpackt\\Dune.mkv' });
+    expect((await convert({ path: '' })).statusCode).toBe(400);
+    expect((await convert({ path: 'Dune.mkv', scheduled: 'ja' })).statusCode).toBe(400);
+    // Where the result goes is not for Manelly to say: always in place of the original.
+    await convert({ path: 'Arrival.mkv', output: { mode: 'folder', directory: 'D:\\Filme' } });
+    expect(world.sent.jdownloader).toEqual([
+      { method: 'POST', path: '/api/jdownloader/extracted/convert', body: { path: 'Dune.mkv', work: true } },
+      { method: 'POST', path: '/api/jdownloader/extracted/convert', body: { path: 'Arrival.mkv' } },
+    ]);
   });
 
   it('removes from the link grabber and the downloads through the agent', async () => {

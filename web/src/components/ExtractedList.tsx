@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, type FormEvent } from 'react';
-import type { ExtractedEntry, ExtractedMove, LibrarySeries, MoveScan, SeriesSeason } from '@manelly/shared';
+import { createContext, useContext, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
+import type { ConversionJob, DolbyVisionInfo, ExtractedEntry, ExtractedMove, LibrarySeries, MoveScan, SeriesSeason } from '@manelly/shared';
 import {
   ChevronDown,
   CircleCheck,
@@ -17,10 +18,15 @@ import {
   Settings,
   Trash2,
   TriangleAlert,
+  WandSparkles,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useQueryClient } from '@tanstack/react-query';
 import {
+  useAgent,
+  useConversions,
+  useConvertExtracted,
   useDeleteExtracted,
   useDeleteSamples,
   useExtracted,
@@ -32,11 +38,15 @@ import {
   useSeriesSeasons,
 } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
-import { guessSeriesName, isFolderName, joinFolder, VIDEO } from '../lib/extracted';
+import { initialChoices, loadChoices, rememberedChoices, saveChoices } from '../lib/convertChoices';
+import { describeDolbyVision, dolbyVisionLabel, guessSeriesName, isExtractedFile, isFolderName, joinFolder, VIDEO } from '../lib/extracted';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 import { range } from '../lib/packageSelection';
+import { describeSchedule, restricts } from '../lib/schedule';
 import { seriesLabel } from '../lib/search';
 import { Message } from './ConnectionForm';
+import { isActive, STEP_LABELS } from './ConversionStatus';
+import { Choice } from './media/ConvertDialog';
 import { Modal } from './Modal';
 import { SearchSelect } from './SearchSelect';
 import { keepTextOnShift } from './Tick';
@@ -45,8 +55,8 @@ const TEXT = /\.(nfo|txt|srt|ass|ssa|sub|idx|sfv|md5)$/i;
 /** Bigger than any sample usually is; such a file is not ticked for deleting by itself. */
 const BIG_SAMPLE_BYTES = 1024 ** 3;
 const LAST_TARGET_KEY = 'manelly.extracted.target';
-/** Finished moves stay in sight this long. */
-const RECENT_MOVE_MS = 6 * 3_600_000;
+/** Finished moves and conversions stay in sight this long. */
+const RECENT_MS = 6 * 3_600_000;
 
 const button =
   'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-not-allowed disabled:opacity-50';
@@ -98,22 +108,54 @@ const SelectionContext = createContext<Selection>({ enabled: false, selected: ne
 
 const coveredBy = (selected: Map<string, Ticked>, path: string) => [...selected.keys()].some((other) => path.startsWith(`${other}/`));
 
+/** Converting files with Dolby Vision profile 7 (agent from 0.31.0): opens the dialog, and knows the conversions. */
+interface Conversions {
+  enabled: boolean;
+  open: (entry: ExtractedEntry) => void;
+  /** The latest conversion of an entry, by its path in the folder. */
+  jobFor: (path: string) => ConversionJob | undefined;
+}
+
+const ConversionsContext = createContext<Conversions>({ enabled: false, open: () => {}, jobFor: () => undefined });
+
+/**
+ * The conversions of files in the extraction folder, newest first; when one ends, the folder is read again, so the
+ * file shows its new profile.
+ */
+function useFolderConversions(directory: string | null, enabled: boolean): ConversionJob[] {
+  const queryClient = useQueryClient();
+  const conversions = useConversions(enabled);
+  const jobs = directory
+    ? (conversions.data ?? []).filter((job) => isInFolder(job.source, directory)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    : [];
+  const active = jobs.filter(isActive).length;
+  const previous = useRef(active);
+  useEffect(() => {
+    if (active < previous.current) void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
+    previous.current = active;
+  }, [active, queryClient]);
+  return jobs;
+}
+
 /**
  * What lies in the folder JDownloader extracts into: newest first, folders open to show what is in them. Ticked
- * entries go into a library; samples can be looked for and deleted. The agent reads only that folder, and only while
- * this list is open.
+ * entries go into a library; samples can be looked for and deleted; files with Dolby Vision profile 7 can be converted
+ * first. The agent reads only that folder.
  */
 export function ExtractedList({
   onOpenSettings,
   actions,
   newFolders,
   deletable,
+  convertible,
 }: {
   onOpenSettings: () => void;
   actions: boolean;
   newFolders: boolean;
   /** Agent from 0.30.0: ticked entries can be deleted. */
   deletable: boolean;
+  /** Agent from 0.31.0: files with Dolby Vision profile 7 can be converted here. */
+  convertible: boolean;
 }) {
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
@@ -121,6 +163,8 @@ export function ExtractedList({
   const [selected, setSelected] = useState<Map<string, Ticked>>(new Map());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [dialog, setDialog] = useState<'move' | 'samples' | 'delete' | null>(null);
+  const [converting, setConverting] = useState<ExtractedEntry | null>(null);
+  const jobs = useFolderConversions(root.data?.directory ?? null, convertible);
 
   function toggle(entry: ExtractedEntry, siblings: ExtractedEntry[], shift: boolean) {
     const tick = !selected.has(entry.path);
@@ -156,7 +200,12 @@ export function ExtractedList({
 
   const total = entries.reduce((sum, entry) => sum + entry.bytes, 0);
   const selectedBytes = [...selected.values()].reduce((sum, ticked) => sum + ticked.bytes, 0);
-  const recentMoves = (moves.data ?? []).filter((move) => !move.finishedAt || now - Date.parse(move.finishedAt) < RECENT_MOVE_MS).slice(0, 4);
+  const recentMoves = (moves.data ?? []).filter((move) => !move.finishedAt || now - Date.parse(move.finishedAt) < RECENT_MS).slice(0, 4);
+  const conversions: Conversions = {
+    enabled: convertible && !error,
+    open: setConverting,
+    jobFor: (path) => jobs.find((job) => isExtractedFile(job.source, directory, path)),
+  };
 
   return (
     <SelectionContext.Provider value={{ enabled: actions && !error, selected, toggle }}>
@@ -228,11 +277,13 @@ export function ExtractedList({
         {error && <p className="mt-3 text-critical">{error}</p>}
         {!error && entries.length === 0 && <p className="mt-3 text-ink-2">Der Ordner ist leer.</p>}
         {entries.length > 0 && (
-          <ul className="mt-3 divide-y divide-line border-t border-line" onMouseDown={keepTextOnShift}>
-            {entries.map((entry) => (
-              <EntryRow key={entry.path} entry={entry} siblings={entries} now={now} />
-            ))}
-          </ul>
+          <ConversionsContext.Provider value={conversions}>
+            <ul className="mt-3 divide-y divide-line border-t border-line" onMouseDown={keepTextOnShift}>
+              {entries.map((entry) => (
+                <EntryRow key={entry.path} entry={entry} siblings={entries} now={now} />
+              ))}
+            </ul>
+          </ConversionsContext.Provider>
         )}
       </div>
 
@@ -272,6 +323,9 @@ export function ExtractedList({
       >
         <SamplesForm onClose={() => setDialog(null)} />
       </Modal>
+      <Modal open={converting !== null} onClose={() => setConverting(null)} icon={WandSparkles} title="In Dolby Vision Profil 8.1 umwandeln">
+        {converting?.dolbyVision && <ConvertForm entry={converting} info={converting.dolbyVision} directory={directory} onClose={() => setConverting(null)} />}
+      </Modal>
     </SelectionContext.Provider>
   );
 }
@@ -279,16 +333,23 @@ export function ExtractedList({
 function EntryRow({ entry, siblings, now }: { entry: ExtractedEntry; siblings: ExtractedEntry[]; now: number }) {
   const [open, setOpen] = useState(false);
   const selection = useContext(SelectionContext);
+  const conversions = useContext(ConversionsContext);
   const Icon = iconFor(entry, open);
   const folder = entry.kind === 'directory';
   const covered = coveredBy(selection.selected, entry.path);
   const ticked = covered || selection.selected.has(entry.path);
+  const job = folder || !conversions.enabled ? undefined : conversions.jobFor(entry.path);
+  const convertible = conversions.enabled && entry.dolbyVision?.profile === 7 && !(job && isActive(job));
   const body = (
     <>
       <Icon className={clsx('mt-0.5 size-4 shrink-0', folder ? 'text-accent' : VIDEO.test(entry.name) ? 'text-ink' : 'text-ink-3')} aria-hidden />
       <span className="min-w-0 flex-1">
-        <span className="block font-medium break-words">{entry.name}</span>
+        <span className="block font-medium break-words">
+          {entry.name}
+          {entry.dolbyVision && <DolbyVisionBadge info={entry.dolbyVision} />}
+        </span>
         <span className="block text-xs text-ink-2">{details(entry, now)}</span>
+        {job && <ConversionLine job={job} now={now} />}
       </span>
       {folder && <ChevronDown className={clsx('mt-0.5 size-4 shrink-0 text-ink-3 transition', !open && '-rotate-90')} aria-hidden />}
     </>
@@ -315,9 +376,75 @@ function EntryRow({ entry, siblings, now }: { entry: ExtractedEntry; siblings: E
         ) : (
           <div className="flex min-w-0 flex-1 items-start gap-2.5">{body}</div>
         )}
+        {convertible && (
+          <button
+            type="button"
+            onClick={() => conversions.open(entry)}
+            title="Viele Geräte spielen Profil 8.1 direkt, Profil 7 aber nicht"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-card px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-line transition hover:bg-card-2"
+          >
+            <WandSparkles className="size-3.5 text-accent" aria-hidden />
+            <span className="hidden sm:inline">In Profil 8.1 umwandeln</span>
+            <span className="sm:hidden">Umwandeln</span>
+          </button>
+        )}
       </div>
       {open && <FolderContent path={entry.path} now={now} />}
     </li>
+  );
+}
+
+/** Profile 7 stands out: many players show it only as HDR10. */
+function DolbyVisionBadge({ info }: { info: DolbyVisionInfo }) {
+  return (
+    <span
+      title={describeDolbyVision(info)}
+      className={clsx(
+        'ml-2 inline-block rounded px-1.5 py-px align-[1px] text-[0.6875rem] font-semibold whitespace-nowrap',
+        info.profile === 7 ? 'bg-warning/15 text-warning ring-1 ring-warning/30' : 'bg-card-2 text-ink-2 ring-1 ring-line',
+      )}
+    >
+      {dolbyVisionLabel(info)}
+    </span>
+  );
+}
+
+/** Where the conversion of a file stands, or how it ended. */
+function ConversionLine({ job, now }: { job: ConversionJob; now: number }) {
+  const details = (
+    <Link to="/conversions/overview" className="font-medium text-accent hover:underline">
+      Details
+    </Link>
+  );
+  if (isActive(job)) {
+    const doing =
+      job.state === 'running'
+        ? joinParts([job.paused ? 'Pausiert' : 'Wird umgewandelt', job.step && STEP_LABELS[job.step], job.progress !== null && `${Math.round(job.progress * 100)} %`])
+        : job.paused
+          ? 'Umwandlung pausiert'
+          : job.scheduled
+            ? 'Umwandlung eingeplant'
+            : 'Umwandlung wartet';
+    return (
+      <span className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-2" role="status">
+        <LoaderCircle className={clsx('size-3 shrink-0 text-accent', job.state === 'running' && !job.paused && 'animate-spin')} aria-hidden />
+        <span className="min-w-0">
+          {doing}
+          {job.state === 'queued' && job.waitReason && ` – ${job.waitReason}`} · {details}
+        </span>
+      </span>
+    );
+  }
+  if (job.state === 'canceled' || !job.finishedAt || now - Date.parse(job.finishedAt) > RECENT_MS) return null;
+  const failed = job.state === 'failed';
+  return (
+    <span className={clsx('mt-0.5 flex items-start gap-1.5 text-xs', failed ? 'text-critical' : 'text-good')}>
+      {failed ? <CircleX className="mt-px size-3 shrink-0" aria-hidden /> : <CircleCheck className="mt-px size-3 shrink-0" aria-hidden />}
+      <span className="min-w-0">
+        {failed ? `Umwandlung fehlgeschlagen: ${job.error ?? 'unbekannter Fehler'}` : `In Profil 8.1 umgewandelt ${formatAgo(Date.parse(job.finishedAt), now)}`}
+        {job.warning && <span className="text-ink-2"> – {job.warning}</span>} · {details}
+      </span>
+    </span>
   );
 }
 
@@ -745,6 +872,142 @@ function DeleteForm({ selected, onDone, onCancel }: { selected: Map<string, Tick
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Converts a file with Dolby Vision profile 7 into profile 8.1 before it goes into a library. The result takes the
+ * file's place; the original goes to the backups of the work folder, or into «.manelly-backup» next to the file.
+ */
+function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntry; info: DolbyVisionInfo; directory: string; onClose: () => void }) {
+  const id = useId();
+  const status = useAgent().data?.status;
+  const schedule = status?.schedule;
+  const work = status?.work;
+  const workUsable = Boolean(work?.directory) && !work?.error;
+  const hasSchedule = schedule !== undefined && restricts(schedule);
+  // The last choices of a conversion in this browser, also those from the media.
+  const [saved] = useState(loadChoices);
+  const available = { folders: [], work: workUsable, schedule: hasSchedule };
+  const [initial] = useState(() => initialChoices(saved, available));
+  const [inWork, setInWork] = useState(initial.work);
+  const [scheduled, setScheduled] = useState(initial.scheduled);
+  const convert = useConvertExtracted();
+  const staged = inWork && workUsable;
+  const parent = entry.path.split('/').slice(0, -1);
+  const backup = joinFolder(directory, [...parent, '.manelly-backup'].join(directory.includes('\\') ? '\\' : '/'));
+
+  if (convert.data) {
+    return (
+      <div className="space-y-4 text-sm">
+        <Message tone="good">
+          {convert.data.scheduled
+            ? `Die Umwandlung ist eingeplant: Der Agent startet sie ${(schedule && describeSchedule(schedule)) ?? 'nach Zeitplan'}.`
+            : 'Die Umwandlung ist gestartet.'}{' '}
+          Bis sie fertig ist, bleibt «{entry.name}» im Entpack-Ordner – verschieben und löschen gehen erst danach.
+        </Message>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Link to="/conversions/overview" className={button}>
+            Zu den Umwandlungen
+          </Link>
+          <button type="button" onClick={onClose} className={primaryButton}>
+            Schliessen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    saveChoices(rememberedChoices({ mode: saved.mode ?? 'alongside', folder: saved.folder ?? null, work: inWork, scheduled }, saved, available));
+    convert.mutate({ path: entry.path, ...(scheduled && hasSchedule ? { scheduled: true } : {}), ...(staged ? { work: true } : {}) });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-5 text-sm">
+      <div>
+        <p className="font-medium break-all">{entry.name}</p>
+        <p className="mt-0.5 text-xs text-ink-2">{joinParts([size(entry.bytes), describeDolbyVision(info)])}</p>
+        <p className="mt-2 text-ink-2">
+          Viele Geräte spielen Profil 8.1 direkt, Profil 7 aber nicht. Der Agent löst die Videospur heraus, wandelt die Dolby-Vision-Daten mit
+          dovi_tool in Profil 8.1 um und setzt die Datei mit allen Ton- und Untertitelspuren neu zusammen; das Bild wird nicht neu kodiert. Die
+          neue Datei ersetzt das Original im Entpack-Ordner – danach kann sie in die Mediathek.
+        </p>
+      </div>
+
+      {(work?.directory || schedule) && (
+        <div className="grid gap-5 sm:grid-cols-2">
+          {work?.directory && (
+            <Choice
+              id={`${id}-where`}
+              label="Wo umwandeln"
+              value={staged ? 'work' : 'direct'}
+              onChange={(value) => setInWork(value === 'work')}
+              options={[
+                { value: 'work', label: 'Im Arbeitsordner', disabled: !workUsable },
+                { value: 'direct', label: 'Direkt im Entpack-Ordner' },
+              ]}
+              description={
+                work.error ??
+                (staged
+                  ? `Kopiert die Datei nach ${work.directory}, wandelt dort um und kopiert das Ergebnis zurück. Das Original bleibt dort, bis du es unter Umwandlungen → Backups löschst.`
+                  : 'Liest und schreibt während der ganzen Umwandlung im Entpack-Ordner.')
+              }
+            />
+          )}
+          {schedule && (
+            <Choice
+              id={`${id}-when`}
+              label="Wann"
+              value={scheduled && hasSchedule ? 'scheduled' : 'now'}
+              onChange={(value) => setScheduled(value === 'scheduled')}
+              options={[
+                { value: 'scheduled', label: 'Nach Zeitplan', disabled: !hasSchedule },
+                { value: 'now', label: 'Sofort' },
+              ]}
+              description={
+                !hasSchedule
+                  ? 'Noch kein Zeitplan – einstellen unter Umwandlungen → Einstellungen.'
+                  : scheduled
+                    ? `Startet ${describeSchedule(schedule)} – bis dahin bleibt die Datei im Entpack-Ordner.`
+                    : 'Startet gleich (oder nach der laufenden Umwandlung) und läuft auch weiter, wenn jemand streamt.'
+              }
+            />
+          )}
+        </div>
+      )}
+
+      <div className="space-y-1 rounded-lg bg-card-2 p-3 text-xs text-ink-2">
+        <p>
+          Backup des Originals: {staged ? 'im Arbeitsordner, unter Umwandlungen → Backups' : <span className="font-mono break-all">{backup}</span>}
+        </p>
+        {!staged && (
+          <p>
+            Jellyfin ignoriert diesen Ordner.{' '}
+            {parent.length > 0
+              ? 'Er liegt im Ordner der Datei und kommt beim Verschieben mit in die Mediathek – lösche ihn vorher, sobald das Ergebnis passt.'
+              : 'Lösche ihn hier, sobald das Ergebnis passt.'}
+          </p>
+        )}
+      </div>
+      <p className="text-xs text-ink-3">
+        {info.enhancementLayer &&
+          'Die Datei hat einen Enhancement Layer: Ist es ein «FEL» (zusätzliche Bildinformation), geht diese verloren; bei «MEL» nichts. Welcher es ist, lässt sich aus der Datei nicht ablesen. '}
+        Behalte das Original, bis du das Ergebnis geprüft hast.
+      </p>
+      {convert.isError && <Message tone="critical">{convert.error.message}</Message>}
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onClose} className={button}>
+          Abbrechen
+        </button>
+        <button type="submit" disabled={convert.isPending} className={primaryButton}>
+          {convert.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <WandSparkles className="size-4" aria-hidden />}
+          {scheduled && hasSchedule ? 'Umwandlung einplanen' : 'Umwandlung starten'}
+        </button>
+      </div>
+    </form>
   );
 }
 

@@ -15,6 +15,7 @@ import type {
   ConversionSchedule,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
+  ExtractedConvertRequest,
   ExtractedDeleted,
   ExtractedFolder,
   ExtractedMove,
@@ -94,6 +95,8 @@ export interface AgentClient {
   deleteExtractedSamples(paths: string[]): Promise<ExtractedSamplesDeleted>;
   /** From agent 0.30.0: entries of the extraction folder, for good. */
   deleteExtracted(paths: string[]): Promise<ExtractedDeleted>;
+  /** From agent 0.31.0: a file there with Dolby Vision profile 7 into profile 8.1, replacing it. */
+  convertExtracted(request: ExtractedConvertRequest): Promise<ConversionJob>;
   /** No ids: all of them. */
   refreshJDownloaderAccounts(ids: number[]): Promise<{ refreshing: number }>;
   /** Recorded load and streams between two times (milliseconds since the epoch). */
@@ -191,6 +194,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     extractedSamples: () => call('GET', '/api/jdownloader/extracted/samples', undefined, 60_000),
     deleteExtractedSamples: (paths) => call('POST', '/api/jdownloader/extracted/samples/delete', { paths }, 60_000),
     deleteExtracted: (paths) => call('POST', '/api/jdownloader/extracted/delete', { paths }, 120_000),
+    // The agent reads the file's header first.
+    convertExtracted: (request) => call('POST', '/api/jdownloader/extracted/convert', request, 60_000),
     refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),
     // A long range means reading many days of records.
     history: (from, to) => call('GET', `/api/history?from=${Math.round(from)}&to=${Math.round(to)}`, undefined, 60_000),

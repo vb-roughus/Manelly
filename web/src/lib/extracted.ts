@@ -1,3 +1,5 @@
+import type { DolbyVisionInfo } from '@manelly/shared';
+
 /** Video files, as JDownloader extracts them. */
 export const VIDEO = /\.(mkv|mp4|m4v|avi|mov|wmv|ts|m2ts|mts|iso|webm)$/i;
 
@@ -33,4 +35,25 @@ export function guessSeriesName(names: string[]): string {
     if (isFolderName(guess)) return guess;
   }
   return '';
+}
+
+/** A path for comparing: one kind of separator, any case – the agent runs on Windows. */
+const comparable = (path: string) => path.replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase();
+
+/** Whether `file` (as the agent names it, e.g. a conversion's source) is the entry "a/b" of the extraction folder. */
+export function isExtractedFile(file: string, directory: string, path: string): boolean {
+  return comparable(file) === comparable(`${directory}/${path}`);
+}
+
+/** "DV P7", "DV P8.1": for profile 8, the number after the point is what the base layer is without Dolby Vision. */
+export function dolbyVisionLabel(info: DolbyVisionInfo): string {
+  return info.profile === 8 && info.compatibility ? `DV P8.${info.compatibility}` : `DV P${info.profile}`;
+}
+
+const BASE_LAYERS: Record<number, string> = { 1: 'HDR10', 2: 'SDR', 4: 'HLG', 6: 'HDR10 (Blu-ray)' };
+
+/** «Dolby Vision Profil 7, Basis HDR10 (Blu-ray), mit Enhancement Layer» */
+export function describeDolbyVision(info: DolbyVisionInfo): string {
+  const base = info.compatibility !== null ? BASE_LAYERS[info.compatibility] : undefined;
+  return [`Dolby Vision Profil ${info.profile}`, base && `Basis ${base}`, info.enhancementLayer && 'mit Enhancement Layer'].filter(Boolean).join(', ');
 }

@@ -471,6 +471,22 @@ describe('pause', () => {
     }
   });
 
+  it('converts outside the shared folders only in the folder it is allowed', async () => {
+    const extracted = path.join(root, 'entpackt');
+    await mkdir(extracted);
+    const file = path.join(extracted, 'Dune.mkv');
+    await writeFile(file, 'dune');
+    const limited = await createJobQueue({ dataDir: path.join(root, 'limited'), roots: [path.join(root, 'Filme')], tools: async () => tools, tickMs: 0 });
+    try {
+      await expect(limited.add({ source: file, output: { mode: 'replace' } })).rejects.toThrow(`${file} liegt ausserhalb der freigegebenen Ordner.`);
+      const { id } = await limited.add({ source: file, output: { mode: 'replace' } }, extracted);
+      for (let attempt = 0; attempt < 200 && limited.get(id).state !== 'done'; attempt++) await sleep(25);
+      expect(limited.get(id)).toMatchObject({ state: 'done', output: file });
+    } finally {
+      await limited.stop();
+    }
+  });
+
   it('stops after the last finished step where a tool cannot be held', async () => {
     process.env.FAKE_DOVI_SLEEP = '5000';
     const dataDir = path.join(root, 'no-suspend');
@@ -824,6 +840,7 @@ describe('JDownloader routes', () => {
       newFolders: true,
       remove: true,
       extractedDelete: true,
+      extractedConvert: true,
     });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
@@ -954,6 +971,60 @@ describe('JDownloader routes', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(await readdir(path.join(library, 'Dark'))).toEqual(['Dark.S01E01.mkv']);
+  });
+
+  it('converts a file of the extraction folder with Dolby Vision profile 7 in place, and keeps it there meanwhile', async () => {
+    const extracted = path.join(root, 'entpackt');
+    await mkdir(path.join(extracted, 'Dune (2024)'), { recursive: true });
+    const file = path.join(extracted, 'Dune (2024)', 'Dune.mkv');
+    await writeFile(file, 'dune');
+    await writeFile(path.join(extracted, 'Dune (2024)', 'Dune.nfo'), 'nfo');
+    const convert = (body: unknown) => post('/api/jdownloader/extracted/convert', body);
+    const refused = async (body: unknown) => {
+      const response = await convert(body);
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    // Without an extraction folder there is nothing to convert.
+    expect((await convert({ path: 'Dune (2024)/Dune.mkv' })).status).toBe(409);
+    await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 }, extractTo: extracted });
+
+    const inside = (await (await call(`/api/jdownloader/extracted?path=${encodeURIComponent('Dune (2024)')}`)).json()) as ExtractedFolder;
+    expect(inside.entries.map((entry) => [entry.name, entry.dolbyVision])).toEqual([
+      ['Dune.mkv', { profile: 7, compatibility: null, enhancementLayer: false }],
+      ['Dune.nfo', undefined],
+    ]);
+
+    expect(await refused({ path: 1 })).toEqual([400, 'Die Datei im Entpack-Ordner erwartet.']);
+    expect(await refused({ path: 'Dune (2024)/Dune.mkv', work: 'ja' })).toEqual([400, 'Die Datei im Entpack-Ordner erwartet.']);
+    expect((await convert({ path: '../Filme' })).status).toBe(400);
+    expect(await refused({ path: 'Dune (2024)/Weg.mkv' })).toEqual([404, '«Dune (2024)/Weg.mkv» gibt es im Entpack-Ordner nicht (mehr).']);
+    expect((await convert({ path: 'Dune (2024)' })).status).toBe(404);
+    process.env.FAKE_NO_DV = '1';
+    await writeFile(path.join(extracted, 'Arrival.mkv'), 'arrival');
+    expect(await refused({ path: 'Arrival.mkv' })).toEqual([400, '«Arrival.mkv» hat kein Dolby Vision Profil 7.']);
+    delete process.env.FAKE_NO_DV;
+
+    // While it converts, the file and its folder stay where they are.
+    process.env.FAKE_DOVI_SLEEP = '5000';
+    const started = await convert({ path: 'Dune (2024)/Dune.mkv' });
+    expect(started.status).toBe(202);
+    const job = (await started.json()) as ConversionJob;
+    expect(job).toMatchObject({ title: 'Dune.mkv', source: file, output: file });
+    await waitFor(job.id, (current) => current.step === 'convert');
+    expect(await refused({ path: 'Dune (2024)/Dune.mkv' })).toEqual([409, 'Für diese Datei läuft schon eine Umwandlung.']);
+    expect(await (await post('/api/jdownloader/extracted/delete', { paths: ['Dune (2024)'] })).json()).toEqual({
+      deleted: [],
+      problems: [{ path: 'Dune (2024)', error: 'Wird gerade umgewandelt – erst danach löschen.' }],
+    });
+    const moved = await post('/api/jdownloader/extracted/move', { paths: ['Dune (2024)'], target: root, label: 'Filme' });
+    expect(moved.status).toBe(409);
+    expect(((await moved.json()) as { error: { message: string } }).error.message).toBe('«Dune (2024)» wird gerade umgewandelt – erst danach verschieben.');
+    await call(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+    await waitFor(job.id, finished);
+    delete process.env.FAKE_DOVI_SLEEP;
+
+    const again = (await (await convert({ path: 'Dune (2024)/Dune.mkv' })).json()) as ConversionJob;
+    expect(await waitFor(again.id, finished)).toMatchObject({ state: 'done', output: file, backup: path.join(extracted, 'Dune (2024)', '.manelly-backup', 'Dune.mkv') });
   });
 
   it('hands DLC files to the link grabber', async () => {

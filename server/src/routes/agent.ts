@@ -15,6 +15,7 @@ import type {
   ConversionSchedule,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
+  ExtractedConvertRequest,
   ExtractedDeleted,
   ExtractedDeleteRequest,
   ExtractedFolder,
@@ -526,6 +527,26 @@ export async function agentRoutes(
         `Im Entpack-Ordner gelöscht: ${result.deleted.join(', ') || 'nichts'}${result.problems.length ? `; nicht gelöscht: ${result.problems.map((problem) => `${problem.path} (${problem.error})`).join(', ')}` : ''}`,
       );
       return result;
+    },
+  );
+
+  // A file there with Dolby Vision profile 7, converted before it goes into a library; the agent checks the profile.
+  app.post<{ Body: ExtractedConvertRequest }>(
+    '/jdownloader/extracted/convert',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['path'],
+          properties: { path: { type: 'string', minLength: 1, maxLength: 2000 }, scheduled: { type: 'boolean' }, work: { type: 'boolean' } },
+        },
+      },
+    },
+    async (request, reply): Promise<ConversionJob> => {
+      const job = await requireAgent(agent).convertExtracted(request.body);
+      request.log.info(`Umwandlung im Entpack-Ordner gestartet: ${job.source}`);
+      return reply.status(202).send(job);
     },
   );
 

@@ -1016,6 +1016,14 @@ export interface ExtractedSamplesDeleted {
   problems: Array<{ path: string; error: string }>;
 }
 
+/** POST /api/jdownloader/extracted/delete on the agent (from 0.30.0): entries of the extraction folder, folders with all in them. */
+export interface ExtractedDeleteRequest {
+  /** Inside the extraction folder, with "/" between the names. */
+  paths: string[];
+}
+
+export type ExtractedDeleted = ExtractedSamplesDeleted;
+
 export interface ExtractedEntry {
   name: string;
   /** Inside the extraction folder, with "/" between the names; to list a folder's content. */
@@ -1431,7 +1439,8 @@ export interface AgentStatus {
   /**
    * Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0,
    * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0, newFolders (moving into a new folder)
-   * before 0.28.0, remove (deleting in the link grabber and the downloads) before 0.29.0.
+   * before 0.28.0, remove (deleting in the link grabber and the downloads) before 0.29.0, extractedDelete (deleting in
+   * the extraction folder) before 0.30.0.
    */
   jdownloader?: {
     enabled: boolean;
@@ -1442,6 +1451,7 @@ export interface AgentStatus {
     moves?: boolean;
     newFolders?: boolean;
     remove?: boolean;
+    extractedDelete?: boolean;
   };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];

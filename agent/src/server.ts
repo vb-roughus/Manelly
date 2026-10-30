@@ -33,7 +33,7 @@ import { AgentError } from './errors.js';
 import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
-import { deleteSamples, findSamples, listExtracted } from './extracted.js';
+import { deleteExtracted, deleteSamples, findSamples, listExtracted } from './extracted.js';
 import type { Mover } from './moves.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
@@ -225,6 +225,7 @@ export function createAgentServer(options: AgentServerOptions) {
           moves: Boolean(options.mover),
           newFolders: Boolean(options.mover),
           remove: true,
+          extractedDelete: true,
         },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
@@ -370,6 +371,14 @@ export function createAgentServer(options: AgentServerOptions) {
       if (!Array.isArray(paths) || paths.length === 0 || paths.length > 2000 || paths.some((path) => typeof path !== 'string')) throw new AgentError(400, 'Die Samples zum Löschen erwartet.');
       await options.access?.prepare(directory);
       return send(response, 200, await deleteSamples(directory, paths as string[]));
+    }
+    if (route === 'POST /api/jdownloader/extracted/delete') {
+      const directory = requireExtractTo();
+      const { paths } = await readJson<{ paths?: unknown }>(request);
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 2000 || paths.some((path) => typeof path !== 'string')) throw new AgentError(400, 'Die Einträge zum Löschen erwartet.');
+      await options.access?.prepare(directory);
+      const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths);
+      return send(response, 200, await deleteExtracted(directory, paths as string[], moving));
     }
     if (route === 'GET /api/jdownloader/extracted') {
       const directory = settings.get().jdownloader.extractTo ?? null;

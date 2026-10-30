@@ -259,6 +259,9 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt) und löscht erst
     danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich
     von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.
+    **Löschen** (ab Agent 0.30.0) löscht die angekreuzten Einträge – Ordner samt Inhalt – nach einer Rückfrage mit der
+    Liste und der Grösse endgültig, ohne Papierkorb. Der Agent löscht nur im Entpack-Ordner und nichts, was gerade
+    verschoben wird; was nicht ging, nennt der Dialog mit dem Grund.
     **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
     Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
     die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird

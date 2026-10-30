@@ -15,6 +15,8 @@ import type {
   ConversionSchedule,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
+  ExtractedDeleted,
+  ExtractedDeleteRequest,
   ExtractedFolder,
   ExtractedMove,
   ExtractedMoveTarget,
@@ -490,6 +492,28 @@ export async function agentRoutes(app: FastifyInstance, opts: { connection: Jell
     async (request): Promise<ExtractedSamplesDeleted> => {
       const result = await requireAgent(agent).deleteExtractedSamples(request.body.paths);
       request.log.info(`Samples im Entpack-Ordner gelöscht: ${result.deleted.length}${result.problems.length ? `, nicht gelöscht: ${result.problems.length}` : ''}`);
+      return result;
+    },
+  );
+
+  // Entries of the extraction folder, for good; the agent keeps to that folder and leaves what is being moved.
+  app.post<{ Body: ExtractedDeleteRequest }>(
+    '/jdownloader/extracted/delete',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['paths'],
+          properties: { paths: { type: 'array', minItems: 1, maxItems: 2000, items: { type: 'string', minLength: 1, maxLength: 2000 } } },
+        },
+      },
+    },
+    async (request): Promise<ExtractedDeleted> => {
+      const result = await requireAgent(agent).deleteExtracted(request.body.paths);
+      request.log.info(
+        `Im Entpack-Ordner gelöscht: ${result.deleted.join(', ') || 'nichts'}${result.problems.length ? `; nicht gelöscht: ${result.problems.map((problem) => `${problem.path} (${problem.error})`).join(', ')}` : ''}`,
+      );
       return result;
     },
   );

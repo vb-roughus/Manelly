@@ -1,5 +1,5 @@
-import { lstat, readdir, rmdir, unlink } from 'node:fs/promises';
-import type { ExtractedEntry, ExtractedFolder, ExtractedSamples, ExtractedSamplesDeleted } from '@manelly/shared';
+import { lstat, readdir, rm, rmdir, unlink } from 'node:fs/promises';
+import type { ExtractedDeleted, ExtractedEntry, ExtractedFolder, ExtractedSamples, ExtractedSamplesDeleted } from '@manelly/shared';
 import { AgentError } from './errors.js';
 import { isWithin, pathApiFor, type PathApi } from './paths.js';
 
@@ -135,6 +135,32 @@ export async function deleteSamples(directory: string, paths: string[]): Promise
       result.deleted.push(path);
       const parent = api.dirname(full);
       if (api.resolve(parent) !== api.resolve(directory) && SAMPLE_FOLDER.test(api.basename(parent)) && (await readdir(parent).catch(() => ['?'])).length === 0) await rmdir(parent).catch(() => {});
+    } catch (error) {
+      result.problems.push({ path, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return result;
+}
+
+/** "a/b" is "a" itself or lies in it. */
+const within = (inner: string, outer: string) => inner === outer || inner.startsWith(`${outer}/`);
+
+/**
+ * Deletes entries of the extraction folder – a folder with all that is in it – for good, without a recycle bin. A
+ * folder and something in it count once; what is being moved (`moving`, as paths in the folder) stays.
+ */
+export async function deleteExtracted(directory: string, paths: string[], moving: readonly string[] = []): Promise<ExtractedDeleted> {
+  const result: ExtractedDeleted = { deleted: [], problems: [] };
+  const unique = [...new Set(paths)];
+  for (const path of unique.filter((candidate) => !unique.some((other) => other !== candidate && within(candidate, other)))) {
+    try {
+      const full = resolveExtracted(directory, path);
+      if (moving.some((busy) => within(busy, path) || within(path, busy))) throw new AgentError(409, 'Wird gerade verschoben – erst danach löschen.');
+      const info = await lstat(full).catch(() => null);
+      if (!info) throw new AgentError(404, 'Gibt es im Entpack-Ordner nicht (mehr).');
+      // A link goes, not what it points to.
+      await rm(full, { recursive: info.isDirectory() });
+      result.deleted.push(path);
     } catch (error) {
       result.problems.push({ path, error: error instanceof Error ? error.message : String(error) });
     }

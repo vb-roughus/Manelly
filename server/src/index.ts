@@ -2,6 +2,8 @@ import { createAgentConnection, createFileAgentSettingsStore } from './agent/con
 import { buildApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { createConnection } from './connection.js';
+import { createLocalListener } from './clicknload/listener.js';
+import { createClickNLoad, createFileClickNLoadSettings } from './clicknload/service.js';
 import { createJellyfinClient } from './jellyfin/client.js';
 import { createFileLinksStore } from './links.js';
 import { createManellyProcess } from './manelly.js';
@@ -27,7 +29,13 @@ async function main() {
     log: (message) => app.log.info(message),
   });
   const links = await createFileLinksStore(config.dataDir);
-  const app = await buildApp({ config, connection, agent, manelly, links, logger: { level: config.logLevel } });
+  const clickNLoad = await createClickNLoad({
+    agent,
+    settings: createFileClickNLoadSettings(config.dataDir),
+    listener: (service) => createLocalListener(service),
+    log: (message) => app.log.info(message),
+  });
+  const app = await buildApp({ config, connection, agent, manelly, links, clickNLoad, logger: { level: config.logLevel } });
 
   if (!connection.settings) {
     app.log.warn('Noch keine Jellyfin-Verbindung eingerichtet – das Dashboard zeigt das Einrichtungsformular.');
@@ -47,6 +55,10 @@ async function main() {
   }
 
   await app.listen({ host: config.host, port: config.port });
+  await clickNLoad.start();
+  const local = clickNLoad.status().local;
+  if (local.error) app.log.warn(`Click'n'Load: ${local.error}`);
+  else if (local.listening) app.log.info(`Click'n'Load: nimmt auf 127.0.0.1:${local.port} Links aus dem Browser dieses Rechners an`);
 }
 
 main().catch((error: unknown) => {

@@ -32,6 +32,8 @@ import type {
   JDownloaderStatus,
   LinkGrabberContainerAnswer,
   LinkGrabberContainerRequest,
+  LinkGrabberLinksAnswer,
+  LinkGrabberLinksRequest,
   LinkGrabberMoveRequest,
   LinkGrabberRemoveRequest,
   LinkGrabberStatus,
@@ -78,6 +80,8 @@ export interface AgentClient {
   linkGrabber(): Promise<LinkGrabberStatus>;
   /** From agent 0.15.0: a DLC file for the link grabber; JDownloader reads it in the background. */
   addLinkGrabberContainer(request: LinkGrabberContainerRequest): Promise<LinkGrabberContainerAnswer>;
+  /** From agent 0.32.0: links for the link grabber, e.g. from Click'n'Load. */
+  addLinkGrabberLinks(request: LinkGrabberLinksRequest): Promise<LinkGrabberLinksAnswer>;
   /** Moves packages and links from the link grabber to the download list; answers with what is left. */
   moveFromLinkGrabber(request: LinkGrabberMoveRequest): Promise<LinkGrabberStatus>;
   /** From agent 0.29.0: removes packages and links from the link grabber; answers with what is left. */
@@ -181,6 +185,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     setJDownloaderLimit: (enabled, kbps) => call('PUT', '/api/jdownloader/limit', { enabled, kbps }, 20_000),
     linkGrabber: () => call('GET', '/api/jdownloader/linkgrabber', undefined, 20_000),
     addLinkGrabberContainer: (request) => call('POST', '/api/jdownloader/linkgrabber/container', request, 30_000),
+    addLinkGrabberLinks: (request) => call('POST', '/api/jdownloader/linkgrabber/links', request, 30_000),
     moveFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/move', request, 30_000),
     removeFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/remove', request, 30_000),
     removeDownloads: (request) => call('POST', '/api/jdownloader/downloads/remove', request, 60_000),

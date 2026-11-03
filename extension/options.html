@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Manelly Click'n'Load</title>
+    <style>
+      :root { color-scheme: light dark; --accent: #8b5cf6; --line: #8884; --muted: #888; }
+      body { font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; margin: 0; padding: 16px; min-width: 340px; max-width: 520px; }
+      h1 { font-size: 16px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+      h1 img { width: 20px; height: 20px; }
+      p { margin: 4px 0; }
+      .muted { color: var(--muted); font-size: 12px; }
+      label { display: block; font-weight: 600; margin-top: 12px; }
+      input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; border: 1px solid var(--line); border-radius: 8px; font: 13px ui-monospace, monospace; background: transparent; color: inherit; }
+      .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+      button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+      #check { font-size: 12px; }
+      .good { color: #12b76a; }
+      .bad { color: #d92d20; }
+      ul { list-style: none; padding: 0; margin: 8px 0 0; border-top: 1px solid var(--line); }
+      li { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+      h2 { font-size: 13px; margin: 16px 0 0; }
+    </style>
+  </head>
+  <body>
+    <h1><img src="icons/32.png" alt="" />Manelly Click'n'Load</h1>
+    <p class="muted">Klicks auf «Click'n'Load» gehen an Manelly, das die Links dem JDownloader auf dem Jellyfin-Server übergibt.</p>
+    <label for="url">Adresse von Manelly</label>
+    <input id="url" type="url" spellcheck="false" placeholder="http://192.168.1.20:3000" />
+    <div class="row">
+      <button id="save" class="primary" type="button">Speichern &amp; prüfen</button>
+      <span id="check"></span>
+    </div>
+    <h2>Zuletzt</h2>
+    <ul id="events"><li class="muted">Noch nichts übergeben.</li></ul>
+    <script src="options.js"></script>
+  </body>
+</html>

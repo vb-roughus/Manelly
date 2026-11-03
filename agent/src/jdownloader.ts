@@ -245,6 +245,23 @@ export function createJDownloaderApi(url: string, fetchImpl: typeof fetch = fetc
       if (id === undefined) throw new Error('JDownloader hat die Datei nicht angenommen.');
       return id;
     },
+    /** Links for the link grabber, one job; JDownloader checks them in the background. Answers the job's id. */
+    async addLinks(links: string[], options: { packageName?: string; password?: string; source?: string }): Promise<number> {
+      const query = {
+        links: links.join('\n'),
+        ...(options.packageName ? { packageName: options.packageName } : {}),
+        ...(options.password ? { extractPassword: options.password } : {}),
+        ...(options.source ? { sourceUrl: options.source } : {}),
+        autostart: false,
+        assignJobID: true,
+      };
+      const job = await request<{ id?: number } | null>('POST', 'linkgrabberv2/addLinks', [query])
+        .then((answer) => (answer?.id === undefined ? null : answer))
+        .catch(() => null);
+      const id = (job ?? (await call<{ id?: number } | null>('linkgrabberv2/addLinks', query)))?.id;
+      if (id === undefined) throw new Error('JDownloader hat die Links nicht angenommen.');
+      return id;
+    },
     async limit(): Promise<{ enabled: boolean; bytesPerSecond: number }> {
       const [enabled, bytes] = await Promise.all([getSetting('DownloadSpeedLimitEnabled'), getSetting('DownloadSpeedLimit')]);
       return { enabled: enabled === true || enabled === 'true', bytesPerSecond: Number(bytes) || 0 };
@@ -503,6 +520,11 @@ export function createJDownloader({ settings, fetch: fetchImpl = fetch, now = Da
     /** A container file (see containerType) for the link grabber; its packages show up there once JDownloader has read it. */
     async addContainer(type: string, file: Buffer): Promise<void> {
       await api().addContainer(type, file);
+    },
+
+    /** Links for the link grabber, as from Click'n'Load; they show up there once JDownloader has checked them. */
+    async addLinks(links: string[], options: { packageName?: string; password?: string; source?: string } = {}): Promise<void> {
+      await api().addLinks(links, options);
     },
 
     /** Whole packages and single links from the link grabber to the download list. */

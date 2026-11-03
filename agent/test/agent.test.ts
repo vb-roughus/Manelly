@@ -109,6 +109,8 @@ const fakeNetwork: CounterSource = {
 // Jellyfin as the agent sees it: a number of streams, and the calls it received.
 let streams = 0;
 let jellyfinCalls: string[] = [];
+/** What JDownloader got with linkgrabberv2/addLinks. */
+let jdownloaderLinks: unknown[] = [];
 const fakeJellyfin: typeof fetch = async (input, init) => {
   const url = new URL(String(input));
   jellyfinCalls.push(`${init?.method ?? 'GET'} ${url.pathname}`);
@@ -118,6 +120,10 @@ const fakeJellyfin: typeof fetch = async (input, init) => {
   }
   // JDownloader, for the container files.
   if (url.pathname === '/linkgrabberv2/addContainer') return Response.json({ data: { id: 4242 } });
+  if (url.pathname === '/linkgrabberv2/addLinks') {
+    jdownloaderLinks.push(...String(init?.body ?? '').split('&').map((param) => JSON.parse(decodeURIComponent(param)) as unknown));
+    return Response.json({ data: { id: 4343 } });
+  }
   return new Response(null, { status: 204 });
 };
 let clock = new Date(2026, 9, 26, 2, 0);
@@ -233,6 +239,7 @@ beforeEach(async () => {
   free = Number.MAX_SAFE_INTEGER;
   streams = 0;
   jellyfinCalls = [];
+  jdownloaderLinks = [];
   driveLogins = [];
   clock = new Date(2026, 9, 26, 2, 0);
   process.env.FAKE_LOG = path.join(root, 'mkvmerge-args.json');
@@ -841,6 +848,7 @@ describe('JDownloader routes', () => {
       remove: true,
       extractedDelete: true,
       extractedConvert: true,
+      links: true,
     });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
@@ -1025,6 +1033,32 @@ describe('JDownloader routes', () => {
 
     const again = (await (await convert({ path: 'Dune (2024)/Dune.mkv' })).json()) as ConversionJob;
     expect(await waitFor(again.id, finished)).toMatchObject({ state: 'done', output: file, backup: path.join(extracted, 'Dune (2024)', '.manelly-backup', 'Dune.mkv') });
+  });
+
+  it('hands single links to the link grabber, with package name and password', async () => {
+    const links = { links: [' https://rapidgator.net/file/a ', 'https://rapidgator.net/file/b'], packageName: 'Dune (2024)', password: 'geheim', source: 'https://filecrypt.cc/Container/X.html' };
+    expect((await post('/api/jdownloader/linkgrabber/links', links)).status).toBe(409);
+    await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 } });
+    const added = await post('/api/jdownloader/linkgrabber/links', links);
+    expect(added.status).toBe(202);
+    expect(await added.json()).toEqual({ added: 2 });
+    expect(jdownloaderLinks).toEqual([
+      {
+        links: 'https://rapidgator.net/file/a\nhttps://rapidgator.net/file/b',
+        packageName: 'Dune (2024)',
+        extractPassword: 'geheim',
+        sourceUrl: 'https://filecrypt.cc/Container/X.html',
+        autostart: false,
+        assignJobID: true,
+      },
+    ]);
+    // Without a name, JDownloader names the package itself.
+    await post('/api/jdownloader/linkgrabber/links', { links: ['https://example.org/x'] });
+    expect(jdownloaderLinks[1]).toEqual({ links: 'https://example.org/x', autostart: false, assignJobID: true });
+
+    for (const body of [{ links: [] }, { links: ['  '] }, { links: 'https://example.org' }, { links: ['x'], packageName: 5 }, { links: Array(5001).fill('https://e.org') }]) {
+      expect((await post('/api/jdownloader/linkgrabber/links', body)).status).toBe(400);
+    }
   });
 
   it('hands DLC files to the link grabber', async () => {

@@ -21,6 +21,8 @@ import type {
   JDownloaderSettings,
   LinkGrabberContainerAnswer,
   LinkGrabberContainerRequest,
+  LinkGrabberLinksAnswer,
+  LinkGrabberLinksRequest,
   LinkGrabberMoveRequest,
   LinkGrabberRemoveRequest,
   NetworkDrives,
@@ -50,6 +52,9 @@ import { isValidSegment, isWithin, pathApiFor, type PathAccess } from './paths.j
 const MAX_BODY_BYTES = 64 * 1024;
 /** A container file comes as base64, a third larger than the file. */
 const MAX_CONTAINER_BODY_BYTES = Math.ceil(MAX_CONTAINER_BYTES / 3) * 4 + 4096;
+/** Links handed over at once at most, and how long each may be. */
+const MAX_LINKS = 5000;
+const MAX_LINK_LENGTH = 4000;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const MAX_MONITORED = 16;
 const MAX_MOVED = 5000;
@@ -240,6 +245,7 @@ export function createAgentServer(options: AgentServerOptions) {
           remove: true,
           extractedDelete: true,
           extractedConvert: true,
+          links: true,
         },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
@@ -460,6 +466,27 @@ export function createAgentServer(options: AgentServerOptions) {
       if (file.length > MAX_CONTAINER_BYTES) throw new AgentError(413, `${name} ist zu gross (höchstens 1 MB).`);
       await jdownloaderCall(() => jdownloader.addContainer(type, file));
       const answer: LinkGrabberContainerAnswer = { added: name };
+      return send(response, 202, answer);
+    }
+    if (route === 'POST /api/jdownloader/linkgrabber/links') {
+      const { links, packageName, password, source } = await readJson<Partial<LinkGrabberLinksRequest>>(request, MAX_LINKS * (MAX_LINK_LENGTH + 4) + 8192);
+      const text = (value: unknown, max: number) => value === undefined || (typeof value === 'string' && value.length <= max);
+      if (
+        !Array.isArray(links) ||
+        links.length === 0 ||
+        links.length > MAX_LINKS ||
+        links.some((link) => typeof link !== 'string' || !link.trim() || link.length > MAX_LINK_LENGTH) ||
+        !text(packageName, 255) ||
+        !text(password, 255) ||
+        !text(source, 2000)
+      ) {
+        throw new AgentError(400, `Zwischen 1 und ${MAX_LINKS} Links erwartet.`);
+      }
+      const cleaned = (links as string[]).map((link) => link.trim());
+      await jdownloaderCall(() =>
+        jdownloader.addLinks(cleaned, { packageName: packageName?.trim() || undefined, password: password || undefined, source: source?.trim() || undefined }),
+      );
+      const answer: LinkGrabberLinksAnswer = { added: cleaned.length };
       return send(response, 202, answer);
     }
     if (route === 'GET /api/originals') {

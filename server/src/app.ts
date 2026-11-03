@@ -1,6 +1,7 @@
 import Fastify, { LogController, type FastifyServerOptions } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { createAgentConnection, type AgentConnection } from './agent/connection.js';
+import { createClickNLoad, type ClickNLoad } from './clicknload/service.js';
 import type { AppConfig } from './config.js';
 import type { JellyfinConnection } from './connection.js';
 import { errorBody, handleError } from './errors.js';
@@ -10,6 +11,7 @@ import { createLibraryScanner } from './media/scan.js';
 import { createMediaIndexStore, type MediaIndexStore } from './media/store.js';
 import { agentRoutes } from './routes/agent.js';
 import { apiRoutes } from './routes/api.js';
+import { clickNLoadRoutes } from './routes/clicknload.js';
 import { collectionsRoutes } from './routes/collections.js';
 import { imageRoutes } from './routes/images.js';
 import { linksRoutes } from './routes/links.js';
@@ -20,7 +22,7 @@ import { settingsRoutes } from './routes/settings.js';
 import { createTranscodeLogReader } from './transcodeLog.js';
 
 export interface AppOptions {
-  config: Pick<AppConfig, 'staticDir'>;
+  config: Pick<AppConfig, 'staticDir'> & Partial<Pick<AppConfig, 'extensionDir'>>;
   connection: JellyfinConnection;
   /** Defaults to an index of the connection's libraries, built on first use. */
   mediaStore?: MediaIndexStore;
@@ -30,6 +32,8 @@ export interface AppOptions {
   manelly?: ManellyProcess;
   /** The links of the menu «Links»; defaults to ones kept in memory only. */
   links?: LinksStore;
+  /** Click'n'Load; defaults to one without the listener on this computer. */
+  clickNLoad?: ClickNLoad;
   logger?: FastifyServerOptions['logger'];
 }
 
@@ -56,7 +60,7 @@ const unsupervised: ManellyProcess = {
   },
 };
 
-export async function buildApp({ config, connection, mediaStore, agent, manelly = unsupervised, links = createLinksStore(), logger = false }: AppOptions) {
+export async function buildApp({ config, connection, mediaStore, agent, manelly = unsupervised, links = createLinksStore(), clickNLoad, logger = false }: AppOptions) {
   const app = Fastify({
     logger,
     // The dashboard polls every few seconds; logging each request would drown everything else.
@@ -85,6 +89,9 @@ export async function buildApp({ config, connection, mediaStore, agent, manelly 
   await app.register(serverRoutes, { prefix: '/api/server', connection, agent: agentConnection, logs });
   await app.register(manellyRoutes, { prefix: '/api/manelly', manelly });
   await app.register(linksRoutes, { prefix: '/api/links', links });
+  const cnl = clickNLoad ?? (await createClickNLoad({ agent: agentConnection }));
+  app.addHook('onClose', async () => cnl.stop());
+  await app.register(clickNLoadRoutes, { prefix: '/api/cnl', clickNLoad: cnl, extensionDir: config.extensionDir ?? null });
 
   if (config.staticDir) {
     await app.register(fastifyStatic, {

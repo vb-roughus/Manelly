@@ -24,6 +24,8 @@ COPY web/package.json web/
 RUN npm ci --omit=dev --workspace=server && npm cache clean --force
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/web/dist web/dist
+# The browser extension for Click'n'Load, handed out as a ZIP.
+COPY extension extension
 
 # Settings entered in the UI are stored here; mount a volume to keep them across updates.
 RUN mkdir -p /data && chown node:node /data

@@ -19,6 +19,7 @@ function fakeWorld() {
     /** Whether parameters in a POST body count, or only those in the address. */
     readsBody: true,
     containers: [] as unknown[][],
+    linkJobs: [] as unknown[],
   };
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -69,6 +70,10 @@ function fakeWorld() {
             { uuid: 201, packageUUID: 12, name: 'unklar.mkv', host: 'example.com', availability: 'SOMETHING_NEW' },
           ].filter((link) => jd.grabber.includes(link.packageUUID)),
         );
+      case '/linkgrabberv2/addLinks':
+        if (!params[0]) return wrapped(null);
+        jd.linkJobs.push(params[0]);
+        return wrapped({ id: 4343 });
       case '/linkgrabberv2/addContainer':
         // Without a type JDownloader answers null, as it does for files it cannot read.
         if (typeof params[0] !== 'string') return wrapped(null);
@@ -376,6 +381,19 @@ describe('JDownloader', () => {
 
     jd.up = false;
     await expect(api.addContainer('dlc', file)).rejects.toThrow('JDownloader ist unter http://127.0.0.1:3128 nicht erreichbar');
+  });
+
+  it('hands links to the link grabber in one job, in the body or else in the address', async () => {
+    const { jd, fetch } = fakeWorld();
+    const api = createJDownloaderApi('http://127.0.0.1:3128', fetch);
+    const query = { links: 'https://a.example/1\nhttps://a.example/2', packageName: 'Paket', extractPassword: 'pw', autostart: false, assignJobID: true };
+    expect(await api.addLinks(['https://a.example/1', 'https://a.example/2'], { packageName: 'Paket', password: 'pw' })).toBe(4343);
+    expect(jd.calls).toEqual(['POST /linkgrabberv2/addLinks']);
+    jd.readsBody = false;
+    jd.calls = [];
+    expect(await api.addLinks(['https://a.example/1', 'https://a.example/2'], { packageName: 'Paket', password: 'pw' })).toBe(4343);
+    expect(jd.calls).toEqual(['POST /linkgrabberv2/addLinks', `/linkgrabberv2/addLinks?${encodeURIComponent(JSON.stringify(query))}`]);
+    expect(jd.linkJobs).toEqual([query, query]);
   });
 
   it('says when JDownloader does not take the file', async () => {

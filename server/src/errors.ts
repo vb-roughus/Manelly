@@ -53,6 +53,10 @@ export function handleError(error: FastifyError | AppError | ConfigError, reques
   if ('validation' in error && error.validation) {
     return reply.status(400).send(errorBody('BAD_REQUEST', error.message));
   }
+  // Fastify's own refusals, e.g. a wrong content type or a body too large: the client's mistake, not Manelly's.
+  if ('statusCode' in error && typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 500) {
+    return reply.status(error.statusCode).send(errorBody('BAD_REQUEST', error.message));
+  }
   request.log.error(error);
   return reply.status(500).send(errorBody('INTERNAL_ERROR', 'Interner Fehler in Manelly.'));
 }

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Downloads, downloadsSummary, isActivePackage } from '../components/DashboardDownloads';
+import { ClickNLoadSettings } from '../components/ClickNLoadSettings';
 import { Code, Message } from '../components/ConnectionForm';
 import { ExtractedList } from '../components/ExtractedList';
 import { JDownloaderForm } from '../components/JDownloaderForm';
@@ -936,6 +937,7 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
             </button>
           </div>
           <JDownloaderForm />
+          <ClickNLoadSettings />
         </div>
       )}
     </dialog>

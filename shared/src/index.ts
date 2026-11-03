@@ -1188,6 +1188,23 @@ export interface LinkGrabberContainerAnswer {
   added: string;
 }
 
+/** POST /api/jdownloader/linkgrabber/links (agent from 0.32.0): links for the link grabber, e.g. from Click'n'Load. */
+export interface LinkGrabberLinksRequest {
+  /** At most 5000. */
+  links: string[];
+  /** The package JDownloader puts them in; JDownloader names it itself without. */
+  packageName?: string;
+  /** For extracting the archives. */
+  password?: string;
+  /** The page the links came from. */
+  source?: string;
+}
+
+/** JDownloader checks the links in the background; they show up in the link grabber a moment later. */
+export interface LinkGrabberLinksAnswer {
+  added: number;
+}
+
 /** POST /api/jdownloader/linkgrabber/move: whole packages and single links go to the download list. */
 export interface LinkGrabberMoveRequest {
   packageIds: number[];
@@ -1474,7 +1491,8 @@ export interface AgentStatus {
    * Missing on agents before 0.5.0; linkgrabber is missing before 0.8.0, accounts before 0.13.0, containers before 0.15.0,
    * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0, newFolders (moving into a new folder)
    * before 0.28.0, remove (deleting in the link grabber and the downloads) before 0.29.0, extractedDelete (deleting in
-   * the extraction folder) before 0.30.0, extractedConvert (Dolby Vision there) before 0.31.0.
+   * the extraction folder) before 0.30.0, extractedConvert (Dolby Vision there) before 0.31.0, links (single links for
+   * the link grabber, for Click'n'Load) before 0.32.0.
    */
   jdownloader?: {
     enabled: boolean;
@@ -1487,6 +1505,7 @@ export interface AgentStatus {
     remove?: boolean;
     extractedDelete?: boolean;
     extractedConvert?: boolean;
+    links?: boolean;
   };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
@@ -1709,3 +1728,43 @@ export interface KnowledgeLink {
 
 /** POST /api/links and PUT /api/links/:id. */
 export type KnowledgeLinkInput = Omit<KnowledgeLink, 'id'>;
+
+/** The three ways a page hands over links with Click'n'Load: plain, as a DLC container, and encrypted (CNL2). */
+export type ClickNLoadKind = 'add' | 'addcrypted' | 'addcrypted2';
+
+/** Links Manelly received with Click'n'Load and handed to JDownloader on the Jellyfin server, or why not. */
+export interface ClickNLoadEvent {
+  id: string;
+  at: string;
+  /** From the browser extension, or from a page in the browser on the computer Manelly runs on (port 9666). */
+  via: 'extension' | 'local';
+  /** The page the links came from; null when it did not say. */
+  source: string | null;
+  packageName: string | null;
+  /** How many links; 0 for a DLC container, whose content only JDownloader reads. */
+  links: number;
+  container: boolean;
+  error: string | null;
+}
+
+/** GET /api/cnl: Click'n'Load on the computer Manelly runs on, and what came in lately. */
+export interface ClickNLoadStatus {
+  local: {
+    enabled: boolean;
+    port: number;
+    /** Takes requests from the browser on this computer right now. */
+    listening: boolean;
+    /** E.g. the port is taken by a JDownloader on this computer. */
+    error: string | null;
+  };
+  /** Newest first. */
+  events: ClickNLoadEvent[];
+}
+
+/** POST /api/cnl/:kind from the browser extension: the form fields the page sent to 127.0.0.1:9666. */
+export interface ClickNLoadRequest {
+  fields: Record<string, string>;
+}
+
+/** The answer to POST /api/cnl/:kind; `duplicate` when the same links came a moment ago and were not handed over again. */
+export type ClickNLoadAnswer = ClickNLoadEvent & { duplicate: boolean };

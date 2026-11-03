@@ -10,6 +10,7 @@ import type {
   AgentSettingsView,
   AgentStatus,
   ArchivedOriginals,
+  ClickNLoadStatus,
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
@@ -945,5 +946,22 @@ export function useDeleteKnowledgeLink() {
   return useMutation({
     mutationFn: (id: string) => sendJson<null>('DELETE', `/api/links/${encodeURIComponent(id)}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['links'] }),
+  });
+}
+
+/** Click'n'Load: on the computer Manelly runs on, and what came in lately (also through the browser extension). */
+export function useClickNLoad(pollMs: number | false) {
+  return useQuery({
+    queryKey: ['clicknload'],
+    queryFn: ({ signal }) => fetchJson<ClickNLoadStatus>('/api/cnl', signal),
+    refetchInterval: pollMs,
+  });
+}
+
+export function useSetLocalClickNLoad() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (local: boolean) => sendJson<ClickNLoadStatus>('PUT', '/api/cnl', { local }),
+    onSuccess: (status) => queryClient.setQueryData(['clicknload'], status),
   });
 }

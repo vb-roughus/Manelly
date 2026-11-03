@@ -239,6 +239,23 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     **DLC-Dateien** (ab Agent 0.15.0) mit «DLC hochladen» auswählen oder auf den Link Grabber ziehen, auch mehrere
     auf einmal (je höchstens 1 MB): Manelly gibt sie über den Agent an JDownloader weiter, der sie entschlüsselt – die
     Pakete erscheinen ein paar Sekunden später im Link Grabber
+    **Click'n'Load** (ab Agent 0.32.0): Ein Klick auf «Click'n'Load» auf einer Seite (z. B. filecrypt) schickt die Links
+    an einen JDownloader auf dem eigenen Rechner, also an `127.0.0.1:9666`. Manelly nimmt sie dort an und übergibt sie
+    samt **Paketname** und **Entpack-Passwort** über den Agent dem JDownloader auf dem Jellyfin-Server; sie erscheinen
+    im Link Grabber. Verschlüsselte Links (CNL2) entschlüsselt Manelly selbst: Den Schlüssel liest es aus der kleinen
+    JavaScript-Funktion der Seite, ohne deren Code auszuführen – steckt er in aufwendigerem JavaScript, nennt Manelly
+    das. Ein doppelter Klick innert einer Minute übergibt nichts zweimal. Einrichten in den JDownloader-Einstellungen
+    (Zahnrad) unter «Click'n'Load», dort steht auch, was zuletzt ankam:
+    - **Windows und andere Rechner:** die **Browser-Erweiterung** für Chrome und Edge. «Erweiterung herunterladen»
+      liefert eine ZIP, die die Adresse von Manelly schon kennt; entpacken, unter `edge://extensions` bzw.
+      `chrome://extensions` den Entwicklermodus einschalten und «Entpackte Erweiterung laden» (Edge: «Entpackt laden»)
+      mit dem Ordner `manelly-clicknload`. Die Erweiterung antwortet den Seiten an Stelle von JDownloader (sie sehen
+      ihn «laufen» und bekommen «success») und reicht die Links an Manelly weiter. Dafür braucht sie Zugriff auf alle
+      Seiten; sie reagiert aber nur auf Anfragen an `127.0.0.1:9666`. Ein Klick auf ihr Symbol zeigt die Adresse von
+      Manelly (änderbar) und was zuletzt übergeben wurde; ein grünes ✓ bzw. rotes ! am Symbol meldet den letzten Klick
+    - **Der Rechner mit Manelly** (z. B. der Mac): Manelly lauscht selbst auf `127.0.0.1:9666`, ohne Erweiterung
+      (abschaltbar). Läuft dort schon ein JDownloader, meldet Manelly den belegten Port. Neuere Chrome-Versionen
+      fragen beim ersten Mal, ob die Seite auf Geräte im lokalen Netzwerk zugreifen darf – zulassen
   - **Premium-Accounts** (ab Agent 0.13.0): die in JDownloader eingerichteten Accounts mit Hoster, Benutzer und Zustand
     (aktiv, vorübergehend gesperrt, abgelaufen, ungültig, ausgeschaltet), dem **restlichen Traffic** (mit Balken, oder
     «unbegrenzt») und wie lange das **Premium** noch läuft (rot ab sieben Tagen). «Neu prüfen» lässt JDownloader die
@@ -540,6 +557,7 @@ shared/   API-Typen, die Server, Frontend und Agent gemeinsam nutzen
 server/   Fastify-Server: spricht mit der Jellyfin-API und dem Agent, liefert das Frontend aus
 web/      React-Frontend (Vite, Tailwind CSS, TanStack Query)
 agent/    Agent für den Jellyfin-Server: wandelt Dateien um (ffmpeg, dovi_tool, mkvmerge), ohne Abhängigkeiten
+extension/ Browser-Erweiterung (Chrome, Edge) für Click'n'Load auf anderen Rechnern; Manelly liefert sie als ZIP aus
 ```
 
 Der Browser spricht nur mit dem Manelly-Server, nie direkt mit Jellyfin. Dadurch bleibt der API-Schlüssel auf dem
@@ -558,4 +576,6 @@ mit `roots`), legt nur eigene Unterordner an und löscht keine Originale. Den Je
 den Zeitplan gibt, nutzt er nur für die Liste der laufenden Streams und um neue Dateien zu melden. Die Aufzeichnung
 enthält, wer wann was geschaut hat, samt IP-Adresse des Clients – sie bleibt auf dem Jellyfin-Server, und jeder, der
 Manelly öffnen kann, sieht sie. Die «Deprecated API»
-von JDownloader hat keinen Schlüssel – lass sie auf «nur localhost», dann erreicht sie nur der Agent auf demselben Rechner.
+von JDownloader hat keinen Schlüssel – lass sie auf «nur localhost», dann erreicht sie nur der Agent auf demselben Rechner. Click'n'Load
+nimmt – wie bei JDownloader selbst – von jeder Seite Links an, die im Browser offen ist; sie landen nur im Link Grabber
+und werden nicht von selbst heruntergeladen. Manellys Port 9666 ist nur vom eigenen Rechner aus erreichbar.

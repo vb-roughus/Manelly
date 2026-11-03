@@ -18,6 +18,8 @@ export interface AppConfig {
   staticDir: string | null;
   /** The Manelly checkout, where git and the start scripts work. */
   rootDir: string;
+  /** The browser extension for Click'n'Load (extension/ in the checkout); null when it is missing. */
+  extensionDir: string | null;
 }
 
 export class ConfigError extends Error {}
@@ -26,6 +28,7 @@ export class ConfigError extends Error {}
 const DEFAULT_STATIC_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
 const DEFAULT_DATA_DIR = fileURLToPath(new URL('../../data', import.meta.url));
 const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
+const EXTENSION_DIR = fileURLToPath(new URL('../../extension', import.meta.url));
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = Number(env.PORT ?? 3000);
@@ -43,6 +46,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     dataDir: env.DATA_DIR || DEFAULT_DATA_DIR,
     staticDir: existsSync(staticDir) ? staticDir : null,
     rootDir: ROOT_DIR,
+    extensionDir: existsSync(EXTENSION_DIR) ? EXTENSION_DIR : null,
   };
 }
 

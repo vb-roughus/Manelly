@@ -3,6 +3,7 @@ import { buildApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { createConnection } from './connection.js';
 import { createJellyfinClient } from './jellyfin/client.js';
+import { createFileLinksStore } from './links.js';
 import { createManellyProcess } from './manelly.js';
 import { createFileSettingsStore } from './settings.js';
 
@@ -25,7 +26,8 @@ async function main() {
     },
     log: (message) => app.log.info(message),
   });
-  const app = await buildApp({ config, connection, agent, manelly, logger: { level: config.logLevel } });
+  const links = await createFileLinksStore(config.dataDir);
+  const app = await buildApp({ config, connection, agent, manelly, links, logger: { level: config.logLevel } });
 
   if (!connection.settings) {
     app.log.warn('Noch keine Jellyfin-Verbindung eingerichtet – das Dashboard zeigt das Einrichtungsformular.');

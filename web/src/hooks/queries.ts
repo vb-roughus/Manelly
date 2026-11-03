@@ -30,6 +30,8 @@ import type {
   ItemScanStarted,
   JDownloaderAccounts,
   JDownloaderAction,
+  KnowledgeLink,
+  KnowledgeLinkInput,
   JDownloaderSettings,
   JDownloaderStatus,
   LibraryScanRequest,
@@ -916,5 +918,32 @@ export function useClearHistory() {
   return useMutation({
     mutationFn: () => sendJson<null>('DELETE', '/api/agent/history'),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['history'] }),
+  });
+}
+
+/** The links of the menu «Links», kept by the Manelly server. */
+export function useKnowledgeLinks() {
+  return useQuery({
+    queryKey: ['links'],
+    queryFn: ({ signal }) => fetchJson<KnowledgeLink[]>('/api/links', signal),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** Adds a link, or changes the one with `id`. */
+export function useSaveKnowledgeLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: KnowledgeLinkInput & { id?: string }) =>
+      id ? sendJson<KnowledgeLink>('PUT', `/api/links/${encodeURIComponent(id)}`, input) : sendJson<KnowledgeLink>('POST', '/api/links', input),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['links'] }),
+  });
+}
+
+export function useDeleteKnowledgeLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => sendJson<null>('DELETE', `/api/links/${encodeURIComponent(id)}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['links'] }),
   });
 }

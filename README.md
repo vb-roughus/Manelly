@@ -5,7 +5,7 @@ Troubleshooting an einem Ort.
 
 ## Funktionen
 
-Aufklappbares – Menügruppen wie **Umwandlungen** und **Server**, Abschnitte im Dashboard, Filter, Staffeln, Pfade – ist
+Aufklappbares – Menügruppen wie **Umwandlungen**, **Server** und **Links**, Abschnitte im Dashboard, Filter, Staffeln, Pfade – ist
 nach jedem Laden der Seite eingeklappt. Eine eingeklappte Menügruppe zeigt, wenn eine ihrer Seiten offen ist. Im Menü
 ist immer nur eine Gruppe offen: Öffnet man eine andere, klappt die vorherige zu; beides gleitet animiert auf und zu (auf
 dem Handy seitwärts). Auch der Wechsel zu einer anderen Seite ist animiert: Die bisherige blendet aus, die neue gleitet
@@ -311,6 +311,11 @@ Manelly zeigt den Verlauf – das Dashboard bleibt dabei schlank wie bisher:
 
 - Hell- und Dunkelmodus (folgt dem System, umschaltbar)
 - Hauptmenü links lässt sich zu einer schmalen Icon-Leiste einklappen
+- **Links** im Menü: eigene Links zu Wissenssammlungen ausserhalb von Manelly (Dokumentationen, Wikis, Foren). Das kleine
+  **«+»** neben «Links» erfasst einen neuen mit Name, Beschreibung und Zieladresse; die Beschreibung erscheint, wenn die
+  Maus auf dem Link ruht, und ein Klick öffnet die Seite in einem neuen Tab. Ohne `https://` ergänzt Manelly es; andere
+  Adressen als http und https nimmt es nicht an. Der Stift neben einem Link ändert oder löscht ihn. Die Links liegen
+  auf dem Manelly-Server (`links.json` im Datenordner) und sind so in jedem Browser dieselben
 - Jellyfin-Verbindung (Adresse und API-Schlüssel) direkt in der Oberfläche einrichten – Manelly testet sie vor dem Speichern
 - Verständliche Fehlerhinweise, wenn Jellyfin nicht erreichbar ist oder der API-Schlüssel nicht stimmt
 

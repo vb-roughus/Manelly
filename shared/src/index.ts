@@ -1696,3 +1696,16 @@ export interface HardwareTestResult {
     durationMs: number;
   }>;
 }
+
+/** A link in the menu «Links» to an outside collection of knowledge, kept by Manelly. */
+export interface KnowledgeLink {
+  id: string;
+  name: string;
+  /** Shown when the pointer rests on the link; may be empty. */
+  description: string;
+  /** http or https only. */
+  url: string;
+}
+
+/** POST /api/links and PUT /api/links/:id. */
+export type KnowledgeLinkInput = Omit<KnowledgeLink, 'id'>;

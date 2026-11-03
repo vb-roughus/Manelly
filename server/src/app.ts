@@ -4,6 +4,7 @@ import { createAgentConnection, type AgentConnection } from './agent/connection.
 import type { AppConfig } from './config.js';
 import type { JellyfinConnection } from './connection.js';
 import { errorBody, handleError } from './errors.js';
+import { createLinksStore, type LinksStore } from './links.js';
 import type { ManellyProcess } from './manelly.js';
 import { createLibraryScanner } from './media/scan.js';
 import { createMediaIndexStore, type MediaIndexStore } from './media/store.js';
@@ -11,6 +12,7 @@ import { agentRoutes } from './routes/agent.js';
 import { apiRoutes } from './routes/api.js';
 import { collectionsRoutes } from './routes/collections.js';
 import { imageRoutes } from './routes/images.js';
+import { linksRoutes } from './routes/links.js';
 import { manellyRoutes } from './routes/manelly.js';
 import { mediaRoutes } from './routes/media.js';
 import { serverRoutes } from './routes/server.js';
@@ -26,6 +28,8 @@ export interface AppOptions {
   agent?: AgentConnection;
   /** Manelly's own process; defaults to one that cannot restart. */
   manelly?: ManellyProcess;
+  /** The links of the menu «Links»; defaults to ones kept in memory only. */
+  links?: LinksStore;
   logger?: FastifyServerOptions['logger'];
 }
 
@@ -52,7 +56,7 @@ const unsupervised: ManellyProcess = {
   },
 };
 
-export async function buildApp({ config, connection, mediaStore, agent, manelly = unsupervised, logger = false }: AppOptions) {
+export async function buildApp({ config, connection, mediaStore, agent, manelly = unsupervised, links = createLinksStore(), logger = false }: AppOptions) {
   const app = Fastify({
     logger,
     // The dashboard polls every few seconds; logging each request would drown everything else.
@@ -80,6 +84,7 @@ export async function buildApp({ config, connection, mediaStore, agent, manelly 
   await app.register(agentRoutes, { prefix: '/api/agent', connection, store, agent: agentConnection, scanner });
   await app.register(serverRoutes, { prefix: '/api/server', connection, agent: agentConnection, logs });
   await app.register(manellyRoutes, { prefix: '/api/manelly', manelly });
+  await app.register(linksRoutes, { prefix: '/api/links', links });
 
   if (config.staticDir) {
     await app.register(fastifyStatic, {

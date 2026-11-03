@@ -1,10 +1,13 @@
 import { useState, ViewTransition, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
+import type { KnowledgeLink } from '@manelly/shared';
 import {
   Archive,
+  BookMarked,
   ChevronDown,
   Cpu,
   Download,
+  ExternalLink,
   LayoutDashboard,
   Library,
   ListChecks,
@@ -12,6 +15,8 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
+  Plus,
   Server,
   ServerCog,
   Settings,
@@ -22,9 +27,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { isConfigured, useServerStatus, useSettings } from '../hooks/queries';
+import { isConfigured, useKnowledgeLinks, useServerStatus, useSettings } from '../hooks/queries';
 import { usePersistentFlag } from '../hooks/usePersistentFlag';
 import { useStickyError } from '../hooks/useStickyError';
+import { linkHint } from '../lib/links';
+import { LinkDialog } from './LinkDialog';
 import { RestartNotices } from './Restart';
 import { useTheme, type Theme } from '../hooks/useTheme';
 
@@ -137,6 +144,14 @@ export function Layout({ children }: { children: ReactNode }) {
                 </li>
               ),
             )}
+            <li className={clsx('flex shrink-0 lg:flex-col', collapsed && 'lg:items-center')}>
+              <LinksGroup
+                compact={collapsed}
+                open={openGroup === 'links'}
+                onToggle={() => setOpenGroup(openGroup === 'links' ? null : 'links')}
+                onAdded={() => setOpenGroup('links')}
+              />
+            </li>
           </ul>
         </nav>
         <div className={clsx('hidden pb-4 lg:mt-auto', collapsed ? 'lg:flex lg:flex-col lg:items-center lg:gap-2' : 'space-y-3 px-3 lg:block')}>
@@ -206,31 +221,77 @@ function NavEntry({ item, compact }: { item: NavItem; compact: boolean }) {
   );
 }
 
-/**
- * The heading opens and closes its entries – downwards in the sidebar, sideways in the top bar of a phone; closed, it
- * shows when one of them is the current page.
- */
+/** A group of the main navigation: its pages, shown when one of them is the current page. */
 function NavGroupEntry({ group, compact, open, onToggle }: { group: NavGroup; compact: boolean; open: boolean; onToggle: () => void }) {
   const { pathname } = useLocation();
   const current = group.children.some((child) => pathname === child.to || pathname.startsWith(`${child.to}/`));
-  const Icon = group.icon;
+  return (
+    <NavGroupFrame id={group.id} label={group.label} icon={group.icon} current={current} compact={compact} open={open} onToggle={onToggle}>
+      {group.children.map((child) => (
+        <li key={child.to}>
+          <NavEntry item={child} compact={compact} />
+        </li>
+      ))}
+    </NavGroupFrame>
+  );
+}
+
+/**
+ * The heading opens and closes its entries – downwards in the sidebar, sideways in the top bar of a phone; closed, it
+ * shows when one of them is the current page. `action` sits next to the heading.
+ */
+function NavGroupFrame({
+  id,
+  label,
+  icon: Icon,
+  current,
+  compact,
+  open,
+  onToggle,
+  action,
+  children,
+}: {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  current: boolean;
+  compact: boolean;
+  open: boolean;
+  onToggle: () => void;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  const heading = (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={`nav-${id}`}
+      onClick={onToggle}
+      title={compact ? `${label} – ${open ? 'zuklappen' : 'aufklappen'}` : undefined}
+      className={clsx(
+        entryClass(compact),
+        action ? 'min-w-0 lg:flex-1' : 'lg:w-full',
+        current && !open ? activeClass : current ? 'font-medium text-ink hover:bg-card/60' : idleClass,
+      )}
+    >
+      <Icon className="size-4 shrink-0" aria-hidden />
+      <span className={clsx(compact && 'lg:sr-only')}>{label}</span>
+      <ChevronDown
+        className={clsx('size-4 shrink-0 text-ink-3 transition-transform duration-300 ease-out lg:ml-auto', !open && '-rotate-90', compact && 'lg:hidden')}
+        aria-hidden
+      />
+    </button>
+  );
   return (
     <>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={`nav-${group.id}`}
-        onClick={onToggle}
-        title={compact ? `${group.label} – ${open ? 'zuklappen' : 'aufklappen'}` : undefined}
-        className={clsx(entryClass(compact), 'lg:w-full', current && !open ? activeClass : current ? 'font-medium text-ink hover:bg-card/60' : idleClass)}
-      >
-        <Icon className="size-4 shrink-0" aria-hidden />
-        <span className={clsx(compact && 'lg:sr-only')}>{group.label}</span>
-        <ChevronDown
-          className={clsx('size-4 shrink-0 text-ink-3 transition-transform duration-300 ease-out lg:ml-auto', !open && '-rotate-90', compact && 'lg:hidden')}
-          aria-hidden
-        />
-      </button>
+      {action ? (
+        <div className={clsx('flex items-center gap-0.5', compact ? 'lg:flex-col' : 'lg:w-full')}>
+          {heading}
+          {action}
+        </div>
+      ) : (
+        heading
+      )}
       {/* Grows from nothing to its full size; closed, its links are out of reach for keyboard and screen readers. */}
       <div
         inert={!open}
@@ -242,17 +303,77 @@ function NavGroupEntry({ group, compact, open, onToggle }: { group: NavGroup; co
         {/* The padding keeps the rings of the links inside what the clipping shows. */}
         <div className="min-h-0 min-w-0 overflow-hidden">
           <ul
-            id={`nav-${group.id}`}
+            id={`nav-${id}`}
             className={clsx('flex gap-1 py-px pl-1 lg:flex-col lg:pt-1 lg:pr-px lg:pb-0.5', compact ? 'lg:items-center lg:pl-0' : 'lg:ml-[1.125rem] lg:border-l lg:border-line lg:pl-2')}
           >
-            {group.children.map((child) => (
-              <li key={child.to}>
-                <NavEntry item={child} compact={compact} />
-              </li>
-            ))}
+            {children}
           </ul>
         </div>
       </div>
+    </>
+  );
+}
+
+/**
+ * Links to collections of knowledge outside Manelly, kept by the Manelly server; they open in a new tab, their
+ * description shows on hover. The small «+» adds one, the pencil next to a link changes or deletes it.
+ */
+function LinksGroup({ compact, open, onToggle, onAdded }: { compact: boolean; open: boolean; onToggle: () => void; onAdded: () => void }) {
+  const links = useKnowledgeLinks();
+  // undefined: no dialog; null: a new link.
+  const [editing, setEditing] = useState<KnowledgeLink | null | undefined>(undefined);
+  const add = (
+    <button
+      type="button"
+      onClick={() => setEditing(null)}
+      aria-label="Link hinzufügen"
+      title="Link hinzufügen"
+      className={clsx('grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition hover:bg-card hover:text-ink', compact && 'lg:hidden')}
+    >
+      <Plus className="size-4" aria-hidden />
+    </button>
+  );
+  return (
+    <>
+      <NavGroupFrame id="links" label="Links" icon={BookMarked} current={false} compact={compact} open={open} onToggle={onToggle} action={add}>
+        {(links.data ?? []).map((link) => (
+          <li key={link.id} className="group/link relative">
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={compact ? `${link.name} – ${linkHint(link)}` : linkHint(link)}
+              className={clsx(entryClass(compact), idleClass, !compact && 'lg:pr-9')}
+            >
+              <ExternalLink className="size-4 shrink-0" aria-hidden />
+              <span className={clsx('min-w-0 lg:truncate', compact && 'lg:sr-only')}>{link.name}</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => setEditing(link)}
+              aria-label={`«${link.name}» bearbeiten`}
+              title="Bearbeiten"
+              className={clsx(
+                'absolute top-1/2 right-1 hidden size-7 -translate-y-1/2 place-items-center rounded-md text-ink-3 opacity-0 transition group-hover/link:opacity-100 hover:bg-card hover:text-ink focus-visible:opacity-100',
+                !compact && 'lg:grid',
+              )}
+            >
+              <Pencil className="size-3.5" aria-hidden />
+            </button>
+          </li>
+        ))}
+        {links.data?.length === 0 && <li className={clsx('px-3 py-2 text-xs whitespace-nowrap text-ink-3', compact && 'lg:hidden')}>Noch keine Links</li>}
+        {links.error && <li className={clsx('px-3 py-2 text-xs whitespace-nowrap text-critical', compact && 'lg:hidden')}>Links nicht geladen</li>}
+        {/* In the narrow rail the «+» has no room next to the heading. */}
+        {compact && (
+          <li className="hidden lg:block">
+            <button type="button" onClick={() => setEditing(null)} title="Link hinzufügen" aria-label="Link hinzufügen" className={clsx(entryClass(true), idleClass)}>
+              <Plus className="size-4 shrink-0" aria-hidden />
+            </button>
+          </li>
+        )}
+      </NavGroupFrame>
+      <LinkDialog open={editing !== undefined} link={editing ?? null} onClose={() => setEditing(undefined)} onSaved={editing === null ? onAdded : undefined} />
     </>
   );
 }

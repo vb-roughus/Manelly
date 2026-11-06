@@ -4,7 +4,7 @@ import { Check, CircleCheck, ExternalLink, FolderSearch, LoaderCircle, Star, Wan
 import clsx from 'clsx';
 import { useMediaDetail, useScanItem, useServerStatus } from '../../hooks/queries';
 import { itemImageUrl } from '../../lib/api';
-import { channelsLabel, codecLabel, formatBytes, joinParts } from '../../lib/format';
+import { channelLayoutLabel, channelsLabel, codecLabel, formatBytes, joinParts } from '../../lib/format';
 import { AUDIO_FORMAT_LABELS, AUDIO_FORMAT_SHORT, DYNAMIC_RANGE_LABELS, audioLanguageName, hasAudioCondition, type MediaFilters } from '../../lib/media';
 import { ErrorPanel } from '../ErrorPanel';
 import { SERIES_HINT } from '../LibraryScan';
@@ -246,7 +246,10 @@ function TrackTable({ tracks }: { tracks: AudioTrack[] }) {
                   ))}
                 </span>
               </td>
-              <td className="px-3 py-2 whitespace-nowrap tabular-nums">{track.channelLayout ?? channelsLabel(track.channels) ?? '–'}</td>
+              {/* The exact layout shows when the mouse rests on it. */}
+              <td className="px-3 py-2 whitespace-nowrap tabular-nums" title={track.channelLayout ?? undefined}>
+                {channelLayoutLabel(track.channelLayout) ?? channelsLabel(track.channels) ?? '–'}
+              </td>
               <td className="max-w-[16rem] truncate px-3 py-2 text-ink-2" title={track.title ?? track.profile ?? undefined}>
                 {track.title ?? '–'}
               </td>

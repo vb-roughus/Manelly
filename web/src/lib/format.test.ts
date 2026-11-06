@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NowPlayingItem } from '@manelly/shared';
-import { formatBitrate, formatDuration, formatEta, itemHeadline, kibToMbit, languageLabel, mbitField, mbitToKib, resolutionLabel } from './format';
+import { channelLayoutLabel, formatBitrate, formatDuration, formatEta, itemHeadline, kibToMbit, languageLabel, mbitField, mbitToKib, resolutionLabel } from './format';
 import { describeTranscodeReason } from './transcodeReasons';
 
 const item = (overrides: Partial<NowPlayingItem>): NowPlayingItem => ({
@@ -21,6 +21,14 @@ const item = (overrides: Partial<NowPlayingItem>): NowPlayingItem => ({
 });
 
 describe('format', () => {
+  it('drops «(side)» from channel layouts', () => {
+    expect(channelLayoutLabel('5.1(side)')).toBe('5.1');
+    expect(channelLayoutLabel('5.0(side)')).toBe('5.0');
+    expect(channelLayoutLabel('7.1')).toBe('7.1');
+    expect(channelLayoutLabel('stereo')).toBe('stereo');
+    expect(channelLayoutLabel(null)).toBeNull();
+  });
+
   it('formats durations', () => {
     expect(formatDuration(0)).toBe('0:00');
     expect(formatDuration(754_000)).toBe('12:34');

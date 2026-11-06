@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { DiscActivity, DiscDrive, DiscInfo, DiscRead, DiscRip, DiscTitle } from '@manelly/shared';
+import type { DiscActivity, DiscDrive, DiscInfo, DiscRead, DiscRip, DiscsStatus, DiscTitle } from '@manelly/shared';
 import { CircleCheck, CircleX, Disc3, Eject, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -106,8 +106,13 @@ export function DiscsPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <header className="mb-6">
-        <p className="text-sm font-medium text-accent">Server</p>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Discs</h1>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-accent">Server</p>
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Discs</h1>
+          </div>
+          {discs.data?.tool && <RefreshDrives />}
+        </div>
         <p className="mt-1 text-sm text-ink-2">
           DVDs aus dem Laufwerk des Jellyfin-Servers ohne Qualitätsverlust in MKV-Dateien überführen – mit allen Ton- und Untertitelspuren und Kapiteln.
           Die Dateien landen im Entpack-Ordner und erscheinen unter{' '}
@@ -118,6 +123,32 @@ export function DiscsPage() {
         </p>
       </header>
       {content}
+    </div>
+  );
+}
+
+/** Asks the drives again right away, e.g. after a new disc went in; otherwise the page looks every few seconds. */
+function RefreshDrives() {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function refresh() {
+    setBusy(true);
+    setError(null);
+    try {
+      queryClient.setQueryData(['discs'], await fetchJson<DiscsStatus>('/api/agent/discs?refresh=1'));
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button type="button" onClick={() => void refresh()} disabled={busy} className={button} title="Laufwerk neu abfragen, z. B. nach dem Einlegen einer Disc">
+        <RefreshCw className={clsx('size-4', busy && 'animate-spin')} aria-hidden /> Aktualisieren
+      </button>
+      {error && <p className="max-w-64 text-right text-xs text-critical">{error}</p>}
     </div>
   );
 }

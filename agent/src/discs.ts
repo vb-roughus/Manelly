@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import type { DiscDrive, DiscInfo, DiscRead, DiscRip, DiscRipRequest, DiscSettings, DiscsStatus, DiscTitle } from '@manelly/shared';
@@ -6,7 +6,7 @@ import { formatBytes } from './convert.js';
 import { AgentError } from './errors.js';
 import { createActivity, listDrives, readDisc, ripTitle } from './makemkv.js';
 import { isValidSegment, pathApiFor, TEMP_FOLDER_PREFIX } from './paths.js';
-import { defaultPowershell, runPowershell } from './powershell.js';
+import { defaultPowershell, scriptArgs, scriptError } from './powershell.js';
 
 /** Finished rips shown at most. */
 const KEEP_FINISHED = 20;
@@ -31,15 +31,13 @@ export function mainTitle(titles: DiscTitle[]): DiscTitle | null {
   return [...titles].sort((a, b) => b.durationSeconds - a.durationSeconds || (b.bytes ?? 0) - (a.bytes ?? 0))[0] ?? null;
 }
 
-/** Ejects a disc: on Windows through the drive itself, as Explorer does it – also without anybody logged on. */
-export async function ejectDisc(device: string, platform: NodeJS.Platform = process.platform): Promise<void> {
-  if (platform === 'win32') {
-    const letter = /^([A-Za-z]):?\\?$/.exec(device)?.[1];
-    if (!letter) throw new Error(`Unbekanntes Laufwerk «${device}».`);
-    await runPowershell(
-      defaultPowershell(),
-      `$ErrorActionPreference = 'Stop'
-Add-Type @'
+/**
+ * The PowerShell script that ejects the disc in drive `letter` through the drive itself, as Explorer does it – also
+ * without anybody logged on. Windows PowerShell reads 0x80000000 as a negative Int32, so GENERIC_READ goes in as a
+ * UInt32 written out.
+ */
+export function ejectScript(letter: string): string {
+  return `Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class ManellyEject {
@@ -51,15 +49,36 @@ public static class ManellyEject {
   public static extern bool CloseHandle(IntPtr handle);
 }
 '@
-$handle = [ManellyEject]::CreateFile('\\\\.\\${letter}:', 0x80000000, 3, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
-if ($handle -eq [IntPtr]-1) { throw "Das Laufwerk ${letter}: liess sich nicht öffnen." }
-$returned = 0
+# GENERIC_READ, shared for reading and writing, OPEN_EXISTING.
+$handle = [ManellyEject]::CreateFile('\\\\.\\${letter}:', [UInt32]2147483648, [UInt32]3, [IntPtr]::Zero, [UInt32]3, [UInt32]0, [IntPtr]::Zero)
+if ($handle -eq [IntPtr]-1) { throw "Das Laufwerk ${letter}: liess sich nicht öffnen (Fehler $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))." }
+$returned = [UInt32]0
 # IOCTL_STORAGE_EJECT_MEDIA
-$ok = [ManellyEject]::DeviceIoControl($handle, 0x2D4808, [IntPtr]::Zero, 0, [IntPtr]::Zero, 0, [ref]$returned, [IntPtr]::Zero)
+$ok = [ManellyEject]::DeviceIoControl($handle, [UInt32]2967560, [IntPtr]::Zero, [UInt32]0, [IntPtr]::Zero, [UInt32]0, [ref]$returned, [IntPtr]::Zero)
 $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
 [ManellyEject]::CloseHandle($handle) | Out-Null
-if (-not $ok) { throw "Windows lehnte das Auswerfen ab (Fehler $code)." }`,
-    );
+if (-not $ok) { throw "Windows lehnte das Auswerfen ab (Fehler $code)." }`;
+}
+
+/** Runs a script with PowerShell; fails with the script's own error in one line, not PowerShell's full report. */
+function runScript(script: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(defaultPowershell(), scriptArgs(script), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
+    child.on('error', (error) => reject(new Error(`PowerShell liess sich nicht starten: ${error.message}`)));
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(scriptError(stdout, stderr, code)))));
+  });
+}
+
+/** Ejects a disc: on Windows through the drive itself, elsewhere with eject (Linux) or drutil (macOS). */
+export async function ejectDisc(device: string, platform: NodeJS.Platform = process.platform): Promise<void> {
+  if (platform === 'win32') {
+    const letter = /^([A-Za-z]):?\\?$/.exec(device)?.[1];
+    if (!letter) throw new Error(`Unbekanntes Laufwerk «${device}».`);
+    await runScript(ejectScript(letter.toUpperCase()));
     return;
   }
   const [command, args] = platform === 'darwin' ? ['drutil', ['eject']] : ['eject', [device]];
@@ -108,6 +127,8 @@ export function createDiscs(options: DiscsOptions) {
   const reads = new Map<number, DiscRead>();
   const busy = new Set<number>();
   const readAborts = new Map<number, AbortController>();
+  /** The disc each read is of, by its label: a read of a disc no longer in the drive goes. */
+  const readOf = new Map<number, string | null>();
   /** The disc the automatic mode already took, per drive, until the drive is empty again. */
   const handled = new Map<number, string>();
   let drives: { at: number; list: Array<Omit<DiscDrive, 'busy'>> } | null = null;
@@ -150,6 +171,7 @@ export function createDiscs(options: DiscsOptions) {
 
   /** Reads a disc's titles; what MakeMKV is at shows in `reads` meanwhile. */
   async function readNow(tool: string, drive: number): Promise<DiscInfo> {
+    readOf.set(drive, drives?.list.find((candidate) => candidate.index === drive)?.disc ?? null);
     busy.add(drive);
     const abort = new AbortController();
     readAborts.set(drive, abort);
@@ -364,9 +386,16 @@ export function createDiscs(options: DiscsOptions) {
   }
 
   return {
-    async status(): Promise<DiscsStatus> {
+    /** `refresh` asks the drives again right away, e.g. after a new disc went in. */
+    async status(refresh = false): Promise<DiscsStatus> {
       const tool = await options.tool();
+      if (refresh && busy.size === 0) drives = null;
       const list = tool ? await currentDrives(tool) : [];
+      // Titles read from a disc that was taken out or swapped by hand are no longer what is in the drive.
+      for (const [index, read] of reads) {
+        const drive = list.find((candidate) => candidate.index === index);
+        if (read.state !== 'reading' && (!drive || drive.state !== 'inserted' || drive.disc !== readOf.get(index))) reads.delete(index);
+      }
       return {
         tool,
         drives: list.map((drive) => ({ ...drive, busy: busy.has(drive.index) })),

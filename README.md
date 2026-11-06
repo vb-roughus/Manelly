@@ -313,7 +313,9 @@ für DVDs gratis, auch nach der Testzeit; einmal starten und die Lizenz bestäti
 unter `C:\Program Files (x86)\MakeMKV` von selbst, sonst in `agent.json` unter `tools.makemkv` eintragen. Meldet
 MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monaten), die neue Version darüber installieren.
 
-- Die Seite zeigt das Laufwerk und die eingelegte Disc. **«Disc lesen»** listet die Titel mit Länge, Kapiteln, Grösse,
+- Die Seite zeigt das Laufwerk und die eingelegte Disc; sie schaut alle paar Sekunden nach, **«Aktualisieren»** fragt
+  das Laufwerk sofort neu ab, z. B. nach dem Einlegen einer Disc. Wird eine Disc von Hand gewechselt, verschwindet die
+  Titelliste der alten. **«Disc lesen»** listet die Titel mit Länge, Kapiteln, Grösse,
   Bild sowie Ton- und Untertitelspuren (Titel unter einer Minute – Menüs, Trailer – lässt MakeMKV weg)
 - Während des Lesens steht, was MakeMKV gerade tut, wie weit es ist und seit wann (ab Agent 0.34.0); **«Abbrechen»** hält
   es an. Die **Meldungen von MakeMKV** lassen sich aufklappen, Lesefehler stehen rot – eine zerkratzte Disc oder ein

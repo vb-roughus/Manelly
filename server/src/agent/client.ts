@@ -88,7 +88,8 @@ export interface AgentClient {
   /** From agent 0.32.0: links for the link grabber, e.g. from Click'n'Load. */
   addLinkGrabberLinks(request: LinkGrabberLinksRequest): Promise<LinkGrabberLinksAnswer>;
   /** From agent 0.33.0: DVDs into MKV files with MakeMKV. */
-  discs(): Promise<DiscsStatus>;
+  /** `refresh` (agent from 0.34.1): asks the drives again right away. */
+  discs(refresh?: boolean): Promise<DiscsStatus>;
   readDisc(drive: number): Promise<DiscRead>;
   /** From agent 0.34.0. */
   cancelDiscRead(drive: number): Promise<DiscRead>;
@@ -201,7 +202,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     addLinkGrabberContainer: (request) => call('POST', '/api/jdownloader/linkgrabber/container', request, 30_000),
     addLinkGrabberLinks: (request) => call('POST', '/api/jdownloader/linkgrabber/links', request, 30_000),
     // Listing the drives starts MakeMKV, which may take a moment.
-    discs: () => call('GET', '/api/discs', undefined, 45_000),
+    discs: (refresh = false) => call('GET', refresh ? '/api/discs?refresh=1' : '/api/discs', undefined, 45_000),
     readDisc: (drive) => call('POST', '/api/discs/read', { drive }, 45_000),
     cancelDiscRead: (drive) => call('POST', '/api/discs/read/cancel', { drive }),
     ejectDisc: (drive) => call('POST', '/api/discs/eject', { drive }, 60_000),

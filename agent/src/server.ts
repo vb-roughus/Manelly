@@ -12,6 +12,8 @@ import type {
   AgentStatus,
   ArchivedOriginals,
   ConversionRequest,
+  DiscRipRequest,
+  DiscSettings,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
   ExtractedConvertRequest,
@@ -38,13 +40,24 @@ import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import { createDolbyVisionProbe } from './dvProbe.js';
 import { deleteExtracted, deleteSamples, findSamples, listExtracted, resolveExtracted, within } from './extracted.js';
+import type { Discs } from './discs.js';
 import type { Mover } from './moves.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
 import type { JobQueue } from './jobs.js';
 import type { Originals } from './originals.js';
 import type { NetworkMonitor } from './network.js';
 import type { ResourceMonitor } from './resources.js';
-import { NETWORK_ROLES, parseCopyLimit, parseHistorySettings, parseJDownloaderSettings, parseJellyfinAccess, parseSchedule, type NetworkSelection, type SettingsStore } from './schedule.js';
+import {
+  NETWORK_ROLES,
+  parseCopyLimit,
+  parseDiscSettings,
+  parseHistorySettings,
+  parseJDownloaderSettings,
+  parseJellyfinAccess,
+  parseSchedule,
+  type NetworkSelection,
+  type SettingsStore,
+} from './schedule.js';
 import { toolsReady, type Tools } from './tools.js';
 import type { Updater } from './updater.js';
 import { isValidSegment, isWithin, pathApiFor, type PathAccess } from './paths.js';
@@ -81,6 +94,8 @@ export interface AgentServerOptions {
   originals?: Pick<Originals, 'list' | 'remove'>;
   /** Moves from the extraction folder into the libraries; from 0.27.0. */
   mover?: Mover;
+  /** DVDs into MKV files with MakeMKV; from 0.33.0. */
+  discs?: Discs;
   /** The user's network drives, whether the agent reaches them, and the logins Manelly hands over for them. */
   drives?: Pick<Drives, 'list' | 'setCredential' | 'removeCredential'>;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
@@ -249,6 +264,7 @@ export function createAgentServer(options: AgentServerOptions) {
         },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
+        discs: Boolean(options.discs),
         drives: (await options.drives?.list()) ?? [],
         work: await workStatus(),
         originals: Boolean(options.originals),
@@ -340,6 +356,10 @@ export function createAgentServer(options: AgentServerOptions) {
       if (moving && force !== true) {
         const progress = moving.bytesTotal ? ` (${Math.round((moving.bytesDone / moving.bytesTotal) * 100)} %)` : '';
         throw new AgentError(409, `Gerade verschiebt der Agent «${moving.paths[0]}» nach ${moving.label}${progress}. Ein Neustart würde das unterbrechen – warte, bis es fertig ist, oder bestätige den Neustart.`);
+      }
+      const ripping = options.discs?.running();
+      if (ripping && force !== true) {
+        throw new AgentError(409, `Gerade rippt der Agent «${ripping.disc}» (${Math.round(ripping.progress * 100)} %). Ein Neustart würde das abbrechen – warte, bis es fertig ist, oder bestätige den Neustart.`);
       }
       // Looks for a newer version first and keeps answering meanwhile; restarts only when there was one.
       if (update === true && options.updater) return send(response, 202, { restarting: false, update: options.updater.start({ force: force === true }) });
@@ -488,6 +508,24 @@ export function createAgentServer(options: AgentServerOptions) {
       );
       const answer: LinkGrabberLinksAnswer = { added: cleaned.length };
       return send(response, 202, answer);
+    }
+    if (route.endsWith(' /api/discs') || url.pathname.startsWith('/api/discs/')) {
+      const discs = options.discs;
+      if (!discs) throw new AgentError(404, 'Discs kann dieser Agent nicht.');
+      if (route === 'GET /api/discs') return send(response, 200, await discs.status());
+      if (route === 'POST /api/discs/read' || route === 'POST /api/discs/eject') {
+        const { drive } = await readJson<{ drive?: unknown }>(request);
+        if (!Number.isInteger(drive) || (drive as number) < 0) throw new AgentError(400, 'Das Laufwerk (Nummer) erwartet.');
+        if (route === 'POST /api/discs/eject') {
+          await discs.eject(drive as number);
+          return send(response, 200, { ejected: true });
+        }
+        return send(response, 202, await discs.read(drive as number));
+      }
+      if (route === 'POST /api/discs/rips') return send(response, 202, await discs.rip(await readJson<DiscRipRequest>(request)));
+      const cancel = url.pathname.match(/^\/api\/discs\/rips\/([\w-]+)\/cancel$/);
+      if (cancel && request.method === 'POST') return send(response, 200, discs.cancel(cancel[1]!));
+      if (route === 'PUT /api/discs/settings') return send(response, 200, await discs.setSettings(parseDiscSettings(await readJson<DiscSettings>(request))));
     }
     if (route === 'GET /api/originals') {
       const work = await workStatus();

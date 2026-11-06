@@ -99,6 +99,15 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (init?.method === 'POST') return Response.json({ refreshing: 2 }, { status: 202 });
         return Response.json({ accounts: [{ id: 7, hoster: 'rapidgator.net', username: 'rolf', state: 'ok', error: null, validUntil: null, trafficLeft: 87e9, trafficMax: 100e9, unlimited: false }] });
       }
+      if (url.pathname.startsWith('/api/discs')) {
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        if (url.pathname === '/api/discs/read') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null }, { status: 202 });
+        if (url.pathname === '/api/discs/eject') return Response.json({ ejected: true });
+        if (url.pathname === '/api/discs/settings') return Response.json(body);
+        if (url.pathname === '/api/discs/rips') return Response.json({ id: 'r1', disc: 'FINDET_NEMO', folder: body.folder, titles: body.titles, state: 'queued' }, { status: 202 });
+        if (url.pathname.endsWith('/cancel')) return Response.json({ id: 'r1', state: 'canceled' });
+        return Response.json({ tool: 'C:\\Program Files (x86)\\MakeMKV\\makemkvcon64.exe', drives: [], reads: [], rips: [], settings: { auto: false, eject: true }, target: 'D:\\Entpackt', error: null });
+      }
       if (url.pathname.startsWith('/api/jdownloader/extracted/')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         if (url.pathname.endsWith('/move')) return Response.json({ id: 'm1', ...body, state: 'queued', bytesTotal: 10, bytesDone: 0, bytesPerSecond: null, copyThrottle: null, problems: [], createdAt: '', finishedAt: null }, { status: 202 });
@@ -537,6 +546,31 @@ describe('agent connection', () => {
     expect((await remove({ paths: [] })).statusCode).toBe(400);
     expect((await remove({ paths: [''] })).statusCode).toBe(400);
     expect(world.sent.jdownloader).toEqual([{ method: 'POST', path: '/api/jdownloader/extracted/delete', body: { paths: ['Dune', 'readme.nfo'] } }]);
+  });
+
+  it('reads and rips discs through the agent', async () => {
+    const { app, world } = await setup();
+    const inject = (method: 'GET' | 'POST' | 'PUT', url: string, payload?: object) => app.inject({ method, url: `/api/agent/discs${url}`, payload });
+    expect((await inject('GET', '')).json()).toMatchObject({ target: 'D:\\Entpackt' });
+    expect((await inject('POST', '/read', { drive: 0 })).statusCode).toBe(202);
+    expect((await inject('POST', '/read', { drive: 'D:' })).statusCode).toBe(400);
+    expect((await inject('POST', '/eject', { drive: 0 })).json()).toEqual({ ejected: true });
+    const rip = { drive: 0, folder: 'Findet Nemo (2003)', titles: [{ index: 0, fileName: 'Findet Nemo (2003).mkv' }], eject: true };
+    expect((await inject('POST', '/rips', rip)).statusCode).toBe(202);
+    expect((await inject('POST', '/rips', { ...rip, titles: [] })).statusCode).toBe(400);
+    expect((await inject('POST', '/rips', { ...rip, titles: [{ index: -1, fileName: 'x.mkv' }] })).statusCode).toBe(400);
+    expect((await inject('POST', '/rips/r1/cancel')).json()).toEqual({ id: 'r1', state: 'canceled' });
+    expect((await inject('POST', '/rips/..%2F..%2Fx/cancel')).statusCode).toBe(400);
+    expect((await inject('PUT', '/settings', { auto: true, eject: false })).json()).toEqual({ auto: true, eject: false });
+    expect((await inject('PUT', '/settings', { auto: true })).statusCode).toBe(400);
+    expect(world.sent.jdownloader.map((entry) => `${entry.method} ${entry.path}`)).toEqual([
+      'GET /api/discs',
+      'POST /api/discs/read',
+      'POST /api/discs/eject',
+      'POST /api/discs/rips',
+      'POST /api/discs/rips/r1/cancel',
+      'PUT /api/discs/settings',
+    ]);
   });
 
   it('converts a file in the extraction folder through the agent', async () => {

@@ -9,9 +9,10 @@ import { createRecorder } from './history.js';
 import { createJDownloader } from './jdownloader.js';
 import { AGENT_VERSION, createMediaNotifier, createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
+import { createDiscs } from './discs.js';
 import { createMover } from './moves.js';
 import { createOriginals } from './originals.js';
-import { conversionProcesses } from './convert.js';
+import { conversionProcesses, defaultFreeBytes } from './convert.js';
 import { createCopyLimiter } from './copyLimit.js';
 import { createNetworkMonitor, defaultSource } from './network.js';
 import { createResourceMonitor, defaultResourceSource } from './resources.js';
@@ -78,6 +79,17 @@ const queue = await createJobQueue({
 });
 // From the extraction folder into the libraries; Jellyfin hears about the new folders right away.
 const mover = createMover({ copyLimit: copyLimiter.current, notify: createMediaNotifier(() => settings.get().jellyfin, { log }), log });
+// DVDs into MKV files with MakeMKV, into the extraction folder; with the automatic mode a new disc goes by itself.
+const discs = createDiscs({
+  tool: async () => (await currentTools()).makemkv.path,
+  settings: { get: () => settings.get().discs, set: settings.setDiscs },
+  target: () => settings.get().jdownloader.extractTo ?? null,
+  freeBytes: defaultFreeBytes,
+  prepare: access.prepare,
+  log,
+  tickMs: 15_000,
+});
+discs.start();
 // Measures only the interfaces picked in Manelly, and only while somebody looks.
 const network = createNetworkMonitor({ source: defaultSource(), selection: () => settings.get().network, log });
 // CPU and GPU, with the shares of Jellyfin's FFmpeg and of the agent's own conversion; also only while somebody looks.
@@ -140,6 +152,7 @@ const server = createAgentServer({
   drives,
   originals,
   mover,
+  discs,
   onExit: (how) =>
     how === 'stop'
       ? shutdown('Beenden angefordert (Manelly oder Installationsskript)')
@@ -199,6 +212,7 @@ function shutdown(reason: string, code = 0) {
   resources.stop();
   jdownloader.stop();
   recorder.stop();
+  discs.stop();
   // Exit code 0: the autostart counts this as a normal end and does not start the agent again;
   // run-agent.ps1 starts it again for the restart codes.
   void queue.stop().then(() => process.exit(code));

@@ -3,11 +3,18 @@ import { access, constants } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentTool } from '@manelly/shared';
 
-export type ToolName = 'ffmpeg' | 'ffprobe' | 'mkvmerge' | 'doviTool';
+export type ToolName = 'ffmpeg' | 'ffprobe' | 'mkvmerge' | 'doviTool' | 'makemkv';
 export type Tools = Record<ToolName, AgentTool>;
 
-const EXECUTABLES: Record<ToolName, string> = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', mkvmerge: 'mkvmerge', doviTool: 'dovi_tool' };
-const VERSION_ARGS: Record<ToolName, string> = { ffmpeg: '-version', ffprobe: '-version', mkvmerge: '--version', doviTool: '--version' };
+const EXECUTABLES: Record<ToolName, string> = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', mkvmerge: 'mkvmerge', doviTool: 'dovi_tool', makemkv: 'makemkvcon' };
+const VERSION_ARGS: Record<ToolName, string[]> = {
+  ffmpeg: ['-version'],
+  ffprobe: ['-version'],
+  mkvmerge: ['--version'],
+  doviTool: ['--version'],
+  // makemkvcon has no version switch; listing the drives starts with "MakeMKV v1.17.7 … started".
+  makemkv: ['-r', '--cache=1', 'info', 'disc:9999'],
+};
 
 export interface DiscoverOptions {
   /** Paths from agent.json; they win over everything else. */
@@ -26,11 +33,14 @@ export interface DiscoverOptions {
 function knownLocations(name: ToolName, { agentDir, platform = process.platform, env = process.env }: DiscoverOptions): string[] {
   if (platform === 'win32') {
     const programFiles = env.ProgramFiles ?? 'C:\\Program Files';
+    const programFilesX86 = env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)';
     const locations: Record<ToolName, string[]> = {
       ffmpeg: [path.win32.join(programFiles, 'Jellyfin', 'Server', 'ffmpeg.exe')],
       ffprobe: [path.win32.join(programFiles, 'Jellyfin', 'Server', 'ffprobe.exe')],
       mkvmerge: [path.win32.join(programFiles, 'MKVToolNix', 'mkvmerge.exe')],
       doviTool: [path.win32.join(agentDir, 'tools', 'dovi_tool.exe')],
+      // The installer of MakeMKV puts it there, also on 64-bit Windows.
+      makemkv: [path.win32.join(programFilesX86, 'MakeMKV', 'makemkvcon64.exe'), path.win32.join(programFiles, 'MakeMKV', 'makemkvcon64.exe'), path.win32.join(programFilesX86, 'MakeMKV', 'makemkvcon.exe')],
     };
     return locations[name];
   }
@@ -39,6 +49,7 @@ function knownLocations(name: ToolName, { agentDir, platform = process.platform,
     ffprobe: ['/usr/lib/jellyfin-ffmpeg/ffprobe', '/Applications/Jellyfin.app/Contents/MacOS/ffprobe'],
     mkvmerge: [],
     doviTool: [path.posix.join(agentDir, 'tools', 'dovi_tool')],
+    makemkv: ['/Applications/MakeMKV.app/Contents/MacOS/makemkvcon'],
   };
   return locations[name];
 }
@@ -73,7 +84,7 @@ export function parseVersion(output: string): string | null {
 
 function readVersion(file: string, name: ToolName): Promise<string | null> {
   return new Promise((resolve) => {
-    execFile(file, [VERSION_ARGS[name]], { timeout: 5000, windowsHide: true }, (error, stdout) => {
+    execFile(file, VERSION_ARGS[name], { timeout: 5000, windowsHide: true }, (error, stdout) => {
       resolve(error ? null : parseVersion(String(stdout)));
     });
   });

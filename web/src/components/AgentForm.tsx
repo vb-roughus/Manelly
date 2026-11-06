@@ -13,7 +13,7 @@ export function AgentForm() {
   return <AgentFields settings={settings.data} overview={overview.data} />;
 }
 
-const TOOL_LABELS = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe (optional)', mkvmerge: 'mkvmerge (MKVToolNix)', doviTool: 'dovi_tool' } as const;
+const TOOL_LABELS = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe (optional)', mkvmerge: 'mkvmerge (MKVToolNix)', doviTool: 'dovi_tool', makemkv: 'MakeMKV (optional, für Discs)' } as const;
 
 function AgentFields({ settings, overview }: { settings: AgentSettingsView; overview: AgentOverview | undefined }) {
   const id = useId();

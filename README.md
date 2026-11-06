@@ -325,6 +325,10 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   das Laufwerk sofort neu ab, z. B. nach dem Einlegen einer Disc. Wird eine Disc von Hand gewechselt, verschwindet die
   Titelliste der alten. **«Disc lesen»** listet die Titel mit Länge, Kapiteln, Grösse,
   Bild sowie Ton- und Untertitelspuren (Titel unter einer Minute – Menüs, Trailer – lässt MakeMKV weg)
+- **Eingelegte Disc automatisch lesen** (ab Agent 0.35.0, Reiter «Einstellungen», ab Werk eingeschaltet): Der Agent fragt
+  das Laufwerk alle 15 Sekunden ab – bei offener Seite innert Sekunden – und liest eine neu eingelegte Disc von selbst,
+  auch ohne dass Manelly offen ist. Gerippt wird dabei nichts; die Titel stehen bereit, wenn du die Seite öffnest. Jede
+  Disc wird nur einmal gelesen, bis sie draussen ist; eine schon von Hand gelesene nicht nochmals
 - Während des Lesens steht, was MakeMKV gerade tut, wie weit es ist und seit wann (ab Agent 0.34.0); **«Abbrechen»** hält
   es an. Die **Meldungen von MakeMKV** lassen sich aufklappen, Lesefehler stehen rot – eine zerkratzte Disc oder ein
   Kopierschutz mit vielen Schein-Titeln braucht lange. Nach 30 Minuten gibt der Agent auf und sagt, was MakeMKV zuletzt

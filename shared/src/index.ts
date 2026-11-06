@@ -1848,6 +1848,8 @@ export interface DiscRead extends DiscActivity {
   error: string | null;
   /** Missing before agent 0.34.0. */
   startedAt?: string;
+  /** Started by the agent itself, for a disc that came in; from agent 0.35.0. */
+  auto?: boolean;
 }
 
 export interface DiscRipTitle {
@@ -1886,6 +1888,8 @@ export interface DiscSettings {
   auto: boolean;
   /** Eject when a rip is done. */
   eject: boolean;
+  /** A disc that comes in is read by itself, so its titles are ready; nothing is ripped. Missing before agent 0.35.0. */
+  read?: boolean;
 }
 
 /** GET /api/discs on the agent (from 0.33.0). */

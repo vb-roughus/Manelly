@@ -129,7 +129,7 @@ export function createDiscs(options: DiscsOptions) {
   const readAborts = new Map<number, AbortController>();
   /** The disc each read is of, by its label: a read of a disc no longer in the drive goes. */
   const readOf = new Map<number, string | null>();
-  /** The disc the automatic mode already took, per drive, until the drive is empty again. */
+  /** The disc the automatic mode or the automatic reading already took, per drive, until the drive is empty again. */
   const handled = new Map<number, string>();
   let drives: { at: number; list: Array<Omit<DiscDrive, 'busy'>> } | null = null;
   let driveError: string | null = null;
@@ -169,13 +169,13 @@ export function createDiscs(options: DiscsOptions) {
     return drive;
   }
 
-  /** Reads a disc's titles; what MakeMKV is at shows in `reads` meanwhile. */
-  async function readNow(tool: string, drive: number): Promise<DiscInfo> {
+  /** Reads a disc's titles; what MakeMKV is at shows in `reads` meanwhile. `auto`: nobody asked, the disc came in. */
+  async function readNow(tool: string, drive: number, auto = false): Promise<DiscInfo> {
     readOf.set(drive, drives?.list.find((candidate) => candidate.index === drive)?.disc ?? null);
     busy.add(drive);
     const abort = new AbortController();
     readAborts.set(drive, abort);
-    const read: DiscRead = { drive, state: 'reading', info: null, error: null, startedAt: new Date().toISOString() };
+    const read: DiscRead = { drive, state: 'reading', info: null, error: null, startedAt: new Date().toISOString(), ...(auto ? { auto } : {}) };
     // Its step and messages, updated while MakeMKV works.
     const { take } = createActivity(read);
     reads.set(drive, read);
@@ -354,17 +354,28 @@ export function createDiscs(options: DiscsOptions) {
     return `${name} ${Date.now()}`;
   }
 
-  /** The automatic mode: a new disc is read, its main title ripped and the disc ejected. */
+  /** Whether anything looks for discs that come in. */
+  const watching = (settings: DiscSettings) => settings.auto || settings.read === true;
+
+  /**
+   * Looks for discs that came in. The automatic mode reads a new disc, rips its main title and ejects it; otherwise,
+   * with automatic reading, a new disc is only read, so its titles are ready when somebody opens the page.
+   */
   function tick(): Promise<void> {
     ticking ??= look().finally(() => (ticking = null));
     return ticking;
   }
 
   async function look(): Promise<void> {
-    if (!options.settings.get().auto) return;
+    const settings = options.settings.get();
+    if (!watching(settings)) return;
     const tool = await options.tool();
-    const target = options.target();
-    if (!tool || !target || jobs.some((job) => active(job.view))) return;
+    if (!tool) return;
+    // Where the automatic mode rips to; without a target it only reads, if that is on.
+    const ripTo = settings.auto ? options.target() : null;
+    // The automatic mode takes the next disc once the rip under way is done.
+    if (ripTo && jobs.some((job) => active(job.view))) return;
+    if (!ripTo && settings.read !== true) return;
     for (const drive of await currentDrives(tool)) {
       if (drive.state !== 'inserted') {
         handled.delete(drive.index);
@@ -373,11 +384,18 @@ export function createDiscs(options: DiscsOptions) {
       const key = drive.disc ?? '';
       if (busy.has(drive.index) || handled.get(drive.index) === key) continue;
       handled.set(drive.index, key);
+      if (!ripTo) {
+        // Read by hand already: nothing more to do.
+        if (reads.has(drive.index) && readOf.get(drive.index) === drive.disc) continue;
+        log(`Disc «${key || 'ohne Namen'}» in Laufwerk ${drive.index} eingelegt – wird gelesen.`);
+        await readNow(tool, drive.index, true).catch(() => {});
+        continue;
+      }
       try {
         const info = await readNow(tool, drive.index);
         const main = mainTitle(info.titles);
         if (!main) continue;
-        const folder = await freeFolder(target, folderNameFrom(info.name) ?? folderNameFrom(drive.disc ?? '') ?? `Disc ${new Date().toISOString().slice(0, 10)}`);
+        const folder = await freeFolder(ripTo, folderNameFrom(info.name) ?? folderNameFrom(drive.disc ?? '') ?? `Disc ${new Date().toISOString().slice(0, 10)}`);
         await enqueue({ drive: drive.index, folder, titles: [{ index: main.index, fileName: `${folder}.mkv` }], eject: true }, true);
       } catch (error) {
         log(`Automatisches Rippen von «${key}» ging nicht: ${(error as Error).message}`);
@@ -391,6 +409,8 @@ export function createDiscs(options: DiscsOptions) {
       const tool = await options.tool();
       if (refresh && busy.size === 0) drives = null;
       const list = tool ? await currentDrives(tool) : [];
+      // While Manelly looks, a disc that came in is noticed within seconds rather than at the next tick.
+      if (tool && watching(options.settings.get())) void tick();
       // Titles read from a disc that was taken out or swapped by hand are no longer what is in the drive.
       for (const [index, read] of reads) {
         const drive = list.find((candidate) => candidate.index === index);
@@ -449,7 +469,7 @@ export function createDiscs(options: DiscsOptions) {
 
     async setSettings(settings: DiscSettings): Promise<DiscSettings> {
       await options.settings.set(settings);
-      if (settings.auto) void tick();
+      if (watching(settings)) void tick();
       return settings;
     },
 

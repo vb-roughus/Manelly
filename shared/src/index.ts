@@ -1035,6 +1035,19 @@ export interface ExtractedDeleteRequest {
 
 export type ExtractedDeleted = ExtractedSamplesDeleted;
 
+/** A new name for an entry of the extraction folder (agent from 0.36.0); a file keeps its extension. */
+export interface ExtractedRenameRequest {
+  /** Inside the extraction folder, with "/" between the names. */
+  path: string;
+  /** Only the name, without a folder. */
+  name: string;
+}
+
+export interface ExtractedRenamed {
+  /** Where the entry is now, inside the extraction folder. */
+  path: string;
+}
+
 export interface ExtractedEntry {
   name: string;
   /** Inside the extraction folder, with "/" between the names; to list a folder's content. */
@@ -1493,7 +1506,7 @@ export interface AgentStatus {
    * extracted before 0.26.0, moves (moving to a library, samples) before 0.27.0, newFolders (moving into a new folder)
    * before 0.28.0, remove (deleting in the link grabber and the downloads) before 0.29.0, extractedDelete (deleting in
    * the extraction folder) before 0.30.0, extractedConvert (Dolby Vision there) before 0.31.0, links (single links for
-   * the link grabber, for Click'n'Load) before 0.32.0.
+   * the link grabber, for Click'n'Load) before 0.32.0, extractedRename (renaming there) before 0.36.0.
    */
   jdownloader?: {
     enabled: boolean;
@@ -1507,6 +1520,7 @@ export interface AgentStatus {
     extractedDelete?: boolean;
     extractedConvert?: boolean;
     links?: boolean;
+    extractedRename?: boolean;
   };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];

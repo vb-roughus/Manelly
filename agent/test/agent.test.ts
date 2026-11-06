@@ -852,6 +852,7 @@ describe('JDownloader routes', () => {
       extractedDelete: true,
       extractedConvert: true,
       links: true,
+      extractedRename: true,
     });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
@@ -927,7 +928,7 @@ describe('JDownloader routes', () => {
     await writeFile(path.join(extracted, 'Dune (2024)', 'Sample', 'dune-sample.mkv'), 'sm');
     await mkdir(library);
     const move = { paths: ['Dune (2024)'], target: library, label: 'Filme' };
-    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toMatchObject({ moves: true, newFolders: true });
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader).toMatchObject({ moves: true, newFolders: true, extractedRename: true });
     // Without an extraction folder there is nothing to move.
     expect((await post('/api/jdownloader/extracted/move', move)).status).toBe(409);
     await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 }, extractTo: extracted });
@@ -940,6 +941,10 @@ describe('JDownloader routes', () => {
     await writeFile(path.join(extracted, 'alt.nfo'), 'nfo');
     const removed = await post('/api/jdownloader/extracted/delete', { paths: ['alt.nfo', '../filme'] });
     expect(await removed.json()).toEqual({ deleted: ['alt.nfo'], problems: [{ path: '../filme', error: 'Ungültiger Ordner im Entpack-Ordner.' }] });
+    await writeFile(path.join(extracted, 'neu.nfo'), 'nfo');
+    expect(await (await post('/api/jdownloader/extracted/rename', { path: 'neu.nfo', name: 'Dune.nfo' })).json()).toEqual({ path: 'Dune.nfo' });
+    expect((await post('/api/jdownloader/extracted/rename', { path: 'Dune.nfo' })).status).toBe(400);
+    expect((await post('/api/jdownloader/extracted/delete', { paths: ['Dune.nfo'] })).status).toBe(200);
 
     expect((await post('/api/jdownloader/extracted/move', { ...move, target: path.join(root, 'gibts-nicht') })).status).toBe(404);
     expect((await post('/api/jdownloader/extracted/move', { ...move, label: '' })).status).toBe(400);
@@ -1027,6 +1032,8 @@ describe('JDownloader routes', () => {
       deleted: [],
       problems: [{ path: 'Dune (2024)', error: 'Wird gerade konvertiert – erst danach löschen.' }],
     });
+    const renamedBusy = await post('/api/jdownloader/extracted/rename', { path: 'Dune (2024)', name: 'Dune' });
+    expect([renamedBusy.status, ((await renamedBusy.json()) as { error: { message: string } }).error.message]).toEqual([409, 'Wird gerade konvertiert – erst danach umbenennen.']);
     const moved = await post('/api/jdownloader/extracted/move', { paths: ['Dune (2024)'], target: root, label: 'Filme' });
     expect(moved.status).toBe(409);
     expect(((await moved.json()) as { error: { message: string } }).error.message).toBe('«Dune (2024)» wird gerade konvertiert – erst danach verschieben.');

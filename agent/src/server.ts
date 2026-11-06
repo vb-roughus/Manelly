@@ -18,6 +18,7 @@ import type {
   DriveCredentialRequest,
   ExtractedConvertRequest,
   ExtractedMoveRequest,
+  ExtractedRenameRequest,
   HardwareTestRequest,
   JDownloaderAction,
   JDownloaderSettings,
@@ -39,7 +40,7 @@ import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import { createDolbyVisionProbe } from './dvProbe.js';
-import { deleteExtracted, deleteSamples, findSamples, listExtracted, resolveExtracted, within } from './extracted.js';
+import { deleteExtracted, deleteSamples, findSamples, listExtracted, renameExtracted, resolveExtracted, within } from './extracted.js';
 import type { Discs } from './discs.js';
 import type { Mover } from './moves.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
@@ -261,6 +262,7 @@ export function createAgentServer(options: AgentServerOptions) {
           extractedDelete: true,
           extractedConvert: true,
           links: true,
+          extractedRename: true,
         },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
@@ -422,6 +424,14 @@ export function createAgentServer(options: AgentServerOptions) {
       await options.access?.prepare(directory);
       const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths);
       return send(response, 200, await deleteExtracted(directory, paths as string[], moving, convertingIn(directory)));
+    }
+    if (route === 'POST /api/jdownloader/extracted/rename') {
+      const directory = requireExtractTo();
+      const { path, name } = await readJson<Partial<ExtractedRenameRequest>>(request);
+      if (typeof path !== 'string' || typeof name !== 'string') throw new AgentError(400, 'Den Eintrag und seinen neuen Namen erwartet.');
+      await options.access?.prepare(directory);
+      const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths);
+      return send(response, 200, await renameExtracted(directory, path, name, moving, convertingIn(directory)));
     }
     if (route === 'POST /api/jdownloader/extracted/convert') {
       const directory = requireExtractTo();

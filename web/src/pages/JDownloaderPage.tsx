@@ -184,6 +184,7 @@ export function JDownloaderPage() {
               newFolders={Boolean(status.jdownloader?.newFolders)}
               deletable={Boolean(status.jdownloader?.extractedDelete)}
               convertible={Boolean(status.jdownloader?.extractedConvert)}
+              renamable={Boolean(status.jdownloader?.extractedRename)}
             />
           ) : (
             <Message tone="critical">

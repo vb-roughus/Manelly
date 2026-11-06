@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ExtractedMove } from '@manelly/shared';
-import { deleteExtracted, deleteSamples, findSamples, listExtracted } from '../src/extracted.js';
+import { deleteExtracted, deleteSamples, findSamples, listExtracted, renameExtracted } from '../src/extracted.js';
 import { createMover, type MoverOptions } from '../src/moves.js';
 
 let root: string;
@@ -153,6 +153,41 @@ describe('deleting in the extraction folder', () => {
     await symlink(library, path.join(extracted, 'Verknüpfung'));
     expect((await deleteExtracted(extracted, ['Verknüpfung'])).deleted).toEqual(['Verknüpfung']);
     expect(await readdir(library)).toEqual(['keep.mkv']);
+  });
+});
+
+describe('renaming in the extraction folder', () => {
+  const refused = (promise: Promise<unknown>) => promise.then(() => null, (error: Error) => error.message);
+
+  it('renames folders and files in place, a file keeping its extension', async () => {
+    expect(await renameExtracted(extracted, 'Dune (2024)', 'Dune - Part One (2021)')).toEqual({ path: 'Dune - Part One (2021)' });
+    expect(await renameExtracted(extracted, 'Dune - Part One (2021)/Dune.mkv', ' Dune - Part One (2021).mkv ')).toEqual({ path: 'Dune - Part One (2021)/Dune - Part One (2021).mkv' });
+    expect(await readdir(path.join(extracted, 'Dune - Part One (2021)'))).toEqual(['Dune - Part One (2021).mkv', 'Sample']);
+    // Only upper and lower case: also on a disk that does not tell them apart.
+    expect(await renameExtracted(extracted, 'Arrival.mkv', 'arrival.MKV')).toEqual({ path: 'arrival.MKV' });
+    expect((await readdir(extracted)).sort()).toEqual(['Dune - Part One (2021)', 'arrival.MKV']);
+    // The same name: nothing to do.
+    expect(await renameExtracted(extracted, 'arrival.MKV', 'arrival.MKV')).toEqual({ path: 'arrival.MKV' });
+  });
+
+  it('refuses names that do not work, other extensions, taken names and what lies outside', async () => {
+    expect(await refused(renameExtracted(extracted, 'Arrival.mkv', 'Arrival.mp4'))).toBe('Die Endung .mkv bleibt – nur den Namen davor ändern.');
+    expect(await refused(renameExtracted(extracted, 'Arrival.mkv', 'a/b.mkv'))).toMatch(/^«a\/b\.mkv» geht nicht als Name/);
+    expect(await refused(renameExtracted(extracted, 'Dune (2024)', 'Dune.'))).toMatch(/geht nicht als Name/);
+    expect(await refused(renameExtracted(extracted, 'Dune (2024)', '.manelly-tmp-x'))).toMatch(/geht nicht als Name/);
+    expect(await refused(renameExtracted(extracted, 'Arrival.mkv', 'Dune (2024)'))).toBe('Die Endung .mkv bleibt – nur den Namen davor ändern.');
+    await writeFile(path.join(extracted, 'Arrival 2.mkv'), 'x');
+    expect(await refused(renameExtracted(extracted, 'Arrival 2.mkv', 'Arrival.mkv'))).toBe('«Arrival.mkv» gibt es dort schon.');
+    expect(await refused(renameExtracted(extracted, '../filme', 'x'))).toBe('Ungültiger Ordner im Entpack-Ordner.');
+    expect(await refused(renameExtracted(extracted, '', 'x'))).toBe('Einen Eintrag im Entpack-Ordner erwartet.');
+    expect(await refused(renameExtracted(extracted, 'Weg.mkv', 'Da.mkv'))).toBe('Gibt es im Entpack-Ordner nicht (mehr).');
+    expect((await readdir(extracted)).sort()).toEqual(['Arrival 2.mkv', 'Arrival.mkv', 'Dune (2024)']);
+  });
+
+  it('keeps the name of what is being moved or converted', async () => {
+    expect(await refused(renameExtracted(extracted, 'Dune (2024)', 'Dune', ['Dune (2024)']))).toBe('Wird gerade verschoben – erst danach umbenennen.');
+    expect(await refused(renameExtracted(extracted, 'Dune (2024)', 'Dune', [], ['Dune (2024)/Dune.mkv']))).toBe('Wird gerade konvertiert – erst danach umbenennen.');
+    expect(await readdir(extracted)).toContain('Dune (2024)');
   });
 });
 

@@ -297,6 +297,10 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     **Löschen** (ab Agent 0.30.0) löscht die angekreuzten Einträge – Ordner samt Inhalt – nach einer Rückfrage mit der
     Liste und der Grösse endgültig, ohne Papierkorb. Der Agent löscht nur im Entpack-Ordner und nichts, was gerade
     verschoben oder konvertiert wird; was nicht ging, nennt der Dialog mit dem Grund.
+    **Umbenennen** (ab Agent 0.36.0): Der Stift neben einem Ordner oder einer Datei gibt ihr einen neuen Namen, an
+    derselben Stelle – etwa «Dune.Part.One.2021.German.DL.2160p» → «Dune - Part One (2021)», damit Jellyfin den Film
+    erkennt. Eine Datei behält ihre Endung, und der Agent überschreibt nichts. Was gerade verschoben oder konvertiert wird,
+    behält seinen Namen; eine Datei, die noch offen ist (abgespielt oder noch entpackt), lässt Windows nicht umbenennen.
     **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
     Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
     die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird

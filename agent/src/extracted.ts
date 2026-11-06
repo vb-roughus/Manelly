@@ -1,8 +1,8 @@
-import { lstat, readdir, rm, rmdir, unlink } from 'node:fs/promises';
-import type { ExtractedDeleted, ExtractedEntry, ExtractedFolder, ExtractedSamples, ExtractedSamplesDeleted } from '@manelly/shared';
+import { lstat, readdir, rename, rm, rmdir, unlink } from 'node:fs/promises';
+import type { ExtractedDeleted, ExtractedEntry, ExtractedFolder, ExtractedRenamed, ExtractedSamples, ExtractedSamplesDeleted } from '@manelly/shared';
 import type { DolbyVisionProbe } from './dvProbe.js';
 import { AgentError } from './errors.js';
-import { isWithin, pathApiFor, SOURCE_EXTENSIONS, TEMP_FOLDER_PREFIX, type PathApi } from './paths.js';
+import { isValidSegment, isWithin, pathApiFor, SOURCE_EXTENSIONS, TEMP_FOLDER_PREFIX, type PathApi } from './paths.js';
 
 /** Files counted below one folder at most; a folder with more shows "at least". */
 const MAX_FILES = 20_000;
@@ -189,4 +189,43 @@ export async function deleteExtracted(directory: string, paths: string[], moving
     }
   }
   return result;
+}
+
+/**
+ * Gives an entry of the extraction folder a new name, in the same folder. A file keeps its extension; nothing is
+ * overwritten, and what is being moved or converted keeps its name. A change of upper and lower case alone works too.
+ */
+export async function renameExtracted(directory: string, path: string, name: string, moving: readonly string[] = [], converting: readonly string[] = []): Promise<ExtractedRenamed> {
+  const full = resolveExtracted(directory, path);
+  const api = pathApiFor(directory);
+  const wanted = name.trim();
+  if (!isValidSegment(wanted) || wanted.startsWith(TEMP_FOLDER_PREFIX)) {
+    throw new AgentError(400, `«${wanted}» geht nicht als Name – ohne < > : " / \\ | ? * und nicht mit Punkt oder Leerzeichen am Ende.`);
+  }
+  if (moving.some((busy) => within(busy, path) || within(path, busy))) throw new AgentError(409, 'Wird gerade verschoben – erst danach umbenennen.');
+  if (converting.some((busy) => within(busy, path))) throw new AgentError(409, 'Wird gerade konvertiert – erst danach umbenennen.');
+  const info = await lstat(full).catch(() => null);
+  if (!info) throw new AgentError(404, 'Gibt es im Entpack-Ordner nicht (mehr).');
+  const old = api.basename(full);
+  if (!info.isDirectory() && api.extname(wanted).toLowerCase() !== api.extname(old).toLowerCase()) {
+    throw new AgentError(400, api.extname(old) ? `Die Endung ${api.extname(old)} bleibt – nur den Namen davor ändern.` : 'Eine Datei ohne Endung bekommt hier keine.');
+  }
+  const names = path.split('/');
+  const renamed = [...names.slice(0, -1), wanted].join('/');
+  if (wanted === old) return { path };
+  const target = api.join(api.dirname(full), wanted);
+  // Only upper and lower case change: on Windows that is the same entry, which must not count as taken.
+  if (wanted.toLowerCase() !== old.toLowerCase() && (await lstat(target).catch(() => null))) {
+    throw new AgentError(409, `«${wanted}» gibt es dort schon.`);
+  }
+  try {
+    await rename(full, target);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+      throw new AgentError(409, `«${old}» lässt sich gerade nicht umbenennen (${code}) – ist eine Datei darin offen, z. B. weil sie abgespielt oder noch entpackt wird?`);
+    }
+    throw error;
+  }
+  return { path: renamed };
 }

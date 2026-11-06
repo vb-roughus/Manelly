@@ -285,6 +285,50 @@ describe('ripping discs', () => {
     expect(ejected).toEqual([]);
   });
 
+  it('reads a disc that comes in by itself, once, without ripping it', async () => {
+    const discs = service();
+    // Off: nothing happens.
+    await discs.tick();
+    expect((await discs.status()).reads).toEqual([]);
+
+    await discs.setSettings({ auto: false, eject: true, read: true });
+    await discs.idle();
+    let status = await discs.status();
+    expect(status.reads).toHaveLength(1);
+    expect(status.reads[0]).toMatchObject({ drive: 0, state: 'done', auto: true });
+    expect(status.reads[0]?.info?.name).toBe('FINDET_NEMO');
+    expect(status.rips).toEqual([]);
+    const first = status.reads[0]?.startedAt;
+
+    // The same disc stays read: no second read.
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await discs.tick();
+    await discs.idle();
+    expect((await discs.status()).reads[0]?.startedAt).toBe(first);
+
+    // Another disc goes in: it is read as well.
+    await insert('series');
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await discs.status();
+    await discs.idle();
+    status = await discs.status();
+    expect(status.reads[0]).toMatchObject({ state: 'done', auto: true });
+    expect(status.reads[0]?.info?.name).toBe('DARK_S1_D1');
+    expect(ejected).toEqual([]);
+  }, 15_000);
+
+  it('leaves a disc read by hand as it is', async () => {
+    const discs = service();
+    await discs.status();
+    await discs.read(0);
+    for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const read = (await discs.status()).reads[0];
+    expect(read?.auto).toBeUndefined();
+    await discs.setSettings({ auto: false, eject: true, read: true });
+    await discs.idle();
+    expect((await discs.status()).reads[0]?.startedAt).toBe(read?.startedAt);
+  });
+
   it('rips a new disc by itself in the automatic mode, once', async () => {
     const discs = service();
     await discs.tick();

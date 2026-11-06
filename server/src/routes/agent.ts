@@ -618,12 +618,20 @@ export async function agentRoutes(
     '/discs/settings',
     {
       schema: {
-        body: { type: 'object', additionalProperties: false, required: ['auto', 'eject'], properties: { auto: { type: 'boolean' }, eject: { type: 'boolean' } } },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['auto', 'eject'],
+          // read: from agent 0.35.0.
+          properties: { auto: { type: 'boolean' }, eject: { type: 'boolean' }, read: { type: 'boolean' } },
+        },
       },
     },
     async (request): Promise<DiscSettings> => {
       const settings = await requireAgent(agent).setDiscSettings(request.body);
-      request.log.info(`Discs: automatisch ${settings.auto ? 'ein' : 'aus'}, auswerfen ${settings.eject ? 'ein' : 'aus'}`);
+      request.log.info(
+        `Discs: automatisch ${settings.auto ? 'ein' : 'aus'}, auswerfen ${settings.eject ? 'ein' : 'aus'}${settings.read === undefined ? '' : `, lesen ${settings.read ? 'ein' : 'aus'}`}`,
+      );
       return settings;
     },
   );

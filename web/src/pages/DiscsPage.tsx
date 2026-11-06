@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { DiscActivity, DiscDrive, DiscInfo, DiscRead, DiscRip, DiscsStatus, DiscTitle } from '@manelly/shared';
+import type { DiscActivity, DiscDrive, DiscInfo, DiscRead, DiscRip, DiscSettings, DiscsStatus, DiscTitle } from '@manelly/shared';
 import { CircleCheck, CircleX, Disc3, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -124,7 +124,7 @@ export function DiscsPage() {
                 </Card>
               )
             ) : (
-              <AutoSettings auto={settings.auto} eject={settings.eject} />
+              <AutoSettings settings={settings} />
             )}
           </Tabs>
         </div>
@@ -317,7 +317,7 @@ function Reading({ read }: { read: DiscRead }) {
         <p className="flex min-w-0 items-start gap-2 text-ink-2">
           <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-accent" aria-hidden />
           <span className="min-w-0">
-            <span className="text-ink">MakeMKV liest die Disc</span>
+            <span className="text-ink">{read.auto ? 'Disc eingelegt – MakeMKV liest sie' : 'MakeMKV liest die Disc'}</span>
             {read.startedAt && <span className="tabular-nums"> · seit {elapsed(read.startedAt, now)}</span>}
             <span className="block text-xs">
               {joinParts([
@@ -686,12 +686,27 @@ function Rips({ rips }: { rips: DiscRip[] }) {
   );
 }
 
-function AutoSettings({ auto, eject }: { auto: boolean; eject: boolean }) {
+function AutoSettings({ settings }: { settings: DiscSettings }) {
   const save = useSetDiscSettings();
+  const { auto, eject, read } = settings;
+  // Agents before 0.35.0 do not know `read`; they get only what they know.
+  const change = (next: Partial<DiscSettings>) => save.mutate(read === undefined ? { auto, eject, ...next } : { auto, eject, read, ...next });
   return (
     <Card>
+      {read !== undefined && (
+        <label className="mb-3 flex items-start gap-2.5">
+          <input type="checkbox" checked={read} disabled={save.isPending} onChange={(event) => change({ read: event.target.checked })} className="mt-0.5 size-4 accent-accent" />
+          <span>
+            <span className="font-medium">Eingelegte Disc automatisch lesen</span>
+            <span className="block text-ink-2">
+              Sobald eine Disc im Laufwerk liegt, liest der Agent ihre Titel – auch ohne dass Manelly offen ist. Gerippt wird nichts; die Titel stehen
+              bereit, wenn du die Seite öffnest. Dafür fragt der Agent das Laufwerk alle 15 Sekunden ab.
+            </span>
+          </span>
+        </label>
+      )}
       <label className="flex items-start gap-2.5">
-        <input type="checkbox" checked={auto} disabled={save.isPending} onChange={(event) => save.mutate({ auto: event.target.checked, eject })} className="mt-0.5 size-4 accent-accent" />
+        <input type="checkbox" checked={auto} disabled={save.isPending} onChange={(event) => change({ auto: event.target.checked })} className="mt-0.5 size-4 accent-accent" />
         <span>
           <span className="font-medium">Automatisch rippen</span>
           <span className="block text-ink-2">
@@ -701,12 +716,15 @@ function AutoSettings({ auto, eject }: { auto: boolean; eject: boolean }) {
         </span>
       </label>
       <label className="mt-3 flex items-start gap-2.5">
-        <input type="checkbox" checked={eject} disabled={save.isPending} onChange={(event) => save.mutate({ auto, eject: event.target.checked })} className="mt-0.5 size-4 accent-accent" />
+        <input type="checkbox" checked={eject} disabled={save.isPending} onChange={(event) => change({ eject: event.target.checked })} className="mt-0.5 size-4 accent-accent" />
         <span>
           <span className="font-medium">Nach dem Rippen auswerfen</span>
           <span className="block text-ink-2">Vorgabe für «Danach auswerfen»; im automatischen Modus wirft der Agent immer aus.</span>
         </span>
       </label>
+      {read === undefined && (
+        <p className="mt-3 text-xs text-ink-3">Eingelegte Discs automatisch lesen geht ab Agent 0.35.0 – unter Einstellungen → Updates «Alles aktualisieren».</p>
+      )}
       {save.isError && <p className="mt-2 text-xs text-critical">{save.error.message}</p>}
     </Card>
   );

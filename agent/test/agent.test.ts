@@ -1040,7 +1040,7 @@ describe('JDownloader routes', () => {
 
   it('answers about discs, and keeps their settings', async () => {
     expect(((await (await call('/api/status')).json()) as AgentStatus).discs).toBe(true);
-    expect(await (await call('/api/discs')).json()).toEqual({ tool: null, drives: [], reads: [], rips: [], settings: { auto: false, eject: true }, target: null, error: null });
+    expect(await (await call('/api/discs')).json()).toEqual({ tool: null, drives: [], reads: [], rips: [], settings: { auto: false, eject: true, read: true }, target: null, error: null });
     const refused = async (pathname: string, body: unknown, method = 'POST') => {
       const response = await call(pathname, { method, body: JSON.stringify(body) });
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
@@ -1049,10 +1049,14 @@ describe('JDownloader routes', () => {
     expect(await refused('/api/discs/read', { drive: 0 })).toEqual([409, 'MakeMKV fehlt auf dem Server – zuerst installieren (makemkv.com).']);
     expect(await refused('/api/discs/rips', { drive: 0, folder: 'Nemo', titles: [{ index: 0, fileName: 'Nemo.mkv' }] })).toEqual([409, 'MakeMKV fehlt auf dem Server – zuerst installieren (makemkv.com).']);
     expect(await refused('/api/discs/rips/abc/cancel', {})).toEqual([404, 'Diesen Auftrag gibt es nicht (mehr).']);
-    expect(await refused('/api/discs/settings', { auto: 'ja', eject: true }, 'PUT')).toEqual([400, 'Automatik und Auswerfen erwartet (ja/nein).']);
-    const saved = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: true, eject: false }) });
-    expect(await saved.json()).toEqual({ auto: true, eject: false });
-    expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({ auto: true, eject: false });
+    expect(await refused('/api/discs/settings', { auto: 'ja', eject: true }, 'PUT')).toEqual([400, 'Automatik, Auswerfen und Lesen erwartet (ja/nein).']);
+    expect(await refused('/api/discs/settings', { auto: false, eject: true, read: 1 }, 'PUT')).toEqual([400, 'Automatik, Auswerfen und Lesen erwartet (ja/nein).']);
+    const saved = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: true, eject: false, read: false }) });
+    expect(await saved.json()).toEqual({ auto: true, eject: false, read: false });
+    expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({ auto: true, eject: false, read: false });
+    // From an older Manelly, without read: reading stays on.
+    const older = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: false, eject: true }) });
+    expect(await older.json()).toEqual({ auto: false, eject: true, read: true });
   });
 
   it('hands single links to the link grabber, with package name and password', async () => {

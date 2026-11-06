@@ -8,6 +8,7 @@ import { manellyRestart, useManellyRestart } from '../hooks/useManellyRestart';
 import { agentRestartSummary } from '../lib/agentRestart';
 import { manellyRestartSummary } from '../lib/manellyRestart';
 import { restartsNow, type PendingRestart } from '../lib/restart';
+import { formatSpan } from '../lib/timeline';
 import { Message } from './ConnectionForm';
 import type { AppNotification } from './Notifications';
 
@@ -23,7 +24,7 @@ export interface RestartSubject {
 export const AGENT: RestartSubject = { name: 'Der Agent', object: 'den Agent' };
 export const MANELLY: RestartSubject = { name: 'Manelly', object: 'Manelly' };
 
-const STEPS: UpdateStep[] = ['check', 'pull', 'install', 'build', 'restart'];
+const STEPS: UpdateStep[] = ['check', 'pull', 'install', 'build', 'wait', 'restart'];
 type StepState = 'done' | 'current' | 'next' | 'skipped';
 
 const STEP_ICONS: Record<StepState, { icon: LucideIcon; tone: string }> = {
@@ -44,6 +45,8 @@ function stepLabel(step: UpdateStep, state: StepState, progress: UpdateProgress,
       return state === 'skipped' ? 'Abhängigkeiten unverändert' : 'Installiert die Abhängigkeiten (npm ci)';
     case 'build':
       return `Baut ${subject.object}`;
+    case 'wait':
+      return state === 'current' ? `Wartet auf ${progress.waitingFor ?? 'das, was gerade läuft'} – startet danach neu` : 'Hat gewartet, bis nichts mehr lief';
     case 'restart':
       return state === 'current' && away ? 'Startet neu – antwortet gerade nicht' : 'Startet neu';
   }
@@ -51,10 +54,12 @@ function stepLabel(step: UpdateStep, state: StepState, progress: UpdateProgress,
 
 /** The steps of an update, as far as the process reported them; the restart once it no longer answers. */
 function UpdateSteps({ progress, away, subject }: { progress: UpdateProgress; away: boolean; subject: RestartSubject }) {
-  const current = STEPS.indexOf(away ? 'restart' : progress.step);
+  // Waiting shows only when the update waits for something that runs.
+  const steps = progress.steps.includes('wait') ? STEPS : STEPS.filter((step) => step !== 'wait');
+  const current = steps.indexOf(away ? 'restart' : progress.step);
   return (
     <ol className="space-y-1">
-      {STEPS.map((step, index) => {
+      {steps.map((step, index) => {
         const state: StepState =
           index < current ? (step === 'install' && !progress.steps.includes('install') ? 'skipped' : 'done') : index === current ? 'current' : 'next';
         const { icon: Icon, tone } = STEP_ICONS[state];
@@ -93,7 +98,8 @@ export function RestartProgress({
       <p className="flex items-center gap-2 font-medium">
         {!pending.progress && <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden />}
         {title}
-        <span className="font-normal text-ink-3 tabular-nums">{seconds} s</span>
+        {/* Seconds at first; waiting for a rip, it can take an hour. */}
+        <span className="font-normal text-ink-3 tabular-nums">{seconds < 120 ? `${seconds} s` : formatSpan(seconds * 1000)}</span>
       </p>
       {pending.progress ? (
         <UpdateSteps progress={pending.progress} away={pending.away} subject={subject} />
@@ -123,7 +129,16 @@ function pendingText(pending: PendingRestart<unknown>, subject: RestartSubject):
   if (!pending.update) return { title: `${subject.name} startet neu …`, detail: 'Bis dahin bleibt der letzte Stand stehen.' };
   if (restartsNow(pending)) return { title: `${subject.name} wird aktualisiert und startet neu …`, detail: 'Bis dahin bleibt der letzte Stand stehen.' };
   const step = pending.progress?.step;
-  const detail = step === 'check' ? 'Sucht eine neuere Version.' : step === 'pull' ? 'Holt die Änderungen.' : step === 'install' ? 'Installiert die Abhängigkeiten.' : `Baut ${subject.object}.`;
+  const detail =
+    step === 'check'
+      ? 'Sucht eine neuere Version.'
+      : step === 'pull'
+        ? 'Holt die Änderungen.'
+        : step === 'install'
+          ? 'Installiert die Abhängigkeiten.'
+          : step === 'wait'
+            ? `Fertig gebaut, wartet auf ${pending.progress?.waitingFor ?? 'das, was gerade läuft'} – startet danach neu.`
+            : `Baut ${subject.object}.`;
   return { title: `${subject.name} wird aktualisiert …`, detail };
 }
 

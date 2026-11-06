@@ -57,8 +57,10 @@ export function createRestartStore<S>(storageKey: string) {
       const { pending } = state;
       if (!pending) return;
       const startedAt = pending.startedAt ?? (reported && progress ? progress.since : null);
-      if (pending.away === away && pending.startedAt === startedAt && JSON.stringify(pending.progress) === JSON.stringify(progress)) return;
-      set({ ...state, pending: { ...pending, progress, away, startedAt } });
+      // While it waits for what runs, the deadline moves along – every half minute is enough.
+      const slide = progress?.step === 'wait' && !away && Date.now() - (pending.waitedAt ?? 0) > 30_000;
+      if (!slide && pending.away === away && pending.startedAt === startedAt && JSON.stringify(pending.progress) === JSON.stringify(progress)) return;
+      set({ ...state, pending: { ...pending, progress, away, startedAt, ...(slide ? { waitedAt: Date.now() } : {}) } });
     },
     /** `after` null: no new process answered. */
     end: (after: S | null) => {

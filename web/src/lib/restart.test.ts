@@ -29,6 +29,12 @@ describe('agentRestartProgress', () => {
     expect(agentRestartProgress(pending(true), null, later)).toBe('waiting');
     expect(agentRestartProgress(pending(true), null, 1_000_000 + UPDATE_TIMEOUT_MS + 1)).toBe('timeout');
   });
+
+  it('keeps waiting while the agent waits for a rip, and counts the deadline from the last time it did', () => {
+    const waited = { ...pending(true), waitedAt: 1_000_000 + 3_600_000 };
+    expect(agentRestartProgress(waited, before, 1_000_000 + 3_600_000 + UPDATE_TIMEOUT_MS - 1)).toBe('waiting');
+    expect(agentRestartProgress(waited, null, 1_000_000 + 3_600_000 + UPDATE_TIMEOUT_MS + 1)).toBe('timeout');
+  });
 });
 
 describe('agentRestartSummary', () => {
@@ -87,6 +93,8 @@ describe('Manelly restart', () => {
     expect(restartsNow(waiting(false))).toBe(true);
     expect(restartsNow({ ...waiting(true), progress: update })).toBe(false);
     expect(restartsNow({ ...waiting(true), progress: { ...update, step: 'restart' } })).toBe(true);
+    // Waiting for a rip, the agent still answers: its pages, the rip's progress among them, keep updating.
+    expect(restartsNow({ ...waiting(true), progress: { ...update, step: 'wait', waitingFor: 'den Rip' } })).toBe(false);
     expect(restartsNow({ ...waiting(true), progress: update, away: true })).toBe(true);
   });
 

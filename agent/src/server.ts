@@ -344,24 +344,29 @@ export function createAgentServer(options: AgentServerOptions) {
       return;
     }
     if (route === 'POST /api/restart') {
-      const { update, force } = await readJson<Partial<AgentRestartRequest>>(request);
+      const { update, force, wait } = await readJson<Partial<AgentRestartRequest>>(request);
+      // Updating with wait: nothing is interrupted – the restart waits for what runs (see the updater).
+      const later = update === true && wait === true && Boolean(options.updater);
       if (!(await options.process()).restartable) {
         throw new AgentError(409, 'Der Agent läuft ohne scripts\\run-agent.ps1 und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.');
       }
       // A restart pauses a running conversion; it continues afterwards, but only when asked to.
       const busy = queue.running();
-      if (busy && force !== true) {
+      if (busy && force !== true && !later) {
         const progress = busy.progress === null ? '' : ` (${Math.round(busy.progress * 100)} %)`;
         throw new AgentError(409, `Gerade läuft die Konvertierung «${busy.title}»${progress}. Ein Neustart würde sie unterbrechen – warte, bis sie fertig ist, oder bestätige den Neustart.`);
       }
       const moving = options.mover?.running();
-      if (moving && force !== true) {
+      if (moving && force !== true && !later) {
         const progress = moving.bytesTotal ? ` (${Math.round((moving.bytesDone / moving.bytesTotal) * 100)} %)` : '';
         throw new AgentError(409, `Gerade verschiebt der Agent «${moving.paths[0]}» nach ${moving.label}${progress}. Ein Neustart würde das unterbrechen – warte, bis es fertig ist, oder bestätige den Neustart.`);
       }
       const ripping = options.discs?.running();
-      if (ripping && force !== true) {
-        throw new AgentError(409, `Gerade rippt der Agent «${ripping.disc}» (${Math.round(ripping.progress * 100)} %). Ein Neustart würde das abbrechen – warte, bis es fertig ist, oder bestätige den Neustart.`);
+      if (ripping && force !== true && !later) {
+        throw new AgentError(
+          409,
+          `Gerade rippt der Agent «${ripping.disc}» (${Math.round(ripping.progress * 100)} %). Ein Neustart würde das abbrechen – warte, bis es fertig ist, aktualisiere «danach» oder bestätige den Neustart.`,
+        );
       }
       // Looks for a newer version first and keeps answering meanwhile; restarts only when there was one.
       if (update === true && options.updater) return send(response, 202, { restarting: false, update: options.updater.start({ force: force === true }) });

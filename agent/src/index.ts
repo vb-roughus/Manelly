@@ -88,6 +88,7 @@ const discs = createDiscs({
   prepare: access.prepare,
   log,
   tickMs: 15_000,
+  stateFile: join(dataDir, 'discs.json'),
 });
 discs.start();
 // Measures only the interfaces picked in Manelly, and only while somebody looks.
@@ -109,7 +110,38 @@ const processInfo = {
   autostart,
   port: config.port,
   restartable: process.env.MANELLY_AGENT_SUPERVISED === '1',
+  waits: true,
 };
+
+const percent = (share: number | null) => (share === null ? '' : ` (${Math.round(share * 100)} %)`);
+
+/** What an update's restart still waits for: a rip, a conversion or a move under way. */
+function busyWith(): string | null {
+  const rip = discs.active();
+  if (rip) return `den Rip von «${rip.disc}»${rip.state === 'running' ? percent(rip.progress) : ''}`;
+  const job = queue.running();
+  if (job) return `die Konvertierung «${job.title}»${percent(job.progress)}`;
+  const move = mover.running();
+  if (move) return `das Verschieben nach ${move.label}${percent(move.bytesTotal ? move.bytesDone / move.bytesTotal : null)}`;
+  return null;
+}
+
+/**
+ * Before an update's restart: from now on nothing new starts – no conversion, rip or read; what runs finishes, a rip
+ * together with ejecting its disc, so the new agent does not find it in the drive and take it again.
+ */
+async function untilIdle(report: (what: string) => void): Promise<void> {
+  discs.hold();
+  let settled = false;
+  const idle = Promise.all([queue.idle(), mover.idle(), discs.idle()]).then(() => {
+    settled = true;
+  });
+  while (!settled) {
+    const what = busyWith();
+    if (what) report(what);
+    await Promise.race([idle, new Promise((resolve) => setTimeout(resolve, 2000))]);
+  }
+}
 
 /** What run-agent.ps1 wrote about its last update. */
 async function lastUpdate(): Promise<AgentUpdateResult | null> {
@@ -126,14 +158,9 @@ const updater = createUpdater({
   script: join(AGENT_DIR, '..', 'scripts', 'update.mjs'),
   reportFile: join(dataDir, 'update.json'),
   target: 'agent',
-  // A conversion that started while it built (from the schedule) finishes first, unless the update was forced.
-  onRestart: (force) => {
-    const busy = force ? null : queue.running();
-    const moving = force ? null : mover.running();
-    if (!busy && !moving) return shutdown('Update fertig, Neustart', RESTART_EXIT);
-    log(`Update fertig – Neustart, sobald ${busy ? `die Konvertierung ${busy.source}` : `das Verschieben nach ${moving!.target}`} fertig ist.`);
-    void Promise.all([queue.idle(), mover.idle()]).then(() => shutdown('Update fertig, Neustart nach Konvertierung und Verschieben', RESTART_EXIT));
-  },
+  // What runs – a rip, a conversion, a move, also one that started while it built – finishes first, unless forced.
+  untilIdle,
+  onRestart: (force) => shutdown(force ? 'Update fertig, Neustart ohne zu warten' : 'Update fertig, Neustart', RESTART_EXIT),
   log,
 });
 const server = createAgentServer({

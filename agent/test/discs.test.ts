@@ -20,8 +20,9 @@ async function insert(disc: 'movie' | 'series' | null, extra: Record<string, unk
   await writeFile(statePath, JSON.stringify({ disc, label: disc === 'series' ? 'DARK_S1_D1' : 'FINDET_NEMO', ripMs: 40, ...extra }));
 }
 
-function service(tool: string | null = FAKE) {
+function service(tool: string | null = FAKE, stateFile?: string) {
   return createDiscs({
+    stateFile,
     tool: async () => tool,
     settings: { get: () => settings, set: async (next) => void (settings = next) },
     target: () => target,
@@ -328,6 +329,51 @@ describe('ripping discs', () => {
     await discs.idle();
     expect((await discs.status()).reads[0]?.startedAt).toBe(read?.startedAt);
   });
+
+  it('starts nothing new once held for a restart, and lets the rip under way finish with its eject', async () => {
+    const discs = service();
+    await discs.status();
+    await discs.read(0);
+    for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const rip = await discs.rip({ drive: 0, folder: 'Findet Nemo', titles: [{ index: 0, fileName: 'Findet Nemo.mkv' }], eject: true });
+    expect(discs.active()?.id).toBe(rip.id);
+    discs.hold();
+    await expect(discs.read(0)).rejects.toThrow('Der Agent startet gleich neu, um ein Update zu übernehmen – danach lesen.');
+    await expect(discs.rip({ drive: 0, folder: 'Nochmal', titles: [{ index: 0, fileName: 'Nochmal.mkv' }] })).rejects.toThrow(/danach rippen\.$/);
+    await discs.idle();
+    // Only now, after the eject, is it idle: the new agent does not find the disc in the drive.
+    expect(ejected).toEqual(['/dev/sr0']);
+    expect(discs.active()).toBeNull();
+    expect((await discs.status()).rips[0]?.state).toBe('done');
+  });
+
+  it('remembers a ripped disc over a restart, so the automatic mode does not take it again', async () => {
+    const stateFile = path.join(root, 'discs.json');
+    const first = service(FAKE, stateFile);
+    await first.status();
+    await first.read(0);
+    for (let i = 0; i < 100 && (await first.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    // Not ejected: the disc stays in the drive.
+    await first.rip({ drive: 0, folder: 'Findet Nemo', titles: [{ index: 0, fileName: 'Findet Nemo.mkv' }], eject: false });
+    await first.idle();
+    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ 0: 'FINDET_NEMO' });
+
+    // The new agent, in the automatic mode: it leaves the disc alone.
+    settings = { auto: true, eject: true, read: true };
+    const second = service(FAKE, stateFile);
+    await second.tick();
+    await second.idle();
+    const status = await second.status();
+    expect(status.rips).toEqual([]);
+    expect(status.reads).toEqual([]);
+
+    // Once the drive was empty, the same disc counts as new again.
+    await insert(null);
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await second.tick();
+    await second.idle();
+    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({});
+  }, 15_000);
 
   it('rips a new disc by itself in the automatic mode, once', async () => {
     const discs = service();

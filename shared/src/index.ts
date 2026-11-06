@@ -1391,6 +1391,8 @@ export interface AgentProcess {
   update?: UpdateProgress | null;
   /** Runs under scripts/run-agent.ps1, which starts it again on request; missing before 0.9.0. */
   restartable?: boolean;
+  /** Takes `wait` with an update: restarts once nothing runs any more; missing before 0.37.0. */
+  waits?: boolean;
   lastUpdate?: AgentUpdateResult | null;
 }
 
@@ -1424,6 +1426,11 @@ export interface AgentRestartRequest {
   update: boolean;
   /** Also while a conversion runs, which then pauses and continues after the restart; agents from 0.22.0 refuse otherwise. */
   force?: boolean;
+  /**
+   * With update: also while something runs. The agent updates right away, starts nothing new and restarts once a rip
+   * (with ejecting its disc), a conversion or a move under way is done. Agents from 0.37.0.
+   */
+  wait?: boolean;
 }
 
 /** The answer to a restart or update request, from the agent and from Manelly. */
@@ -1435,7 +1442,8 @@ export interface AgentRestartAnswer {
 }
 
 /** The steps of an update by scripts/update.mjs, in this order; install only when the dependencies changed. */
-export type UpdateStep = 'check' | 'pull' | 'install' | 'build' | 'restart';
+/** wait: built, but something still runs (a rip, a conversion, a move); agents from 0.37.0. */
+export type UpdateStep = 'check' | 'pull' | 'install' | 'build' | 'wait' | 'restart';
 
 /** An update under way in the agent or in Manelly, as far as that process knows. */
 export interface UpdateProgress {
@@ -1448,6 +1456,8 @@ export interface UpdateProgress {
   behind: number | null;
   /** The subject of the newest one. */
   subject: string | null;
+  /** In step wait: what the restart waits for, e.g. «den Rip von «FINDET_NEMO» (45 %)». */
+  waitingFor?: string | null;
 }
 
 // --- Manelly itself --------------------------------------------------------------------

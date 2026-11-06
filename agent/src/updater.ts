@@ -9,6 +9,7 @@ const STEP_LABELS: Record<UpdateStep, string> = {
   pull: 'holt die Änderungen (git pull) …',
   install: 'installiert die Abhängigkeiten (npm ci) …',
   build: 'baut …',
+  wait: 'fertig gebaut, wartet, bis nichts mehr läuft …',
   restart: 'fertig, startet neu …',
 };
 
@@ -21,6 +22,11 @@ export interface UpdaterOptions {
   target?: 'agent';
   /** Ends the process so its runner starts the new build; `force` also while a conversion runs. */
   onRestart: (force: boolean) => void;
+  /**
+   * Holds the restart back until nothing runs any more (unless forced); `report` says what it waits for, so the update
+   * shows it. Without it, the restart follows right away.
+   */
+  untilIdle?: (report: (what: string) => void) => Promise<void>;
   log: (message: string) => void;
   /** How long the restart step shows before the process ends, so Manelly sees it coming. */
   restartDelayMs?: number;
@@ -30,13 +36,26 @@ export interface UpdaterOptions {
  * Updates the checkout with scripts/update.mjs while this process keeps running and answering, step by step;
  * restarts only when there was something new and everything worked. Otherwise the running version stays.
  */
-export function createUpdater({ script, reportFile, target, onRestart, log, restartDelayMs = 3000 }: UpdaterOptions) {
+export function createUpdater({ script, reportFile, target, onRestart, untilIdle, log, restartDelayMs = 3000 }: UpdaterOptions) {
   let progress: UpdateProgress | null = null;
 
   function enter(step: UpdateStep) {
     if (!progress) return;
-    progress = { ...progress, step, steps: [...progress.steps, step] };
+    progress = { ...progress, step, steps: [...progress.steps, step], waitingFor: null };
     log(`Update: ${STEP_LABELS[step]}`);
+  }
+
+  /** Built: restarts once nothing runs any more – or right away when forced. */
+  async function restartWhenIdle(force: boolean) {
+    if (!force && untilIdle) {
+      await untilIdle((what) => {
+        if (!progress || progress.waitingFor === what) return;
+        if (progress.step !== 'wait') enter('wait');
+        progress = { ...progress, waitingFor: what };
+      });
+    }
+    enter('restart');
+    setTimeout(() => onRestart(force), restartDelayMs);
   }
 
   /** When the script ends without its last line, the report says so instead. */
@@ -78,8 +97,7 @@ export function createUpdater({ script, reportFile, target, onRestart, log, rest
           done = true;
           log(`Update: ${event.message ?? ''}`);
           if (event.ok && !event.upToDate) {
-            enter('restart');
-            setTimeout(() => onRestart(force), restartDelayMs);
+            void restartWhenIdle(force);
           } else {
             progress = null;
           }

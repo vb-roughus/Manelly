@@ -45,6 +45,42 @@ describe('updater', () => {
     expect(logged).toContain('Update: Aktualisiert von a1 auf b2.');
   });
 
+  it('waits for what runs before it restarts, and says what it waits for – unless forced', async () => {
+    const lines = [
+      { event: 'step', step: 'check' },
+      { event: 'step', step: 'build' },
+      { event: 'done', ok: true, upToDate: false, message: 'Aktualisiert.' },
+    ];
+    let busy: string | null = 'den Rip von «FINDET_NEMO» (40 %)';
+    let restarted = 0;
+    const untilIdle = async (report: (what: string) => void) => {
+      while (busy) {
+        report(busy);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
+    const updater = createUpdater({ ...(await fakeScript(lines)), onRestart: () => restarted++, untilIdle, log: () => {}, restartDelayMs: 0 });
+    updater.start();
+    await until(() => updater.progress()?.step === 'wait');
+    expect(updater.progress()).toMatchObject({ steps: ['check', 'build', 'wait'], waitingFor: 'den Rip von «FINDET_NEMO» (40 %)' });
+    busy = 'den Rip von «FINDET_NEMO» (90 %)';
+    await until(() => updater.progress()?.waitingFor?.includes('90') === true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(restarted).toBe(0);
+    busy = null;
+    await until(() => restarted > 0);
+    expect(updater.progress()).toMatchObject({ step: 'restart', steps: ['check', 'build', 'wait', 'restart'], waitingFor: null });
+
+    // Forced: no waiting.
+    let forced = 0;
+    busy = 'die Konvertierung «Film»';
+    const now = createUpdater({ ...(await fakeScript(lines)), onRestart: () => forced++, untilIdle, log: () => {}, restartDelayMs: 0 });
+    now.start({ force: true });
+    await until(() => forced > 0);
+    expect(now.progress()?.steps).toEqual(['check', 'build', 'restart']);
+    busy = null;
+  });
+
   it('does not restart when there is nothing new or the update failed', async () => {
     for (const done of [
       { event: 'done', ok: true, upToDate: true, message: 'Schon auf dem neuesten Stand (a1).' },

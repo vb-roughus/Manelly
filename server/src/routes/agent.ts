@@ -402,7 +402,11 @@ export async function agentRoutes(
 
   app.post<{ Body: AgentRestartRequest }>(
     '/restart',
-    { schema: { body: { type: 'object', additionalProperties: false, required: ['update'], properties: { update: { type: 'boolean' }, force: { type: 'boolean' } } } } },
+    {
+      schema: {
+        body: { type: 'object', additionalProperties: false, required: ['update'], properties: { update: { type: 'boolean' }, force: { type: 'boolean' }, wait: { type: 'boolean' } } },
+      },
+    },
     async (request, reply) => {
       const client = requireAgent(agent);
       const status = await client.status();
@@ -412,8 +416,9 @@ export async function agentRoutes(
           : `ist zu alt dafür (Version ${status.version})`;
         throw new AppError('BAD_REQUEST', `Der Agent auf ${status.hostname} ${reason} und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.`, 400);
       }
-      const answer = await client.restart(request.body.update, request.body.force);
-      request.log.info(`Agent auf ${status.hostname}: ${request.body.update ? 'Update' : 'Neustart'} angefordert${request.body.force ? ' – auch während einer Konvertierung' : ''}.`);
+      const answer = await client.restart(request.body.update, request.body.force, request.body.wait);
+      const how = request.body.force ? ' – auch während einer Konvertierung oder eines Rips' : request.body.wait ? ' – Neustart, sobald nichts mehr läuft' : '';
+      request.log.info(`Agent auf ${status.hostname}: ${request.body.update ? 'Update' : 'Neustart'} angefordert${how}.`);
       return reply.status(202).send(answer);
     },
   );

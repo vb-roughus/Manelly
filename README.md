@@ -11,6 +11,11 @@ ist immer nur eine Gruppe offen: Öffnet man eine andere, klappt die vorherige z
 dem Handy seitwärts). Auch der Wechsel zu einer anderen Seite ist animiert: Die bisherige blendet aus, die neue gleitet
 herein, das Menü bleibt stehen (in Browsern mit View Transitions; mit «Bewegung reduzieren» ohne Animation).
 
+**Meldungen** stehen nie oben auf der Seite, sondern in der **Glocke** oben rechts (auf dem Handy in der Leiste neben
+dem Zahnrad, sonst in der Ecke, die beim Scrollen mitkommt). Läuft etwas – z. B. ein Update von Manelly oder dem Agent –,
+dreht sich ein kleines Rad an der Glocke; neue Meldungen zählt eine Zahl, rot, wenn ein Fehler dabei ist. Ein Klick
+klappt die Liste auf: mit Zeitpunkt, Link zu den Details und einem × zum Entfernen (oder «Alle entfernen»).
+
 Seiten mit mehreren Themen zeigen diese als **Reiter** statt als Kästen untereinander: **Einstellungen**, **Server →
 Allgemein**, **Agent**, **JDownloader** (auch seine Einstellungen hinter dem Zahnrad), **Discs** und **Konvertierungen →
 Einstellungen**. Der offene Reiter steht in der Adresse (z. B. `/settings?tab=network`), so führen Links direkt dorthin
@@ -507,9 +512,8 @@ dem Jellyfin läuft:
   `scripts\run-agent.ps1`, unter dem er läuft (ältere Agents aktualisiert dieses Skript nach dem Beenden). Scheitert
   ein Schritt, läuft die bisherige Version weiter; das Ergebnis steht auf derselben Seite und in `agent\data\agent.log`.
   Solange der Agent neu startet, zeigt Manelly auf allen Seiten den letzten Stand und **keine Fehlermeldungen** des
-  Agents, nur einen Hinweis oben. Erst wenn er zurück ist – oder nach 2 Minuten (beim Aktualisieren nach 10) nicht –,
-  erscheint das Ergebnis, auch auf anderen Seiten: ein Erfolg verschwindet nach ein paar Sekunden, ein Fehler bleibt,
-  bis du ihn schliesst. «Nicht mehr warten» beendet das Warten vorher.
+  Agents; die **Glocke** oben rechts dreht sich und nennt den Schritt. Erst wenn er zurück ist – oder nach 2 Minuten
+  (beim Aktualisieren nach 10) nicht –, kommt das Ergebnis in die Glocke. «Nicht mehr warten» beendet das Warten vorher.
   Ältere Agents (und Änderungen am Installationsskript) brauchen einmal `git pull` und `.\scripts\start-agent.ps1 -Install`
   (als Administrator). Das Skript beendet den laufenden Agent – auch eine ältere Version – und startet den neuen; es
   meldet erst Erfolg, wenn die neue Version antwortet. Bleibt der Port belegt, nennt es das Programm, das ihn hält. Eine

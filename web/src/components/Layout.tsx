@@ -33,7 +33,8 @@ import { usePersistentFlag } from '../hooks/usePersistentFlag';
 import { useStickyError } from '../hooks/useStickyError';
 import { linkHint } from '../lib/links';
 import { LinkDialog } from './LinkDialog';
-import { RestartNotices } from './Restart';
+import { NotificationBell } from './Notifications';
+import { RestartWatcher } from './Restart';
 import { useTheme, type Theme } from '../hooks/useTheme';
 
 interface NavItem {
@@ -103,6 +104,10 @@ export function Layout({ children }: { children: ReactNode }) {
         >
           <Logo compact={collapsed} />
           <div className="flex items-center gap-2">
+            {/* On large screens the bell sits at the top right of the page. */}
+            <div className="lg:hidden">
+              <NotificationBell />
+            </div>
             {/* On small screens the settings live up here; the sidebar footer is hidden. */}
             <NavLink
               to={SETTINGS.to}
@@ -176,8 +181,14 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
         </div>
       </aside>
-      <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
-        <RestartNotices />
+      <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:pt-3 lg:pb-8">
+        <RestartWatcher />
+        {/* Messages go into the bell, never on top of the page; it stays at the top right while the page scrolls. */}
+        <div className="pointer-events-none sticky top-3 z-30 mb-1 hidden h-9 justify-end lg:flex">
+          <div className="pointer-events-auto rounded-lg bg-page">
+            <NotificationBell />
+          </div>
+        </div>
         <PageTransition>{children}</PageTransition>
       </main>
     </div>

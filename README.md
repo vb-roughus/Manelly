@@ -352,7 +352,8 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
 - **«Rippen»** schreibt die gewählten Titel in einen neuen Ordner im **Entpack-Ordner** (bei Serien «Name S02»); die Seite
   wechselt dabei zum Reiter **Rips** mit Fortschritt, Tempo und Restzeit; danach wirft der Agent die Disc aus (abschaltbar). Die Dateien erscheinen unter
   JDownloader → **Extracted** und kommen von dort mit «Move to Library» in die Mediathek. Der Agent prüft vorher den
-  Platz und überschreibt nichts; ein Neustart des Agents fragt nach, solange gerippt wird
+  Platz und überschreibt nichts; ein Neustart des Agents fragt nach, solange gerippt wird. Eine gerippte Disc, die im
+  Laufwerk bleibt, nimmt der Agent nicht nochmals – auch nach einem Neustart nicht (ab Agent 0.37.0)
 - **Automatisch rippen** (Reiter «Einstellungen»): Eine eingelegte DVD liest der Agent selbst, rippt den Hauptfilm in
   einen Ordner mit dem Namen der Disc und wirft sie aus – auch ohne dass Manelly offen ist; Disc nach Disc einlegen
   genügt. Serien-DVDs besser von Hand
@@ -502,9 +503,14 @@ dem Jellyfin läuft:
   Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
-- Neu starten und Aktualisieren fragen nach, wenn gerade eine Konvertierung läuft (ab Agent 0.22.0 auch der Agent selbst):
-  Ein Neustart unterbricht sie; danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Startet eine Konvertierung erst, während
-  ein Update baut, wartet der Neustart, bis sie fertig ist
+- Neu starten und Aktualisieren fragen nach, wenn gerade eine Konvertierung oder ein Rip läuft (ab Agent 0.22.0 auch der
+  Agent selbst): Ein Neustart unterbricht eine Konvertierung – danach macht sie weiter, eine Kopie dort, wo sie war, ein
+  anderer Schritt von vorne – und bricht einen Rip ab. Ab Agent 0.37.0 gibt es dort **«Jetzt aktualisieren, danach neu
+  starten»**: Der Agent holt und baut das Update sofort, startet aber nichts Neues mehr (keine Konvertierung, keinen Rip,
+  kein Lesen) und startet erst neu, wenn fertig ist, was läuft – ein Rip samt Auswerfen der Disc, damit der neue Agent
+  sie nicht wieder vorfindet und nochmals nimmt. Die Updates und die Glocke zeigen, worauf er wartet; die übrigen Seiten,
+  auch der Fortschritt des Rips, laufen normal weiter. Dasselbe Warten gilt für alles, was erst startet, während ein
+  Update baut
 - Update: in Manelly unter **Einstellungen → Updates** «Aktualisieren & neu starten» beim Agent oder «Alles
   aktualisieren» (ab Agent 0.9.0). Ab Agent 0.11.0 sucht
   der Agent zuerst eine neuere Version und startet nur neu, wenn es eine gibt; `git pull`, falls nötig `npm ci`, und den

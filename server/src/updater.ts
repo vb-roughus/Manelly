@@ -9,6 +9,7 @@ const STEP_LABELS: Record<UpdateStep, string> = {
   pull: 'holt die Änderungen (git pull) …',
   install: 'installiert die Abhängigkeiten (npm ci) …',
   build: 'baut …',
+  wait: 'fertig gebaut, wartet …',
   restart: 'fertig, startet neu …',
 };
 

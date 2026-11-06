@@ -15,6 +15,11 @@ export interface PendingRestart<S> {
    * without restart; an answer still on its way from before must not.
    */
   startedAt: string | null;
+  /**
+   * Last seen waiting, in ms: built, but the restart waits for a rip, a conversion or a move. The deadline counts from
+   * then, however long that takes.
+   */
+  waitedAt?: number;
 }
 
 /** How it ended: the process that answered last, or null when none answered in time or nobody waited any longer. */
@@ -41,7 +46,8 @@ export interface ProcessView<S> {
 export const RESTART_TIMEOUT_MS = 2 * 60_000;
 export const UPDATE_TIMEOUT_MS = 10 * 60_000;
 
-export const restartDeadline = (pending: PendingRestart<unknown>): number => pending.since + (pending.update ? UPDATE_TIMEOUT_MS : RESTART_TIMEOUT_MS);
+export const restartDeadline = (pending: PendingRestart<unknown>): number =>
+  Math.max(pending.since, pending.waitedAt ?? 0) + (pending.update ? UPDATE_TIMEOUT_MS : RESTART_TIMEOUT_MS);
 
 /**
  * Whether the process is away or about to go: from then on its queries hold still instead of failing. An update

@@ -1190,6 +1190,16 @@ describe('process', () => {
       expect(refused.status).toBe(409);
       expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(/^Gerade läuft die Konvertierung «Film» \(\d+ %\)\. Ein Neustart würde sie unterbrechen/);
       expect(exits).toEqual([]);
+      // Updating with wait interrupts nothing: the update starts, the restart waits for the conversion.
+      withUpdater = true;
+      updates.length = 0;
+      const waiting = await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: true, wait: true }) });
+      expect(waiting.status).toBe(202);
+      expect(updates).toEqual(['start']);
+      // A plain restart cannot wait.
+      expect((await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: false, wait: true }) })).status).toBe(409);
+      withUpdater = false;
+      expect(exits).toEqual([]);
       expect((await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: false, force: true }) })).status).toBe(202);
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(exits).toEqual(['restart']);

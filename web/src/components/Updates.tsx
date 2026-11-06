@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AgentOverview, ConversionJob, ManellyStatus } from '@manelly/shared';
-import { AppWindow, CloudDownload, RotateCw, ServerCog, TriangleAlert, type LucideIcon } from 'lucide-react';
+import type { AgentOverview, ConversionJob, DiscRip, ManellyStatus } from '@manelly/shared';
+import { AppWindow, CloudDownload, Hourglass, RotateCw, ServerCog, TriangleAlert, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
-import { useAgent, useAgentSettings, useConversions, useManelly, useRestartAgent, useRestartManelly } from '../hooks/queries';
+import { useAgent, useAgentSettings, useConversions, useDiscs, useManelly, useRestartAgent, useRestartManelly } from '../hooks/queries';
 import { agentRestart, useAgentRestart } from '../hooks/useAgentRestart';
 import { manellyRestart, useManellyRestart } from '../hooks/useManellyRestart';
 import { agentRestartSummary, updatesWhileRunning } from '../lib/agentRestart';
@@ -16,7 +16,7 @@ const button =
 const primaryButton =
   'bg-brand inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50';
 
-/** A restart or update that waits for a «trotzdem», because a conversion runs: of the agent alone, or of everything. */
+/** A restart or update that waits for an answer, because a conversion or a rip runs: of the agent alone, or of everything. */
 interface Asked {
   what: 'agent' | 'all';
   update: boolean;
@@ -50,6 +50,10 @@ export function UpdatesPanel() {
   const agentStatus = agent.data?.status ?? null;
   // A paused conversion stays paused over a restart; only a running one is interrupted.
   const busy = useConversions(Boolean(agentStatus)).data?.find((job) => job.state === 'running' && !job.paused) ?? null;
+  // A restart aborts a rip; the one that runs or waits its turn.
+  const rip = useDiscs(Boolean(agentStatus?.discs)).data?.rips.find((entry) => entry.state === 'running' || entry.state === 'queued') ?? null;
+  // From agent 0.37.0 an update can wait for what runs before it restarts.
+  const canWait = Boolean(agentStatus?.process?.waits);
   const [asked, setAsked] = useState<Asked | null>(null);
 
   // An update started elsewhere, e.g. in another browser, shows here too.
@@ -65,11 +69,12 @@ export function UpdatesPanel() {
   const canAgent = agentConfigured && Boolean(agentStatus?.process?.restartable) && !agentState.pending;
   const sending = restartManelly.isPending || restartAgent.isPending;
 
-  function start(next: Asked, force = false) {
-    if (busy && (next.what === 'agent' || canAgent) && !force) return setAsked(next);
+  /** `ask`: first ask when something runs; `force`: restart anyway; `wait`: update now, restart once nothing runs. */
+  function start(next: Asked, how: 'ask' | 'force' | 'wait' = 'ask') {
+    if ((busy || rip) && (next.what === 'agent' || canAgent) && how === 'ask') return setAsked(next);
     setAsked(null);
     if (next.what === 'agent' || canAgent) {
-      if (agentStatus) restartAgent.mutate({ update: next.update, force, before: agentStatus });
+      if (agentStatus) restartAgent.mutate({ update: next.update, force: how === 'force', wait: how === 'wait' && next.update, before: agentStatus });
     }
     if (next.what === 'all' && canManelly && manellyStatus) restartManelly.mutate({ update: true, before: manellyStatus });
   }
@@ -87,12 +92,15 @@ export function UpdatesPanel() {
         </p>
       </div>
 
-      {asked && busy && (
+      {asked && (busy || rip) && (
         <BusyQuestion
           job={busy}
+          rip={rip}
           asked={asked}
+          canWait={canWait}
           pending={sending}
-          onConfirm={() => start(asked, true)}
+          onWait={() => start(asked, 'wait')}
+          onConfirm={() => start(asked, 'force')}
           onCancel={() => setAsked(null)}
         />
       )}
@@ -224,7 +232,7 @@ function AgentPart({
             {updatesWhileRunning(status)
               ? 'Der Agent holt die neue Version auf den Jellyfin-Server und baut sich, während er weiterläuft.'
               : 'Der Agent holt die neue Version auf den Jellyfin-Server, baut sich und startet neu.'}{' '}
-            Läuft gerade eine Konvertierung, fragt Manelly vorher nach.
+            Läuft gerade eine Konvertierung oder ein Rip, fragt Manelly vorher nach.
           </p>
         </>
       ) : (
@@ -249,21 +257,65 @@ function Part({ icon: Icon, title, children }: { icon: LucideIcon; title: string
   );
 }
 
-/** A conversion runs: restarting the agent interrupts it, so first a «trotzdem». */
-function BusyQuestion({ job, asked, pending, onConfirm, onCancel }: { job: ConversionJob; asked: Asked; pending: boolean; onConfirm: () => void; onCancel: () => void }) {
+/**
+ * A conversion or a rip runs: restarting the agent interrupts the one and aborts the other. An update can wait for
+ * them instead (agent from 0.37.0); otherwise a «trotzdem».
+ */
+function BusyQuestion({
+  job,
+  rip,
+  asked,
+  canWait,
+  pending,
+  onWait,
+  onConfirm,
+  onCancel,
+}: {
+  job: ConversionJob | null;
+  rip: DiscRip | null;
+  asked: Asked;
+  canWait: boolean;
+  pending: boolean;
+  onWait: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const wait = asked.update && canWait;
+  const restart = asked.update ? 'Das Update startet den Agent neu' : 'Ein Neustart des Agents';
   return (
     <div className="space-y-3 rounded-xl bg-warning/10 p-4 ring-1 ring-warning/30 ring-inset">
-      <p className="flex gap-2 text-sm">
+      <div className="flex gap-2 text-sm">
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
-        <span>
-          <b className="font-semibold">Gerade läuft eine Konvertierung:</b> {runningJob(job)}. {asked.update ? 'Das Update startet den Agent neu und unterbricht' : 'Ein Neustart unterbricht'} sie.
-          Danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Am besten wartest du, bis sie fertig ist.
-        </span>
-      </p>
+        <div className="space-y-1.5">
+          {rip && (
+            <p>
+              <b className="font-semibold">Gerade rippt der Agent:</b> «{rip.disc}»{rip.state === 'running' ? ` (${Math.round(rip.progress * 100)} %)` : ', wartet auf das Laufwerk'}.{' '}
+              {restart} und bricht den Rip ab – der angefangene Titel müsste neu gerippt werden.
+            </p>
+          )}
+          {job && (
+            <p>
+              <b className="font-semibold">Gerade läuft eine Konvertierung:</b> {runningJob(job)}. {restart} und unterbricht sie; danach macht sie weiter – eine
+              Kopie dort, wo sie war, ein anderer Schritt von vorne.
+            </p>
+          )}
+          <p className="text-ink-2">
+            {wait
+              ? 'Besser: Der Agent holt und baut das Update jetzt, startet nichts Neues mehr und startet erst neu, wenn fertig ist, was läuft – ein Rip samt Auswerfen der Disc.'
+              : 'Am besten wartest du, bis es fertig ist.'}
+          </p>
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
+        {wait && (
+          <button type="button" disabled={pending} onClick={onWait} className={primaryButton}>
+            <Hourglass className="size-4" aria-hidden />
+            {asked.what === 'all' ? 'Alles aktualisieren, Agent danach neu starten' : 'Jetzt aktualisieren, danach neu starten'}
+          </button>
+        )}
         <button type="button" disabled={pending} onClick={onConfirm} className={button}>
           {asked.update ? <CloudDownload className="size-4" aria-hidden /> : <RotateCw className="size-4" aria-hidden />}
-          {asked.what === 'all' ? 'Trotzdem alles aktualisieren' : asked.update ? 'Trotzdem aktualisieren' : 'Trotzdem neu starten'}
+          {asked.what === 'all' ? 'Trotzdem alles aktualisieren' : asked.update ? 'Trotzdem jetzt aktualisieren' : 'Trotzdem neu starten'}
         </button>
         <button type="button" onClick={onCancel} className="text-sm text-ink-2 hover:text-ink">
           Abbrechen

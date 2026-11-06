@@ -140,7 +140,7 @@ export interface AgentClient {
   shutdown(): Promise<void>;
   /** Ends the agent so its runner starts it again, after a git pull and a build when `update` is set. */
   /** Agents from 0.11.0 answer an update with its first step and keep running. */
-  restart(update: boolean, force?: boolean): Promise<AgentRestartAnswer>;
+  restart(update: boolean, force?: boolean, wait?: boolean): Promise<AgentRestartAnswer>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -244,6 +244,6 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     shutdown: async () => {
       await call('POST', '/api/shutdown');
     },
-    restart: async (update, force) => ((await call('POST', '/api/restart', { update, force })) as AgentRestartAnswer | null) ?? { restarting: true },
+    restart: async (update, force, wait) => ((await call('POST', '/api/restart', { update, force, wait })) as AgentRestartAnswer | null) ?? { restarting: true },
   };
 }

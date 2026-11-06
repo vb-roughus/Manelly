@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { lstat, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import type { DiscDrive, DiscInfo, DiscRead, DiscRip, DiscRipRequest, DiscSettings, DiscsStatus, DiscTitle } from '@manelly/shared';
 import { formatBytes } from './convert.js';
 import { AgentError } from './errors.js';
@@ -100,12 +101,16 @@ export interface DiscsOptions {
   log?: (message: string) => void;
   /** How often the automatic mode looks for a new disc; 0: only when asked (tests). */
   tickMs?: number;
+  /** Where the agent keeps which disc of a drive is ripped already, over a restart. */
+  stateFile?: string;
 }
 
 interface Job {
   view: DiscRip;
   /** The drive's device, for ejecting. */
   device: string;
+  /** The disc's label as the drive names it, to know it again. */
+  label: string;
   abort: AbortController;
   samples: Array<{ t: number; bytes: number }>;
   /** Feeds MakeMKV's output into the rip's step and messages. */
@@ -137,6 +142,38 @@ export function createDiscs(options: DiscsOptions) {
   let timer: NodeJS.Timeout | null = null;
   /** The look of the automatic mode under way; a second one waits for it. */
   let ticking: Promise<void> | null = null;
+  /** Before a restart: nothing new starts – no rip, no read; what runs finishes. */
+  let held = false;
+  /**
+   * The disc in each drive that is ripped already, by its label, until the drive is empty: neither the automatic mode
+   * nor the automatic reading takes it again – also not after a restart, e.g. when it was not ejected.
+   */
+  const ripped = new Map<number, string>(loadRipped());
+
+  function loadRipped(): Array<[number, string]> {
+    if (!options.stateFile) return [];
+    try {
+      const stored = JSON.parse(readFileSync(options.stateFile, 'utf8')) as Record<string, unknown>;
+      return Object.entries(stored).flatMap(([drive, disc]) => (typeof disc === 'string' && /^\d+$/.test(drive) ? [[Number(drive), disc] as [number, string]] : []));
+    } catch {
+      return [];
+    }
+  }
+
+  function saveRipped() {
+    if (options.stateFile) void writeFile(options.stateFile, JSON.stringify(Object.fromEntries(ripped))).catch(() => {});
+  }
+
+  /** A drive without a disc forgets what was ripped from it. */
+  function forgetEmpty(list: Array<Omit<DiscDrive, 'busy'>>) {
+    let changed = false;
+    for (const drive of list) if (drive.state !== 'inserted' && ripped.delete(drive.index)) changed = true;
+    if (changed) saveRipped();
+  }
+
+  function refuseWhileHeld(what: string) {
+    if (held) throw new AgentError(409, `Der Agent startet gleich neu, um ein Update zu übernehmen – danach ${what}.`);
+  }
 
   async function requireTool(): Promise<string> {
     const tool = await options.tool();
@@ -261,6 +298,11 @@ export function createDiscs(options: DiscsOptions) {
       view.state = job.abort.signal.aborted ? 'canceled' : failed ? 'failed' : 'done';
       view.error = view.state === 'failed' ? (failed?.error ?? null) : null;
       log(`Disc «${view.disc}» → ${view.folder}: ${done()} von ${view.titles.length} Titeln${view.state === 'done' ? '' : ` (${view.state === 'canceled' ? 'abgebrochen' : view.error})`}`);
+      if (view.state === 'done') {
+        // Ripped: the disc is not taken again while it stays in the drive, also not after a restart.
+        ripped.set(view.drive, job.label);
+        saveRipped();
+      }
       if (view.state === 'done' && view.eject && job.device) {
         await eject(job.device).catch((error: Error) => {
           view.error = `Fertig, aber das Auswerfen ging nicht: ${error.message}`;
@@ -292,6 +334,7 @@ export function createDiscs(options: DiscsOptions) {
   }
 
   async function enqueue(request: DiscRipRequest, auto: boolean): Promise<DiscRip> {
+    refuseWhileHeld('rippen');
     const tool = await requireTool();
     const target = requireTarget();
     const folder = typeof request.folder === 'string' ? request.folder.trim() : '';
@@ -337,7 +380,7 @@ export function createDiscs(options: DiscsOptions) {
       startedAt: null,
       finishedAt: null,
     };
-    jobs.unshift({ view, device: drive.device, abort: new AbortController(), samples: [], take: createActivity(view).take });
+    jobs.unshift({ view, device: drive.device, label: drive.disc ?? '', abort: new AbortController(), samples: [], take: createActivity(view).take });
     log(`Disc «${view.disc}»: ${view.titles.length} Titel nach ${folder}${auto ? ' (automatisch)' : ''}`);
     const answer = snapshot(view);
     void work();
@@ -368,7 +411,7 @@ export function createDiscs(options: DiscsOptions) {
 
   async function look(): Promise<void> {
     const settings = options.settings.get();
-    if (!watching(settings)) return;
+    if (!watching(settings) || held) return;
     const tool = await options.tool();
     if (!tool) return;
     // Where the automatic mode rips to; without a target it only reads, if that is on.
@@ -376,7 +419,9 @@ export function createDiscs(options: DiscsOptions) {
     // The automatic mode takes the next disc once the rip under way is done.
     if (ripTo && jobs.some((job) => active(job.view))) return;
     if (!ripTo && settings.read !== true) return;
-    for (const drive of await currentDrives(tool)) {
+    const list = await currentDrives(tool);
+    forgetEmpty(list);
+    for (const drive of list) {
       if (drive.state !== 'inserted') {
         handled.delete(drive.index);
         continue;
@@ -384,6 +429,7 @@ export function createDiscs(options: DiscsOptions) {
       const key = drive.disc ?? '';
       if (busy.has(drive.index) || handled.get(drive.index) === key) continue;
       handled.set(drive.index, key);
+      if (ripped.get(drive.index) === key) continue;
       if (!ripTo) {
         // Read by hand already: nothing more to do.
         if (reads.has(drive.index) && readOf.get(drive.index) === drive.disc) continue;
@@ -409,6 +455,7 @@ export function createDiscs(options: DiscsOptions) {
       const tool = await options.tool();
       if (refresh && busy.size === 0) drives = null;
       const list = tool ? await currentDrives(tool) : [];
+      forgetEmpty(list);
       // While Manelly looks, a disc that came in is noticed within seconds rather than at the next tick.
       if (tool && watching(options.settings.get())) void tick();
       // Titles read from a disc that was taken out or swapped by hand are no longer what is in the drive.
@@ -429,6 +476,7 @@ export function createDiscs(options: DiscsOptions) {
 
     /** Starts reading the titles of the disc in a drive; GET /api/discs tells when it is done. */
     async read(index: number): Promise<DiscRead> {
+      refuseWhileHeld('lesen');
       const tool = await requireTool();
       const drive = await findDrive(index);
       if (busy.has(index)) throw new AgentError(409, 'Das Laufwerk ist gerade beschäftigt.');
@@ -475,6 +523,17 @@ export function createDiscs(options: DiscsOptions) {
 
     /** The rip that a restart would interrupt. */
     running: (): DiscRip | null => jobs.find((job) => job.view.state === 'running')?.view ?? null,
+
+    /** A rip that runs or waits its turn: an update's restart waits for it. */
+    active: (): DiscRip | null => {
+      const job = jobs.find((entry) => entry.view.state === 'running') ?? jobs.find((entry) => active(entry.view));
+      return job ? snapshot(job.view) : null;
+    },
+
+    /** Before a restart: no new rip and no read starts from now on – neither asked for nor automatic. */
+    hold() {
+      held = true;
+    },
 
     tick,
 

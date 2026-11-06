@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process';
-import type { DiscDrive, DiscInfo, DiscStream, DiscTitle } from '@manelly/shared';
+import type { DiscActivity, DiscDrive, DiscInfo, DiscMessage, DiscStream, DiscTitle } from '@manelly/shared';
 
 /** Titles shorter than this are menus, trailers and the like. */
 export const MIN_TITLE_SECONDS = 60;
 const LIST_TIMEOUT_MS = 30_000;
-const READ_TIMEOUT_MS = 5 * 60_000;
+/** A scratched disc or one with a copy protection of many fake titles keeps MakeMKV busy for long; it can be canceled. */
+const READ_TIMEOUT_MS = 30 * 60_000;
+/** Messages kept for the details. */
+const KEEP_MESSAGES = 60;
 
 /** One line of makemkvcon's robot mode (-r), e.g. `TINFO:0,9,0,"1:58:32"`, split into its kind and fields. */
 export function parseRobotLine(line: string): { kind: string; fields: string[] } | null {
@@ -148,11 +151,53 @@ export function parseDiscInfo(drive: number, lines: string[], now = new Date()):
 /** MakeMKV's first message, "MakeMKV v1.17.7 … started". */
 const STARTED = '1005';
 
+/** Flags of messages meant for debugging, not for people. */
+const HIDDEN = 64;
+const DEBUG = 32;
+const SOUNDS_WRONG = /error|fail|unable|cannot|can't|too old|expired|corrupt|fehler/i;
+
+/**
+ * What MakeMKV is at, kept up to date in `target` from its output: steps (PRGT, PRGC), progress (PRGV) and messages
+ * (MSG).
+ */
+export function createActivity<T extends DiscActivity>(target: T, now: () => Date = () => new Date()) {
+  const fresh: Required<DiscActivity> = { step: null, stepProgress: null, messages: [] };
+  const activity = Object.assign(target, fresh) as T & Required<DiscActivity>;
+  let operation: string | null = null;
+  let part: string | null = null;
+  return {
+    activity,
+    take(line: string) {
+      const parsed = parseRobotLine(line);
+      if (!parsed) return;
+      if (parsed.kind === 'MSG') {
+        const text = messageOf(parsed.fields).trim();
+        if (!text || parsed.fields[0] === STARTED || (Number(parsed.fields[1]) || 0) & (HIDDEN | DEBUG)) return;
+        const message: DiscMessage = { at: now().toISOString(), text, error: SOUNDS_WRONG.test(text) };
+        activity.messages.push(message);
+        if (activity.messages.length > KEEP_MESSAGES) activity.messages.splice(0, activity.messages.length - KEEP_MESSAGES);
+      } else if (parsed.kind === 'PRGT' || parsed.kind === 'PRGC') {
+        // PRGT names the whole operation, PRGC its current part.
+        const name = parsed.fields[2]?.trim() || null;
+        if (parsed.kind === 'PRGT') {
+          operation = name;
+          part = null;
+          activity.stepProgress = null;
+        } else part = name;
+        activity.step = [operation, part].filter((value, at, all) => value && all.indexOf(value) === at).join(' – ') || null;
+      } else if (parsed.kind === 'PRGV') {
+        const [, total, max] = parsed.fields.map(Number);
+        if (max! > 0) activity.stepProgress = Math.min(1, total! / max!);
+      }
+    },
+  };
+}
+
 /** What makemkvcon said last, for when it fails: the last messages that are not progress. */
 function lastMessages(lines: string[], count = 2): string {
   return lines
     .map(parseRobotLine)
-    .filter((parsed) => parsed?.kind === 'MSG' && parsed.fields[0] !== STARTED)
+    .filter((parsed) => parsed?.kind === 'MSG' && parsed.fields[0] !== STARTED && !((Number(parsed.fields[1]) || 0) & (HIDDEN | DEBUG)))
     .map((parsed) => messageOf(parsed!.fields))
     .filter(Boolean)
     .slice(-count)
@@ -168,7 +213,14 @@ export interface RunOptions {
 /** Runs makemkvcon to its end; answers its output lines, or fails with what it said last. */
 export function runMakemkv(tool: string, args: string[], options: RunOptions = {}): Promise<string[]> {
   return new Promise((resolve, reject) => {
-    const child = spawn(tool, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: options.timeoutMs });
+    const child = spawn(tool, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let timedOut = false;
+    const timer = options.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          child.kill();
+        }, options.timeoutMs)
+      : null;
     const lines: string[] = [];
     let buffer = '';
     const take = (line: string) => {
@@ -190,11 +242,18 @@ export function runMakemkv(tool: string, args: string[], options: RunOptions = {
     options.signal?.addEventListener('abort', abort, { once: true });
     child.on('error', (error) => reject(new Error(`MakeMKV liess sich nicht starten: ${error.message}`)));
     child.on('close', (code, signal) => {
+      if (timer) clearTimeout(timer);
       options.signal?.removeEventListener('abort', abort);
       take(buffer);
-      if (code === 0) return resolve(lines);
+      if (code === 0 && !timedOut) return resolve(lines);
       const said = lastMessages(lines) || errors.trim().split(/\r?\n/).pop() || '';
-      reject(new Error(signal ? 'MakeMKV wurde abgebrochen.' : `MakeMKV ist fehlgeschlagen (Exit-Code ${code})${said ? `: ${said}` : '.'}`));
+      if (options.signal?.aborted) return reject(new Error('Abgebrochen.'));
+      if (timedOut) {
+        const seconds = Math.round((options.timeoutMs ?? 0) / 1000);
+        const waited = seconds >= 60 ? `${Math.round(seconds / 60)} Minuten` : `${seconds} Sekunden`;
+        return reject(new Error(`MakeMKV war nach ${waited} nicht fertig und wurde abgebrochen.${said ? ` Zuletzt: ${said}` : ''}`));
+      }
+      reject(new Error(signal ? `MakeMKV wurde beendet (${signal}).${said ? ` Zuletzt: ${said}` : ''}` : `MakeMKV ist fehlgeschlagen (Exit-Code ${code})${said ? `: ${said}` : '.'}`));
     });
   });
 }
@@ -204,9 +263,12 @@ export async function listDrives(tool: string): Promise<Array<Omit<DiscDrive, 'b
   return parseDrives(await runMakemkv(tool, ['-r', '--cache=1', 'info', 'disc:9999'], { timeoutMs: LIST_TIMEOUT_MS }));
 }
 
-/** Reads the titles of the disc in a drive – for a DVD some seconds to a minute. */
-export async function readDisc(tool: string, drive: number, signal?: AbortSignal): Promise<DiscInfo> {
-  const lines = await runMakemkv(tool, ['-r', `--minlength=${MIN_TITLE_SECONDS}`, 'info', `disc:${drive}`], { timeoutMs: READ_TIMEOUT_MS, signal });
+/** Reads the titles of the disc in a drive – for a DVD usually some seconds to a minute; `onLine` sees the progress. */
+export async function readDisc(tool: string, drive: number, options: { signal?: AbortSignal; onLine?: (line: string) => void } = {}): Promise<DiscInfo> {
+  const lines = await runMakemkv(tool, ['-r', '--progress=-same', `--minlength=${MIN_TITLE_SECONDS}`, 'info', `disc:${drive}`], {
+    timeoutMs: READ_TIMEOUT_MS,
+    ...options,
+  });
   const info = parseDiscInfo(drive, lines);
   if (!lines.some((line) => line.startsWith('TCOUNT:') || line.startsWith('TINFO:'))) {
     throw new Error(`MakeMKV konnte die Disc nicht lesen${lastMessages(lines) ? `: ${lastMessages(lines)}` : '.'}`);
@@ -218,11 +280,19 @@ export async function readDisc(tool: string, drive: number, signal?: AbortSignal
  * Saves one title as MKV into `directory`. `onProgress` gets 0–1 of the saving, as MakeMKV counts it (PRGV after the
  * "Saving" step began). Answers what MakeMKV said last – it may end well without having saved anything.
  */
-export async function ripTitle(tool: string, drive: number, title: number, directory: string, onProgress: (share: number) => void, signal?: AbortSignal): Promise<string> {
+export async function ripTitle(
+  tool: string,
+  drive: number,
+  title: number,
+  directory: string,
+  onProgress: (share: number) => void,
+  options: { signal?: AbortSignal; onLine?: (line: string) => void } = {},
+): Promise<string> {
   let saving = false;
   const lines = await runMakemkv(tool, ['-r', '--progress=-same', `--minlength=${MIN_TITLE_SECONDS}`, 'mkv', `disc:${drive}`, String(title), directory], {
-    signal,
+    signal: options.signal,
     onLine: (line) => {
+      options.onLine?.(line);
       const parsed = parseRobotLine(line);
       if (!parsed) return;
       // PRGT names the step whose total the PRGV values count; opening the disc comes before saving.

@@ -1000,6 +1000,7 @@ function useDiscMutation<T, R>(send: (value: T) => Promise<R>) {
 }
 
 export const useReadDisc = () => useDiscMutation((drive: number) => sendJson<DiscRead>('POST', '/api/agent/discs/read', { drive }));
+export const useCancelDiscRead = () => useDiscMutation((drive: number) => sendJson<DiscRead>('POST', '/api/agent/discs/read/cancel', { drive }));
 export const useEjectDisc = () => useDiscMutation((drive: number) => sendJson<{ ejected: boolean }>('POST', '/api/agent/discs/eject', { drive }));
 export const useRipDisc = () => useDiscMutation((request: DiscRipRequest) => sendJson<DiscRip>('POST', '/api/agent/discs/rips', request));
 export const useCancelDiscRip = () => useDiscMutation((id: string) => sendJson<DiscRip>('POST', `/api/agent/discs/rips/${encodeURIComponent(id)}/cancel`));

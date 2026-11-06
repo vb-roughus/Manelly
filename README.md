@@ -315,6 +315,10 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
 
 - Die Seite zeigt das Laufwerk und die eingelegte Disc. **«Disc lesen»** listet die Titel mit Länge, Kapiteln, Grösse,
   Bild sowie Ton- und Untertitelspuren (Titel unter einer Minute – Menüs, Trailer – lässt MakeMKV weg)
+- Während des Lesens steht, was MakeMKV gerade tut, wie weit es ist und seit wann (ab Agent 0.34.0); **«Abbrechen»** hält
+  es an. Die **Meldungen von MakeMKV** lassen sich aufklappen, Lesefehler stehen rot – eine zerkratzte Disc oder ein
+  Kopierschutz mit vielen Schein-Titeln braucht lange. Nach 30 Minuten gibt der Agent auf und sagt, was MakeMKV zuletzt
+  meldete. Beim Rippen gibt es die Meldungen ebenso
 - **Film oder Serie** erkennt Manelly selbst: Bei einem Film ist der Hauptfilm (der längste Titel) angekreuzt, bei einer
   Serien-DVD sind es die Folgen – Titel ähnlicher Länge, ohne den «Alle abspielen»-Titel. Der Name kommt aus dem Namen
   der Disc («FINDET_NEMO» → «Findet Nemo», «DARK_S2_D1» → Serie «Dark», Staffel 2). Filme heissen dann

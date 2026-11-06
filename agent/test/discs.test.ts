@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DiscSettings } from '@manelly/shared';
 import { createDiscs, folderNameFrom, mainTitle } from '../src/discs.js';
-import { durationSeconds, parseDiscInfo, parseDrives, parseRobotLine } from '../src/makemkv.js';
+import { createActivity, durationSeconds, parseDiscInfo, parseDrives, parseRobotLine, runMakemkv } from '../src/makemkv.js';
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-makemkvcon.cjs', import.meta.url));
 
@@ -112,6 +112,32 @@ describe('makemkvcon output', () => {
     });
   });
 
+  it('follows what MakeMKV is at, and leaves out what is meant for debugging', () => {
+    const { activity, take } = createActivity({}, () => new Date('2026-11-06T10:00:00Z'));
+    for (const line of [
+      'MSG:1005,0,1,"MakeMKV v1.17.7 win(x64-release) started","%1 started"',
+      'PRGT:5018,0,"Opening DVD disc"',
+      'PRGC:5018,0,"Opening DVD disc"',
+      'MSG:1011,32,1,"Debug: drive id","x"',
+      'PRGC:5003,0,"Processing title sets"',
+      'PRGV:100,32768,65536',
+      'MSG:2003,0,3,"Error \'Scsi error - MEDIUM ERROR:L-EC UNCORRECTABLE ERROR\' occurred while reading \'/VIDEO_TS/VTS_01_1.VOB\' at offset \'1048576\'","x"',
+      'MSG:3307,0,2,"File 00001.mpls was added as title #0","x"',
+    ]) {
+      take(line);
+    }
+    expect(activity).toEqual({
+      step: 'Opening DVD disc – Processing title sets',
+      stepProgress: 0.5,
+      messages: [
+        { at: '2026-11-06T10:00:00.000Z', text: "Error 'Scsi error - MEDIUM ERROR:L-EC UNCORRECTABLE ERROR' occurred while reading '/VIDEO_TS/VTS_01_1.VOB' at offset '1048576'", error: true },
+        { at: '2026-11-06T10:00:00.000Z', text: 'File 00001.mpls was added as title #0', error: false },
+      ],
+    });
+    take('PRGT:5017,0,"Saving to MKV file"');
+    expect([activity.step, activity.stepProgress]).toEqual(['Saving to MKV file', null]);
+  });
+
   it('names folders after discs and finds the main title', () => {
     expect(folderNameFrom('FINDET_NEMO')).toBe('Findet Nemo');
     expect(folderNameFrom('Die Hard: With a Vengeance')).toBe('Die Hard With a Vengeance');
@@ -156,6 +182,32 @@ describe('ripping discs', () => {
     // No scratch folder is left, and the disc came out.
     expect(await readdir(target)).toEqual(['Findet Nemo (2003)']);
     expect(ejected).toEqual(['/dev/sr0']);
+  });
+
+  it('shows how far reading is and what MakeMKV said, and stops reading when asked', async () => {
+    await insert('movie', { readMs: 4000, readError: "Error 'Scsi error - MEDIUM ERROR' occurred while reading" });
+    const discs = service();
+    expect(() => discs.cancelRead(0)).toThrow('Von diesem Laufwerk wird gerade nichts gelesen.');
+    await discs.read(0);
+    for (let i = 0; i < 100 && !(await discs.status()).reads[0]?.stepProgress; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const reading = (await discs.status()).reads[0]!;
+    expect(reading).toMatchObject({ state: 'reading', step: 'Opening DVD disc – Scanning contents', startedAt: expect.any(String) });
+    expect(reading.stepProgress).toBeGreaterThan(0);
+    expect(reading.messages?.map((message) => [message.text, message.error])).toEqual([
+      ['Using direct disc access mode', false],
+      ["Error 'Scsi error - MEDIUM ERROR' occurred while reading", true],
+    ]);
+    expect(discs.cancelRead(0).drive).toBe(0);
+    for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((await discs.status()).reads[0]).toMatchObject({ state: 'canceled', error: 'Abgebrochen.' });
+    expect((await discs.status()).drives[0]?.busy).toBe(false);
+  });
+
+  it('gives up on MakeMKV after a while, and says what it said last', async () => {
+    await insert('movie', { readMs: 4000, readError: "Error 'Scsi error - MEDIUM ERROR' occurred while reading" });
+    await expect(runMakemkv(FAKE, ['-r', '--progress=-same', 'info', 'disc:0'], { timeoutMs: 300 })).rejects.toThrow(
+      "MakeMKV war nach 0 Sekunden nicht fertig und wurde abgebrochen. Zuletzt: Using direct disc access mode Error 'Scsi error - MEDIUM ERROR' occurred while reading",
+    );
   });
 
   it('checks a rip before it starts', async () => {

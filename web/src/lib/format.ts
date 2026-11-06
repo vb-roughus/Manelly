@@ -124,6 +124,14 @@ export function channelsLabel(channels: number | null): string | null {
   }
 }
 
+/**
+ * The channel layout as FFmpeg names it, without «(side)»: FFmpeg labels the surround channels of nearly every
+ * Dolby and DTS 5.1 track as side speakers, which plays the same as a plain 5.1.
+ */
+export function channelLayoutLabel(layout: string | null): string | null {
+  return layout ? layout.replace(/\s*\(side\)$/i, '') : null;
+}
+
 // Jellyfin stores ISO 639-2/B codes (ger, fre, ...), Intl expects BCP 47 codes.
 const BIBLIOGRAPHIC_TO_BCP47: Record<string, string> = {
   ger: 'de', fre: 'fr', dut: 'nl', chi: 'zh', cze: 'cs', gre: 'el', per: 'fa', rum: 'ro', slo: 'sk',

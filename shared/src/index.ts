@@ -1069,7 +1069,7 @@ export interface ExtractedConvertRequest {
   /** Inside the extraction folder, with "/" between the names. */
   path: string;
   scheduled?: boolean;
-  /** In the work folder; the original then stays there under Umwandlungen → Backups. */
+  /** In the work folder; the original then stays there under Konvertierungen → Backups. */
   work?: boolean;
 }
 

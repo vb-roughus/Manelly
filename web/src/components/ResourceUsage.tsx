@@ -8,7 +8,7 @@ export type ResourceFocus = 'jellyfin' | 'conversion';
 
 const ROLES = {
   jellyfin: { label: 'Jellyfin (FFmpeg)', swatch: 'bg-series-jellyfin', stroke: 'stroke-series-jellyfin', fill: 'fill-series-jellyfin' },
-  conversion: { label: 'Umwandlung', swatch: 'bg-series-conversion', stroke: 'stroke-series-conversion', fill: 'fill-series-conversion' },
+  conversion: { label: 'Konvertierung', swatch: 'bg-series-conversion', stroke: 'stroke-series-conversion', fill: 'fill-series-conversion' },
   other: { label: 'Übrige Prozesse', swatch: 'bg-ink-3/45', stroke: 'stroke-ink-3', fill: 'fill-ink-3' },
 } as const;
 
@@ -163,14 +163,14 @@ function ShareChart({ history, intervalMs, focus, kind }: { history: ResourcePoi
   return <HistoryChart points={history} series={series} top={100} format={percent} intervalMs={intervalMs} />;
 }
 
-const ROLE_NAMES: Record<ResourceRole, string> = { jellyfin: 'Jellyfin', conversion: 'Umwandlung', other: 'Anderer Prozess' };
+const ROLE_NAMES: Record<ResourceRole, string> = { jellyfin: 'Jellyfin', conversion: 'Konvertierung', other: 'Anderer Prozess' };
 
 function Processes({ processes, focus }: { processes: ResourceProcess[]; focus: ResourceFocus }) {
   return (
     <section aria-label="Prozesse">
       <h4 className="mb-2 text-sm font-semibold">Prozesse</h4>
       {processes.length === 0 ? (
-        <p className="text-sm text-ink-2">Gerade läuft weder FFmpeg noch ein Werkzeug der Umwandlung.</p>
+        <p className="text-sm text-ink-2">Gerade läuft weder FFmpeg noch ein Werkzeug der Konvertierung.</p>
       ) : (
         <table className="w-full text-xs">
           <thead className="text-left text-ink-3">

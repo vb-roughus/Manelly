@@ -5,14 +5,14 @@ Troubleshooting an einem Ort.
 
 ## Funktionen
 
-Aufklappbares – Menügruppen wie **Umwandlungen**, **Server** und **Links**, Abschnitte im Dashboard, Filter, Staffeln, Pfade – ist
+Aufklappbares – Menügruppen wie **Konvertierungen**, **Server** und **Links**, Abschnitte im Dashboard, Filter, Staffeln, Pfade – ist
 nach jedem Laden der Seite eingeklappt. Eine eingeklappte Menügruppe zeigt, wenn eine ihrer Seiten offen ist. Im Menü
 ist immer nur eine Gruppe offen: Öffnet man eine andere, klappt die vorherige zu; beides gleitet animiert auf und zu (auf
 dem Handy seitwärts). Auch der Wechsel zu einer anderen Seite ist animiert: Die bisherige blendet aus, die neue gleitet
 herein, das Menü bleibt stehen (in Browsern mit View Transitions; mit «Bewegung reduzieren» ohne Animation).
 
 Seiten mit mehreren Themen zeigen diese als **Reiter** statt als Kästen untereinander: **Einstellungen**, **Server →
-Allgemein**, **Agent**, **JDownloader** (auch seine Einstellungen hinter dem Zahnrad), **Discs** und **Umwandlungen →
+Allgemein**, **Agent**, **JDownloader** (auch seine Einstellungen hinter dem Zahnrad), **Discs** und **Konvertierungen →
 Einstellungen**. Der offene Reiter steht in der Adresse (z. B. `/settings?tab=network`), so führen Links direkt dorthin
 und ein Neuladen bleibt dort; die Pfeiltasten wechseln zwischen den Reitern. Ein Reiter gleitet je nach Richtung von
 rechts oder links herein.
@@ -27,11 +27,11 @@ Live-Übersicht der laufenden Streams:
 - Quelle → Ziel für Video, Audio, Untertitel und Container, z. B. `4K · HEVC · HDR10 → 1080p · H.264`
 - **Transcode-Gründe auf Deutsch erklärt** – ein Klick zeigt, welche Eigenschaft der Datei das Problem ist (z. B.
   «Dolby Vision Profil 7 mit Enhancement Layer» oder «Level 5.1»), was Jellyfin daraus macht und wie man es behebt
-- Erklärt auch Umwandlungen, für die Jellyfin keinen eigenen Grund nennt, z. B. warum TrueHD 7.1 als AAC 5.1 ankommt:
+- Erklärt auch Transcodes, für die Jellyfin keinen eigenen Grund nennt, z. B. warum TrueHD 7.1 als AAC 5.1 ankommt:
   Beim Umpacken in einen Streaming-Container nimmt der Client TrueHD nicht an
 - Meldet Jellyfin zu einem Transcode keine Details (das passiert z. B., wenn dasselbe Gerät zwei Sitzungen hat, etwa zwei
   Browser-Tabs), holt Manelly sie von der anderen Sitzung des Geräts, nimmt die zuletzt gemeldeten oder liest aus dem
-  FFmpeg-Protokoll, was umgewandelt wird – ein Wechsel des Video-Codecs zeigt dann den vermutlichen Grund
+  FFmpeg-Protokoll, was transcodiert wird – ein Wechsel des Video-Codecs zeigt dann den vermutlichen Grund
 - Fortschritt des Transcoders als Puffer im Fortschrittsbalken
 - **Stream-Diagnose** pro Wiedergabe, jeweils mit konkretem Tipp, wo man in Jellyfin ansetzt:
   - Kommt der Server mit dem Transcoding nach? Tempo im Verhältnis zur Bildrate (z. B. 0.7× Echtzeit) und Vorlauf
@@ -41,7 +41,7 @@ Live-Übersicht der laufenden Streams:
   - Ob wirklich die Hardware arbeitet: Manelly liest dazu das FFmpeg-Protokoll des Transcodes aus Jellyfin und nennt den
     Grund, wenn trotzdem in Software kodiert wird (Hardware-Kodierung aus, Beschleunigung passt nicht zum System, z. B.
     VA-API unter Windows, Disc-Abbild, oder der Encoder fehlte beim Start von Jellyfin) – samt Fehlermeldungen von FFmpeg
-  - HDR, das ohne Tone-Mapping (blasse Farben) oder in Software (sehr rechenintensiv) in SDR umgewandelt wird
+  - HDR, das ohne Tone-Mapping (blasse Farben) oder in Software (sehr rechenintensiv) in SDR transcodiert wird
   - Welches Limit die Bitrate drückt: Benutzer- oder Server-Limit für den Fernzugriff oder die Qualitätseinstellung im Client
   - Hohe Bitraten über das Internet
 
@@ -50,11 +50,11 @@ Live-Übersicht der laufenden Streams:
 - Kennzahlen: aktive Streams (mit den Benutzern, die gerade schauen), Direct Play / Direct Stream / Transcodes (inkl. wie
   viele nicht nachkommen), geschätzte Bandbreite
 - Lokal oder extern verbunden (anhand der IP-Adresse)
-- Laufende und in den letzten 12 Stunden beendete [Umwandlungen](#umwandlungen-mit-agent) mit Fortschritt (mit Agent),
+- Laufende und in den letzten 12 Stunden beendete [Konvertierungen](#konvertierungen-mit-agent) mit Fortschritt (mit Agent),
   eingeklappt (die Überschrift zeigt, wie viele laufen) – ein Klick klappt den Abschnitt auf
 - Ein Klick auf die Kachel **Transcodes** zeigt die **Auslastung des Servers** (mit Agent): CPU und GPU (pro Einheit wie
   Video-Dekodierung, Video-Kodierung, Videoverarbeitung, 3D), jeweils mit dem Anteil von Jellyfins FFmpeg und einer
-  laufenden Umwandlung, einem Verlauf der letzten 10 Minuten und den einzelnen FFmpeg-Prozessen. Der Agent misst nur,
+  laufenden Konvertierung, einem Verlauf der letzten 10 Minuten und den einzelnen FFmpeg-Prozessen. Der Agent misst nur,
   solange die Anzeige offen ist (danach noch 10 Minuten). GPU-Werte gibt es auf Windows 10/11 für jede Grafikkarte mit
   aktuellem Treiber, auf Linux nur für AMD und ohne Anteil pro Prozess
 - Ein Klick auf die Kachel **Bandbreite** klappt die Details auf: die aktuelle Bitrate jedes Streams (gesamt und davon
@@ -139,35 +139,35 @@ Prozess.
   nicht, läuft die bisherige Version weiter
 - **JDownloader:** Downloads und Link Grabber, Einstellungen hinter dem Zahnrad – siehe [Downloads](#downloads-jdownloader-mit-agent)
 
-### Umwandlungen (mit Agent)
+### Konvertierungen (mit Agent)
 
 Dolby Vision **Profil 7** (UHD-Blu-ray-Remuxe) spielen viele Geräte nicht ab, Profil 8.1 schon. Ein kleiner Agent auf dem
-Jellyfin-Server wandelt solche Dateien direkt dort um. Im Menü ist **Umwandlungen** aufklappbar: **Übersicht** (laufende
-und fertige Umwandlungen), **Backups** (die im Arbeitsordner behaltenen Originale) und **Einstellungen** (Reiter Zeitplan
+Jellyfin-Server konvertiert solche Dateien direkt dort. Im Menü ist **Konvertierungen** aufklappbar: **Übersicht** (laufende
+und fertige Konvertierungen), **Backups** (die im Arbeitsordner behaltenen Originale) und **Einstellungen** (Reiter Zeitplan
 und Arbeitsordner, dort auch Kopieren begrenzen).
 
-- In den Medien mit dem Filter **«Dolby Vision P7»** die Kandidaten finden, Titel öffnen, **«In Profil 8.1 umwandeln»**
+- In den Medien mit dem Filter **«Dolby Vision P7»** die Kandidaten finden, Titel öffnen, **«In Profil 8.1 konvertieren»**
 - Speicherort wählen: **neben dem Original** (Jellyfin zeigt beide als Versionen), **Original ersetzen** (das Original
   wandert in einen Backup-Ordner `.manelly-backup`, den Jellyfin ignoriert; mit Arbeitsordner siehe unten) oder **ein anderer Ordner** einer
-  Jellyfin-Bibliothek (z. B. eine UHD-Bibliothek), mit Unterordner und Dateiname. Speicherort, «Wo umwandeln» und «Wann»
-  sind Auswahllisten; vorgewählt ist, was bei der letzten Umwandlung in diesem Browser gewählt war (soweit es passt)
-- Der Agent löst die Videospur heraus (ffmpeg), wandelt die Dolby-Vision-Daten um (`dovi_tool -m 2 convert --discard`) und
+  Jellyfin-Bibliothek (z. B. eine UHD-Bibliothek), mit Unterordner und Dateiname. Speicherort, «Wo konvertieren» und «Wann»
+  sind Auswahllisten; vorgewählt ist, was bei der letzten Konvertierung in diesem Browser gewählt war (soweit es passt)
+- Der Agent löst die Videospur heraus (ffmpeg), konvertiert die Dolby-Vision-Daten (`dovi_tool -m 2 convert --discard`) und
   setzt die Datei mit allen Ton- und Untertitelspuren, Kapiteln und Anhängen neu zusammen (mkvmerge). Das Bild wird nicht
   neu kodiert; der Enhancement Layer fällt weg (bei «FEL»-Dateien geht dessen Zusatzinformation verloren)
-- **Arbeitsordner** (ab Agent 0.17.0): Unter **Umwandlungen → Einstellungen** einen Ordner auf einer schnellen Platte des
+- **Arbeitsordner** (ab Agent 0.17.0): Unter **Konvertierungen → Einstellungen** einen Ordner auf einer schnellen Platte des
   Jellyfin-Servers eintragen (z. B. `E:\Manelly` auf einer zusätzlichen SSD; den Ordner zuerst anlegen). Im
-  Umwandlungsdialog ist dann **«Im Arbeitsordner»** vorgewählt: Der Agent kopiert das Original dorthin, wandelt dort um und
+  Konvertierungsdialog ist dann **«Im Arbeitsordner»** vorgewählt: Der Agent kopiert das Original dorthin, konvertiert dort und
   kopiert das Ergebnis zurück – an den gewählten Speicherort, wie oben. Der Speicher, auf dem die Filme liegen (z. B. das
-  NAS), wird so nur beim Hin- und Zurückkopieren belastet statt während der ganzen Umwandlung. Im Arbeitsordner braucht es
+  NAS), wird so nur beim Hin- und Zurückkopieren belastet statt während der ganzen Konvertierung. Im Arbeitsordner braucht es
   etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
-  macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** wandelt wie bisher dort um, wo die Datei
+  macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** konvertiert wie bisher dort, wo die Datei
   liegt
-- **Platz im Arbeitsordner:** Unter **Umwandlungen → Einstellungen** zeigt ein Balken, wie voll die Platte des
+- **Platz im Arbeitsordner:** Unter **Konvertierungen → Einstellungen** zeigt ein Balken, wie voll die Platte des
   Arbeitsordners ist – frei, Gesamtgrösse (ab Agent 0.25.0), wie viel davon die **Backups** belegen, und bis zu welcher
-  Filmgrösse der Platz für eine Umwandlung reicht. Unter 20 % frei wird der Balken gelb, unter 10 % rot
-- **Kopieren begrenzen** (ab Agent 0.21.0, in Mbit/s ab Agent 0.23.0): Unter **Umwandlungen → Einstellungen** beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
+  Filmgrösse der Platz für eine Konvertierung reicht. Unter 20 % frei wird der Balken gelb, unter 10 % rot
+- **Kopieren begrenzen** (ab Agent 0.21.0, in Mbit/s ab Agent 0.23.0): Unter **Konvertierungen → Einstellungen** beim Arbeitsordner einstellen, wie schnell das Hin- und Zurückkopieren sein
   darf, damit auf dem Speicher genug für Streams bleibt. **Automatisch während Streams**: einmal eintragen, was der
-  Speicher insgesamt schafft (den gemessenen Höchstwert, z. B. 1600 Mbit/s; zu sehen bei einer Umwandlung unter «Auslastung
+  Speicher insgesamt schafft (den gemessenen Höchstwert, z. B. 1600 Mbit/s; zu sehen bei einer Konvertierung unter «Auslastung
   der Storage-Schnittstelle», «Zusammen»). Solange jemand streamt, kopiert der Agent höchstens mit 85 % dieses Werts
   − Bitrate der laufenden Streams (geschätzt aus ihren Dateien) − 20 Mbit/s Reserve, mindestens aber mit 8 Mbit/s; ohne
   Streams mit voller Geschwindigkeit. Die 15 % Luft (ab Agent 0.24.0) braucht es, weil ein Stream seine Datei in vielen
@@ -176,35 +176,35 @@ und Arbeitsordner, dort auch Kopieren begrenzen).
   Netzwerk-Overhead mit, das Limit nur die Dateidaten.
   Ein Limit, das ein älterer Agent in MB/s gespeichert hat, rechnet der Agent beim Update in Mbit/s um.
   Er fragt Jellyfin dafür alle 15 Sekunden, und nur während er kopiert; weiss er nichts über Streams, rechnet er mit einem
-  UHD-Stream. **Immer**: ein festes Limit. Die Umwandlungskarte zeigt, wenn und warum gerade gebremst wird. Die
-  Umwandlungsschritte im Arbeitsordner selbst und «Direkt am Speicherort» sind nicht begrenzt
+  UHD-Stream. **Immer**: ein festes Limit. Die Konvertierungskarte zeigt, wenn und warum gerade gebremst wird. Die
+  Konvertierungsschritte im Arbeitsordner selbst und «Direkt am Speicherort» sind nicht begrenzt
 - **Originale im Arbeitsordner** (ab Agent 0.18.0): Bei **«Original ersetzen»** im Arbeitsordner kommt das Original nicht in
   `.manelly-backup` auf dem Speicher, sondern bleibt als die Kopie, die schon im Arbeitsordner liegt, in dessen Unterordner
-  `Originale`. Auf dem Speicher wird es erst ganz am Schluss gegen die umgewandelte Datei getauscht – bis dahin spielt
-  Jellyfin es normal ab. Hat sich das Original während der Umwandlung verändert, bleibt es, wie es ist. **Umwandlungen →
+  `Originale`. Auf dem Speicher wird es erst ganz am Schluss gegen die konvertierte Datei getauscht – bis dahin spielt
+  Jellyfin es normal ab. Hat sich das Original während der Konvertierung verändert, bleibt es, wie es ist. **Konvertierungen →
   Backups** listet diese Originale mit Herkunft, Grösse und Alter: länger als 30 Tage aufbewahrt **gelb**, länger
   als 90 Tage **rot**. Passt das Ergebnis, dort **«Löschen»** (mit Rückfrage). Der Agent löscht nur Originale, die er
   selbst dort abgelegt hat. «Neben dem Original» und «Anderer Ordner» lassen das Original auf dem Speicher
-- **Sofort** oder **nach Zeitplan**: Unter **Umwandlungen → Einstellungen** ein Zeitfenster (z. B. 01:00–07:00, Uhrzeit des
-  Jellyfin-Servers) und/oder «nur wenn niemand streamt» einstellen. Geplante Umwandlungen startet der Agent selbst, auch
-  wenn Manelly nicht läuft. Beginnt ein Stream, pausiert die Umwandlung und macht später beim zuletzt fertigen Schritt
-  weiter; nach einem Stream wartet der Agent noch 5 Minuten. Eine laufende Umwandlung darf über das Ende des Zeitfensters
+- **Sofort** oder **nach Zeitplan**: Unter **Konvertierungen → Einstellungen** ein Zeitfenster (z. B. 01:00–07:00, Uhrzeit des
+  Jellyfin-Servers) und/oder «nur wenn niemand streamt» einstellen. Geplante Konvertierungen startet der Agent selbst, auch
+  wenn Manelly nicht läuft. Beginnt ein Stream, pausiert die Konvertierung und macht später beim zuletzt fertigen Schritt
+  weiter; nach einem Stream wartet der Agent noch 5 Minuten. Eine laufende Konvertierung darf über das Ende des Zeitfensters
   hinaus fertig werden. **«Jetzt starten»** übergeht den Zeitplan.
 - **Pausieren und Fortsetzen** (ab Agent 0.12.0): «Pausieren» hält das gerade laufende Werkzeug (ffmpeg, dovi_tool oder
   mkvmerge) an Ort und Stelle an – es braucht dann keine Rechenzeit und keine Plattenzugriffe mehr –, «Fortsetzen» lässt es
-  genau dort weiterlaufen. Andere Umwandlungen warten so lange. Lässt Windows das Anhalten nicht zu, wird die Umwandlung
-  stattdessen unterbrochen und macht beim Fortsetzen beim zuletzt fertigen Schritt weiter. Eine pausierte Umwandlung
+  genau dort weiterlaufen. Andere Konvertierungen warten so lange. Lässt Windows das Anhalten nicht zu, wird die Konvertierung
+  stattdessen unterbrochen und macht beim Fortsetzen beim zuletzt fertigen Schritt weiter. Eine pausierte Konvertierung
   bleibt auch über einen Neustart des Agents pausiert
-- Übersteht Neustarts des Servers: Wartende Umwandlungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
-  beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Umwandlung beendet, gibt er sie auf)
+- Übersteht Neustarts des Servers: Wartende Konvertierungen bleiben eingeplant, eine unterbrochene macht nach dem Neustart
+  beim zuletzt fertigen Schritt weiter (wird der Agent fünfmal mitten in derselben Konvertierung beendet, gibt er sie auf)
 - **Nie «Fertig» mit einer unvollständigen Datei** (ab Agent 0.22.0): Nach dem Zusammensetzen prüft der Agent, ob die neue
   Datei so lange läuft wie das Original, und nach jedem Kopieren, ob die Kopie gleich gross ist. Stimmt etwas nicht,
-  schlägt die Umwandlung mit einer Meldung fehl und das Original bleibt, wie es ist
-- **Umwandlungen → Übersicht** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Umwandlung – so
+  schlägt die Konvertierung mit einer Meldung fehl und das Original bleibt, wie es ist
+- **Konvertierungen → Übersicht** mit Dateigrösse (ab Agent 0.20.0; auch im Dashboard), Dauer einer fertigen Konvertierung – so
   lässt sich abschätzen, wie lange die nächste dauert –, Fortschritt mit dem aktuellen Tempo des laufenden Schritts in Mbit/s
   (ab Agent 0.21.0; gemessen daran, wie schnell die Datei wächst, die der Schritt schreibt), Wartegrund, Pausieren, Abbrechen, aufklappbarer **Auslastung der
   Storage-Schnittstelle** und der Ausgabe des Werkzeugs bei Fehlern; danach meldet der Agent die neue Datei an Jellyfin,
-  damit sie gleich erscheint. Eine Umwandlung kodiert das Bild nicht neu, sie kopiert vor allem – CPU und GPU haben
+  damit sie gleich erscheint. Eine Konvertierung kodiert das Bild nicht neu, sie kopiert vor allem – CPU und GPU haben
   wenig zu tun, das Tempo bestimmt der Weg zum Speicher. Darum zeigt die Karte Lesen, Schreiben und beides zusammen
   (in Mbit/s) der Schnittstelle(n) mit der Rolle **Storage** (ab Agent 0.19.0, siehe [Rollen](#agent-auf-dem-jellyfin-server-windows)),
   die Auslastung gemessen am Link und den Verlauf der letzten 10 Minuten
@@ -274,11 +274,11 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     wenn ein anderer Reiter offen ist.
     **Dolby Vision** (ab Agent 0.31.0): Videodateien zeigen ihr Profil – «DV P7» hervorgehoben, «DV P8.1» und andere
     schlicht. Der Agent liest dafür mit ffprobe nur den Kopf jeder Datei, einmal pro Datei (neu erst, wenn sie sich
-    ändert). Bei Profil 7 wandelt **«In Profil 8.1 umwandeln»** die Datei um, bevor sie in die Mediathek kommt: Die neue
-    Datei ersetzt das Original im Entpack-Ordner; das Original kommt beim Umwandeln im Arbeitsordner unter Umwandlungen →
+    ändert). Bei Profil 7 konvertiert **«In Profil 8.1 konvertieren»** die Datei, bevor sie in die Mediathek kommt: Die neue
+    Datei ersetzt das Original im Entpack-Ordner; das Original kommt beim Konvertieren im Arbeitsordner unter Konvertierungen →
     Backups, sonst in den Ordner `.manelly-backup` neben der Datei (Jellyfin ignoriert ihn, beim Verschieben des Ordners
-    kommt er aber mit – vorher löschen). Wie im Medien-Dialog wählst du «Wo umwandeln» und «Wann» (sofort oder nach
-    Zeitplan). Solange die Umwandlung wartet oder läuft, steht ihr Stand bei der Datei, und Verschieben und Löschen der
+    kommt er aber mit – vorher löschen). Wie im Medien-Dialog wählst du «Wo konvertieren» und «Wann» (sofort oder nach
+    Zeitplan). Solange die Konvertierung wartet oder läuft, steht ihr Stand bei der Datei, und Verschieben und Löschen der
     Datei (oder ihres Ordners) lehnt der Agent ab; danach liest er die Datei neu ein.
     **Move to Library** (ab Agent 0.27.0): Ordner und Dateien ankreuzen (ein angekreuzter Ordner nimmt alles darin mit),
     dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter. Bei einer Serien-Mediathek folgt
@@ -291,12 +291,12 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     Zielordner. Bei einer bestehenden Serie gibt es zusätzlich **«Verschieben & scannen»**: Ist das Verschieben fertig,
     lässt Manelly Jellyfin genau diese Serie oder Staffel scannen – der Manelly-Server wartet darauf, auch wenn der
     Browser zu ist, und die Liste zeigt, ob der Scan lief. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
-    Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt) und löscht erst
+    Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Konvertierungen es während Streams erlaubt) und löscht erst
     danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich
     von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.
     **Löschen** (ab Agent 0.30.0) löscht die angekreuzten Einträge – Ordner samt Inhalt – nach einer Rückfrage mit der
     Liste und der Grösse endgültig, ohne Papierkorb. Der Agent löscht nur im Entpack-Ordner und nichts, was gerade
-    verschoben oder umgewandelt wird; was nicht ging, nennt der Dialog mit dem Grund.
+    verschoben oder konvertiert wird; was nicht ging, nennt der Dialog mit dem Grund.
     **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
     Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
     die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird
@@ -357,7 +357,7 @@ Manelly zeigt den Verlauf – das Dashboard bleibt dabei schlank wie bisher:
 
 - **Aufzeichnung starten** auf der Seite Troubleshooting; die Aufbewahrung ist wählbar (7 Tage bis 1 Jahr, ältere Tage
   löscht der Agent selbst). Ein Tag braucht etwa 1 MB im Ordner `agent\data\history`
-- Alle 15 Sekunden: **CPU** und **GPU** (gesamt und die Anteile von Jellyfins FFmpeg und der Umwandlung), die gewählten
+- Alle 15 Sekunden: **CPU** und **GPU** (gesamt und die Anteile von Jellyfins FFmpeg und der Konvertierung), die gewählten
   **Netzwerkschnittstellen** (Senden und Empfangen) und die Zahl der **Streams** und Transcodes
 - Jeder **Stream** mit Start, Ende und jedem Wechsel dazwischen: wer mit welchem Client und Gerät was abgespielt hat,
   wie (Direct Play, Remux, Direct Stream, Transcode) und – bei einem Transcode – **warum**, mit Quelle und Ziel
@@ -446,7 +446,7 @@ wie bisher. In Docker oder mit `npm start` geht das nicht – dort `git pull` un
 
 ## Agent auf dem Jellyfin-Server (Windows)
 
-Nötig für die [Umwandlungen](#umwandlungen-mit-agent), die [Aufzeichnung](#troubleshooting-aufzeichnung-mit-agent),
+Nötig für die [Konvertierungen](#konvertierungen-mit-agent), die [Aufzeichnung](#troubleshooting-aufzeichnung-mit-agent),
 die Auslastung von CPU, GPU und Netzwerk und für [JDownloader](#downloads-jdownloader-mit-agent). Auf dem Windows-PC, auf
 dem Jellyfin läuft:
 
@@ -465,9 +465,9 @@ dem Jellyfin läuft:
    Ohne `-Install` läuft der Agent einfach in diesem Fenster.
 
    Liegen die Medien auf einem **Netzlaufwerk** (`Z:`) oder einer **Netzwerkfreigabe** (`\\nas\filme`), hat der
-   Autostart ohne Anmeldung keine Anmeldedaten fürs Netzwerk (die Umwandlung meldet dann «nicht erreichbar» bzw.
+   Autostart ohne Anmeldung keine Anmeldedaten fürs Netzwerk (die Konvertierung meldet dann «nicht erreichbar» bzw.
    «Kein Zugriff»), und verbundene Laufwerksbuchstaben gibt es ohne Anmeldung auch nicht. Der Agent verbindet deshalb
-   die Netzlaufwerke, die Windows für dich gespeichert hat, selbst wieder, sobald eine Umwandlung sie braucht (und
+   die Netzlaufwerke, die Windows für dich gespeichert hat, selbst wieder, sobald eine Konvertierung sie braucht (und
    gleich beim Start). Die Anmeldung dafür gibst du in Manelly unter **Server → Agent** bei den **Netzlaufwerken** an
    (ab Agent 0.16.0): «Anmeldedaten hinterlegen» beim NAS, Benutzername und Passwort **des NAS** eintragen, «Speichern &
    verbinden». Manelly reicht beides nur an den Agent weiter und speichert nichts davon; der Agent speichert das
@@ -486,15 +486,15 @@ dem Jellyfin läuft:
   Manelly nennt). Nach Änderungen den Agent neu starten.
 - Netzwerk: Unter **Einstellungen → Netzwerk** die Schnittstellen wählen, die das Dashboard zeigen
   soll, und ihnen **Rollen** geben (ab Agent 0.19.0): **Streaming** (zu den Abspielgeräten), **Management** (Verwaltung,
-  z. B. Manelly) und **Storage** (zum Speicher mit den Filmen, z. B. dem NAS – diese zeigt Manelly bei den Umwandlungen).
+  z. B. Manelly) und **Storage** (zum Speicher mit den Filmen, z. B. dem NAS – diese zeigt Manelly bei den Konvertierungen).
   Hat der Server nicht für alles eine eigene Schnittstelle, bekommt eine Schnittstelle mehrere Rollen. Auf Windows liest
   der Agent die Zähler von Windows über PowerShell (ein Prozess, solange gemessen wird), auf Linux aus `/sys/class/net`.
 - Aufzeichnung: `agent\data\history`, eine Datei pro Tag und Art (Messwerte, Streams). Löschen geht auch auf der Seite
   Troubleshooting.
 - Protokoll: `agent\data\agent.log`. Entfernen: `.\scripts\start-agent.ps1 -Uninstall` (als Administrator, wegen der
   Firewall-Regel).
-- Neu starten und Aktualisieren fragen nach, wenn gerade eine Umwandlung läuft (ab Agent 0.22.0 auch der Agent selbst):
-  Ein Neustart unterbricht sie; danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Startet eine Umwandlung erst, während
+- Neu starten und Aktualisieren fragen nach, wenn gerade eine Konvertierung läuft (ab Agent 0.22.0 auch der Agent selbst):
+  Ein Neustart unterbricht sie; danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Startet eine Konvertierung erst, während
   ein Update baut, wartet der Neustart, bis sie fertig ist
 - Update: in Manelly unter **Einstellungen → Updates** «Aktualisieren & neu starten» beim Agent oder «Alles
   aktualisieren» (ab Agent 0.9.0). Ab Agent 0.11.0 sucht
@@ -509,7 +509,7 @@ dem Jellyfin läuft:
   Ältere Agents (und Änderungen am Installationsskript) brauchen einmal `git pull` und `.\scripts\start-agent.ps1 -Install`
   (als Administrator). Das Skript beendet den laufenden Agent – auch eine ältere Version – und startet den neuen; es
   meldet erst Erfolg, wenn die neue Version antwortet. Bleibt der Port belegt, nennt es das Programm, das ihn hält. Eine
-  laufende Umwandlung wird dabei unterbrochen und macht danach weiter.
+  laufende Konvertierung wird dabei unterbrochen und macht danach weiter.
 - Der Agent ist **kein Dienst**: Im Task-Manager steht er unter «Details» als `node.exe` (gestartet von einer
   `powershell.exe` mit `run-agent.ps1`); der Autostart ist die Aufgabe «Manelly Agent» in der Aufgabenplanung. Unter
   **Server → Agent** zeigt Manelly Version, Prozess-ID und Startzeit und kann ihn **beenden** (ab Agent 0.7.0). Wieder starten: Windows neu starten, `Start-ScheduledTask -TaskName 'Manelly
@@ -602,7 +602,7 @@ Optional lässt sich alles über Umgebungsvariablen (oder eine `.env`-Datei, Vor
 shared/   API-Typen, die Server, Frontend und Agent gemeinsam nutzen
 server/   Fastify-Server: spricht mit der Jellyfin-API und dem Agent, liefert das Frontend aus
 web/      React-Frontend (Vite, Tailwind CSS, TanStack Query)
-agent/    Agent für den Jellyfin-Server: wandelt Dateien um (ffmpeg, dovi_tool, mkvmerge), ohne Abhängigkeiten
+agent/    Agent für den Jellyfin-Server: konvertiert Dateien (ffmpeg, dovi_tool, mkvmerge), ohne Abhängigkeiten
 extension/ Browser-Erweiterung (Chrome, Edge) für Click'n'Load auf anderen Rechnern; Manelly liefert sie als ZIP aus
 ```
 

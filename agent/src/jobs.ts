@@ -74,7 +74,7 @@ export async function createJobQueue(options: JobQueueOptions) {
     if (job.state !== 'running') continue;
     entry.restarts = (entry.restarts ?? 0) + 1;
     if (entry.restarts > MAX_RESTARTS) {
-      Object.assign(job, { state: 'failed', step: null, finishedAt: now().toISOString(), error: `Der Agent wurde ${MAX_RESTARTS}-mal mitten in dieser Umwandlung beendet – sie wird nicht mehr fortgesetzt.` });
+      Object.assign(job, { state: 'failed', step: null, finishedAt: now().toISOString(), error: `Der Agent wurde ${MAX_RESTARTS}-mal mitten in dieser Konvertierung beendet – sie wird nicht mehr fortgesetzt.` });
       await discardTemp(job.source, entry.plan, job.id);
     } else {
       Object.assign(job, { state: 'queued', step: null, progress: null, interruptions: job.interruptions + 1 });
@@ -112,7 +112,7 @@ export async function createJobQueue(options: JobQueueOptions) {
 
   function find(id: string): StoredJob {
     const entry = entries.find((candidate) => candidate.job.id === id);
-    if (!entry) throw new AgentError(404, 'Diese Umwandlung gibt es nicht.');
+    if (!entry) throw new AgentError(404, 'Diese Konvertierung gibt es nicht.');
     return entry;
   }
 
@@ -122,8 +122,8 @@ export async function createJobQueue(options: JobQueueOptions) {
     if (job.state !== 'queued') return null;
     if (job.paused) return 'Pausiert – geht nach «Fortsetzen» beim zuletzt fertigen Schritt weiter.';
     if (job.scheduled && lastGate && !lastGate.open) return lastGate.reason;
-    if (current?.entry.job.paused) return 'Wartet, bis die pausierte Umwandlung weitergeht oder abgebrochen wird.';
-    if (current) return 'Wartet, bis die laufende Umwandlung fertig ist.';
+    if (current?.entry.job.paused) return 'Wartet, bis die pausierte Konvertierung weitergeht oder abgebrochen wird.';
+    if (current) return 'Wartet, bis die laufende Konvertierung fertig ist.';
     return job.scheduled && !lastGate ? 'Prüft den Zeitplan …' : null;
   }
 
@@ -141,7 +141,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         lastGate = await gate(Boolean(current?.entry.job.scheduled));
         // A job paused by hand holds nothing that a stream would need.
         if (lastGate.pause && current?.entry.job.scheduled && !current.entry.job.paused) {
-          log(`Umwandlung pausiert: ${lastGate.reason ?? ''}`);
+          log(`Konvertierung pausiert: ${lastGate.reason ?? ''}`);
           current.controller.abort(PAUSE);
         }
       } else {
@@ -189,7 +189,7 @@ export async function createJobQueue(options: JobQueueOptions) {
           running.held.add(pid);
         }
       } catch (error) {
-        log(`Anhalten ging nicht (${(error as Error).message}) – die Umwandlung wird unterbrochen und macht beim Fortsetzen beim zuletzt fertigen Schritt weiter.`);
+        log(`Anhalten ging nicht (${(error as Error).message}) – die Konvertierung wird unterbrochen und macht beim Fortsetzen beim zuletzt fertigen Schritt weiter.`);
         await letGo(running);
         running.controller.abort(PAUSE);
       }
@@ -240,7 +240,7 @@ export async function createJobQueue(options: JobQueueOptions) {
     current = running;
     Object.assign(job, { state: 'running', startedAt: now().toISOString(), step: 'probe', progress: null, bytesPerSecond: null });
     void save();
-    log(`Umwandlung ${job.interruptions ? 'fortgesetzt' : 'gestartet'}: ${job.source}`);
+    log(`Konvertierung ${job.interruptions ? 'fortgesetzt' : 'gestartet'}: ${job.source}`);
     try {
       const problem = await reachable(entry, controller.signal);
       if (controller.signal.aborted) throw new AgentError(499, 'Abgebrochen.');
@@ -284,7 +284,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         },
       });
       Object.assign(job, { state: 'done', step: null, progress: 1, output: result.output, backup: result.backup, warning: result.warning, finishedAt: now().toISOString() });
-      log(`Umwandlung fertig: ${result.output}`);
+      log(`Konvertierung fertig: ${result.output}`);
       if (result.archived && result.backup) {
         const bytes = await stat(result.backup).then((info) => info.size, () => null);
         await options.originals
@@ -304,7 +304,7 @@ export async function createJobQueue(options: JobQueueOptions) {
           log: (error as { log?: string | null }).log ?? null,
           finishedAt: now().toISOString(),
         });
-        log(canceled ? `Umwandlung abgebrochen: ${job.source}` : `Umwandlung fehlgeschlagen: ${(error as Error).message}`);
+        log(canceled ? `Konvertierung abgebrochen: ${job.source}` : `Konvertierung fehlgeschlagen: ${(error as Error).message}`);
       }
     } finally {
       current = null;
@@ -347,7 +347,7 @@ export async function createJobQueue(options: JobQueueOptions) {
       const plan = await planOutput(request, allowed, process.platform, access, workFolder());
       // Two jobs must not write the same file.
       const busy = entries.some(({ job }) => (job.state === 'queued' || job.state === 'running') && (job.output === plan.output || job.source === request.source));
-      if (busy) throw new AgentError(409, 'Für diese Datei läuft schon eine Umwandlung.');
+      if (busy) throw new AgentError(409, 'Für diese Datei läuft schon eine Konvertierung.');
 
       const api = pathApiFor(request.source);
       // Shown with the job, to get a feel for how long a conversion of this size takes.
@@ -383,7 +383,7 @@ export async function createJobQueue(options: JobQueueOptions) {
     /** Starts a scheduled job without waiting for the schedule. */
     startNow(id: string): ConversionJob {
       const { job } = find(id);
-      if (job.state !== 'queued') throw new AgentError(409, 'Diese Umwandlung wartet nicht.');
+      if (job.state !== 'queued') throw new AgentError(409, 'Diese Konvertierung wartet nicht.');
       job.scheduled = false;
       void save();
       void next();
@@ -411,12 +411,12 @@ export async function createJobQueue(options: JobQueueOptions) {
     async pause(id: string): Promise<ConversionJob> {
       const entry = find(id);
       const { job } = entry;
-      if (job.state !== 'queued' && job.state !== 'running') throw new AgentError(409, 'Diese Umwandlung läuft nicht mehr.');
+      if (job.state !== 'queued' && job.state !== 'running') throw new AgentError(409, 'Diese Konvertierung läuft nicht mehr.');
       if (!job.paused) {
         job.paused = true;
         void save();
         if (current?.entry === entry) {
-          log(`Umwandlung pausiert: ${job.source}`);
+          log(`Konvertierung pausiert: ${job.source}`);
           await hold(current);
         }
       }
@@ -432,7 +432,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         if (current?.entry === entry) {
           await release(current);
           for (const go of current.waiting.splice(0)) go();
-          log(`Umwandlung fortgesetzt: ${job.source}`);
+          log(`Konvertierung fortgesetzt: ${job.source}`);
         }
         void save();
         void next();
@@ -442,7 +442,7 @@ export async function createJobQueue(options: JobQueueOptions) {
 
     async remove(id: string): Promise<void> {
       const { job } = find(id);
-      if (job.state === 'queued' || job.state === 'running') throw new AgentError(409, 'Eine laufende Umwandlung zuerst abbrechen.');
+      if (job.state === 'queued' || job.state === 'running') throw new AgentError(409, 'Eine laufende Konvertierung zuerst abbrechen.');
       entries = entries.filter((entry) => entry.job.id !== id);
       await save();
     },

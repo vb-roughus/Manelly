@@ -350,7 +350,7 @@ export function createAgentServer(options: AgentServerOptions) {
       const busy = queue.running();
       if (busy && force !== true) {
         const progress = busy.progress === null ? '' : ` (${Math.round(busy.progress * 100)} %)`;
-        throw new AgentError(409, `Gerade läuft die Umwandlung «${busy.title}»${progress}. Ein Neustart würde sie unterbrechen – warte, bis sie fertig ist, oder bestätige den Neustart.`);
+        throw new AgentError(409, `Gerade läuft die Konvertierung «${busy.title}»${progress}. Ein Neustart würde sie unterbrechen – warte, bis sie fertig ist, oder bestätige den Neustart.`);
       }
       const moving = options.mover?.running();
       if (moving && force !== true) {
@@ -393,7 +393,7 @@ export function createAgentServer(options: AgentServerOptions) {
       await options.access?.prepare(directory);
       const converting = convertingIn(directory);
       const blocked = (paths as string[]).find((path) => converting.some((busy) => within(busy, path)));
-      if (blocked) throw new AgentError(409, `«${blocked}» wird gerade umgewandelt – erst danach verschieben.`);
+      if (blocked) throw new AgentError(409, `«${blocked}» wird gerade konvertiert – erst danach verschieben.`);
       if (create !== true) return send(response, 202, await options.mover.add(directory, paths, await checkFolder(target, 'D:\\Filme'), label.trim()));
       // A new folder: only its name is new, the folder it goes into must exist and take writing.
       const wanted = typeof target === 'string' ? target.trim() : '';

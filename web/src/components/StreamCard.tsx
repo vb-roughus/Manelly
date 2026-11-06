@@ -282,7 +282,7 @@ function Conversion({ from, to }: { from: string; to: string | null }) {
   return (
     <>
       <span className="text-ink-2">{from || '–'}</span>
-      <span className="mx-1.5 text-warning" aria-label="wird umgewandelt zu">
+      <span className="mx-1.5 text-warning" aria-label="wird transcodiert zu">
         →
       </span>
       <span className="font-medium">{to}</span>

@@ -199,7 +199,7 @@ function VersionTracks({ version, showName, onConvert }: { version: MediaVersion
             className="inline-flex items-center gap-1.5 rounded-lg bg-card px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-line transition hover:bg-card-2"
           >
             <WandSparkles className="size-3.5 text-accent" aria-hidden />
-            In Profil 8.1 umwandeln
+            In Profil 8.1 konvertieren
           </button>
         )}
       </div>

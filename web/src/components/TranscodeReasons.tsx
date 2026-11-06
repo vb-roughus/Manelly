@@ -31,7 +31,7 @@ export function TranscodeReasons({ session }: { session: StreamSession }) {
       const details = () => explainInferredReason(reason, session);
       return { key: reason, label: details().label, hint: 'Von Manelly abgeleitet – Jellyfin nennt keinen Grund', details };
     }),
-    ...(audio ? [{ key: 'audio', label: audio.label, hint: 'Warum der Ton umgewandelt wird', details: () => audio }] : []),
+    ...(audio ? [{ key: 'audio', label: audio.label, hint: 'Warum der Ton transcodiert wird', details: () => audio }] : []),
   ];
   const selected = entries.find((entry) => entry.key === open);
 

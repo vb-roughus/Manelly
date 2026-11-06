@@ -60,7 +60,7 @@ function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps
           <span className="grid size-8 place-items-center rounded-lg bg-accent/12 text-accent">
             <WandSparkles className="size-4" aria-hidden />
           </span>
-          In Dolby Vision Profil 8.1 umwandeln
+          In Dolby Vision Profil 8.1 konvertieren
         </h2>
         <button type="button" onClick={onClose} aria-label="Schliessen" className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-card-2 hover:text-ink">
           <X className="size-4" aria-hidden />
@@ -81,12 +81,12 @@ function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps
           <Note tone="good">
             {waits ? (
               <>
-                Die Umwandlung von <b>{start.data.title}</b> ist eingeplant: Der Agent startet sie {schedule ? describeSchedule(schedule) : 'nach Zeitplan'} –
+                Die Konvertierung von <b>{start.data.title}</b> ist eingeplant: Der Agent startet sie {schedule ? describeSchedule(schedule) : 'nach Zeitplan'} –
                 auch nach einem Neustart des Servers und wenn Manelly nicht läuft.
               </>
             ) : (
               <>
-                Die Umwandlung von <b>{start.data.title}</b> ist gestartet. Sie läuft auf dem Jellyfin-Server weiter, auch wenn du Manelly
+                Die Konvertierung von <b>{start.data.title}</b> ist gestartet. Sie läuft auf dem Jellyfin-Server weiter, auch wenn du Manelly
                 schliesst.
               </>
             )}{' '}
@@ -94,7 +94,7 @@ function ConvertBody({ itemId, mediaSourceId, onClose }: Omit<ConvertDialogProps
           </Note>
           <div className="flex flex-wrap gap-2">
             <Link to="/conversions/overview" onClick={onClose} className={primaryButton}>
-              Zu den Umwandlungen
+              Zu den Konvertierungen
             </Link>
             <button type="button" onClick={onClose} className={secondaryButton}>
               Schliessen
@@ -187,7 +187,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
         </p>
         <p className="mt-0.5 font-mono text-xs break-all text-ink-2">{options.source.path}</p>
         <p className="mt-2 text-ink-2">
-          Der Agent löst die Videospur heraus, wandelt die Dolby-Vision-Daten mit dovi_tool in Profil 8.1 um und setzt die Datei mit
+          Der Agent löst die Videospur heraus, konvertiert die Dolby-Vision-Daten mit dovi_tool in Profil 8.1 und setzt die Datei mit
           allen Ton- und Untertitelspuren neu zusammen. Das Bild wird nicht neu kodiert; der Enhancement Layer fällt weg.
         </p>
       </div>
@@ -207,8 +207,8 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
             ? 'Neue Datei im selben Ordner. Jellyfin zeigt beide als Versionen desselben Films.'
             : mode === 'replace'
               ? staged
-                ? 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original bleibt im Arbeitsordner statt auf dem Speicher, bis du es unter Umwandlungen → Backups löschst.'
-                : 'Die umgewandelte Datei kommt an die Stelle des Originals. Das Original wird verschoben, nicht gelöscht – Jellyfin ignoriert den Backup-Ordner.'
+                ? 'Die konvertierte Datei kommt an die Stelle des Originals. Das Original bleibt im Arbeitsordner statt auf dem Speicher, bis du es unter Konvertierungen → Backups löschst.'
+                : 'Die konvertierte Datei kommt an die Stelle des Originals. Das Original wird verschoben, nicht gelöscht – Jellyfin ignoriert den Backup-Ordner.'
               : 'In einen Ordner einer Jellyfin-Bibliothek, z. B. eine eigene UHD-Bibliothek.'
         }
       >
@@ -242,7 +242,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
           {work && (
             <Choice
               id={`${id}-where`}
-              label="Wo umwandeln"
+              label="Wo konvertieren"
               value={staged ? 'work' : 'direct'}
               onChange={(value) => setInWork(value === 'work')}
               options={[
@@ -252,8 +252,8 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
               description={
                 work.error ??
                 (staged
-                  ? `Kopiert das Original nach ${work.directory}, wandelt dort um und kopiert das Ergebnis zurück. Der Speicher wird nur beim Kopieren belastet.`
-                  : 'Liest und schreibt während der ganzen Umwandlung dort, wo die Datei liegt.')
+                  ? `Kopiert das Original nach ${work.directory}, konvertiert dort und kopiert das Ergebnis zurück. Der Speicher wird nur beim Kopieren belastet.`
+                  : 'Liest und schreibt während der ganzen Konvertierung dort, wo die Datei liegt.')
               }
             />
           )}
@@ -269,10 +269,10 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
               ]}
               description={
                 !hasSchedule
-                  ? 'Noch kein Zeitplan – einstellen unter Umwandlungen → Einstellungen.'
+                  ? 'Noch kein Zeitplan – einstellen unter Konvertierungen → Einstellungen.'
                   : scheduled
                     ? `Startet ${describeSchedule(schedule)} – auch nach einem Neustart des Servers.`
-                    : 'Startet gleich (oder nach der laufenden Umwandlung) und läuft auch weiter, wenn jemand streamt.'
+                    : 'Startet gleich (oder nach der laufenden Konvertierung) und läuft auch weiter, wenn jemand streamt.'
               }
             />
           )}
@@ -291,7 +291,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
               ? 'Platzbedarf unbekannt'
               : staged
                 ? `Am Ziel etwa ${formatBytes(targetNeeds)} für das Ergebnis`
-                : `Braucht während der Umwandlung etwa ${formatBytes(targetNeeds)}`}
+                : `Braucht während der Konvertierung etwa ${formatBytes(targetNeeds)}`}
             {free !== null && ` · frei: ${formatBytes(free)}`}
           </span>
         </p>
@@ -299,7 +299,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
           <p className="flex items-center gap-1.5 text-ink-2">
             <HardDrive className="size-3.5 shrink-0" aria-hidden />
             <span>
-              Im Arbeitsordner etwa {formatBytes(work.requiredBytes)} während der Umwandlung
+              Im Arbeitsordner etwa {formatBytes(work.requiredBytes)} während der Konvertierung
               {work.freeBytes !== null && ` · frei: ${formatBytes(work.freeBytes)}`}
             </span>
           </p>
@@ -320,7 +320,7 @@ function ConvertForm({ options, schedule, pending, error, onStart, onCancel }: C
         </button>
         <button type="submit" disabled={pending || tooLittleSpace || tooLittleWorkSpace || nameInvalid} className={primaryButton}>
           {pending && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
-          {scheduled && hasSchedule ? 'Umwandlung einplanen' : 'Umwandlung starten'}
+          {scheduled && hasSchedule ? 'Konvertierung einplanen' : 'Konvertierung starten'}
         </button>
       </div>
     </form>

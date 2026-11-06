@@ -1,7 +1,5 @@
-import { useEffect } from 'react';
-import { Link, useLocation } from 'react-router';
 import type { UpdateProgress, UpdateStep } from '@manelly/shared';
-import { Circle, CircleCheck, CircleMinus, LoaderCircle, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { Circle, CircleCheck, CircleMinus, LoaderCircle, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { useWatchAgentRestart, useWatchManellyRestart } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
@@ -11,6 +9,7 @@ import { agentRestartSummary } from '../lib/agentRestart';
 import { manellyRestartSummary } from '../lib/manellyRestart';
 import { restartsNow, type PendingRestart } from '../lib/restart';
 import { Message } from './ConnectionForm';
+import type { AppNotification } from './Notifications';
 
 /** Where restarts and updates are asked for, and followed in detail. */
 const UPDATES_PAGE = '/settings';
@@ -119,7 +118,7 @@ export function RestartResult({ summary }: { summary: { ok: boolean; text: strin
   return <Message tone={summary.ok ? 'good' : 'critical'}>{summary.text}</Message>;
 }
 
-/** In a few words, for the notice on other pages. */
+/** In a few words, for the bell. */
 function pendingText(pending: PendingRestart<unknown>, subject: RestartSubject): { title: string; detail: string } {
   if (!pending.update) return { title: `${subject.name} startet neu …`, detail: 'Bis dahin bleibt der letzte Stand stehen.' };
   if (restartsNow(pending)) return { title: `${subject.name} wird aktualisiert und startet neu …`, detail: 'Bis dahin bleibt der letzte Stand stehen.' };
@@ -128,90 +127,29 @@ function pendingText(pending: PendingRestart<unknown>, subject: RestartSubject):
   return { title: `${subject.name} wird aktualisiert …`, detail };
 }
 
-/**
- * Watches restarts and updates of the agent and of Manelly from any page. Away from the page that asked for one, a
- * notice says that it is under way, and afterwards how it went; that page tells it in more detail itself.
- */
-export function RestartNotices() {
+/** Follows restarts and updates of the agent and of Manelly from any page; mounted once, in the layout. */
+export function RestartWatcher() {
   useWatchAgentRestart();
   useWatchManellyRestart();
-  const path = useLocation().pathname;
-  const manelly = useManellyRestart();
-  const agent = useAgentRestart();
-  return (
-    <>
-      <RestartNotice
-        label="Manelly"
-        hidden={path === UPDATES_PAGE}
-        pending={manelly.pending ? pendingText(manelly.pending, MANELLY) : null}
-        summary={manelly.finished ? manellyRestartSummary(manelly.finished) : null}
-        onDismiss={manellyRestart.dismiss}
-      />
-      <RestartNotice
-        label="Agent"
-        hidden={path === UPDATES_PAGE}
-        pending={agent.pending ? pendingText(agent.pending, AGENT) : null}
-        summary={agent.finished ? agentRestartSummary(agent.finished) : null}
-        onDismiss={agentRestart.dismiss}
-      />
-    </>
-  );
+  return null;
 }
 
-function RestartNotice({
-  label,
-  hidden,
-  pending,
-  summary,
-  onDismiss,
-}: {
-  label: string;
-  hidden: boolean;
-  pending: { title: string; detail: string } | null;
-  summary: { ok: boolean; text: string } | null;
-  onDismiss: () => void;
-}) {
-  const ok = summary?.ok ?? false;
-  const link = (
-    <Link to={UPDATES_PAGE} className="font-medium whitespace-nowrap text-accent hover:underline">
-      Zu den Updates
-    </Link>
-  );
-
-  // A success says its piece and goes; a failure stays until it is closed.
-  useEffect(() => {
-    if (!ok || hidden) return;
-    const timer = window.setTimeout(onDismiss, 15_000);
-    return () => window.clearTimeout(timer);
-  }, [ok, hidden, summary?.text, onDismiss]);
-
-  if (hidden) return null;
-  if (pending) {
-    return (
-      <div role="status" className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-card-2 px-4 py-2.5 text-sm ring-1 ring-line ring-inset">
-        <span className="flex items-center gap-2 font-medium">
-          <LoaderCircle className="size-4 shrink-0 animate-spin text-accent" aria-hidden />
-          {pending.title}
-        </span>
-        <span className="text-ink-2">{pending.detail}</span>
-        <span className="sm:ml-auto">{link}</span>
-      </div>
-    );
+/** Restarts and updates under way, and how the last ones ended, for the bell. */
+export function useRestartNotifications(): AppNotification[] {
+  const manelly = useManellyRestart();
+  const agent = useAgentRestart();
+  const link = { to: UPDATES_PAGE, label: 'Zu den Updates' };
+  const entries: AppNotification[] = [];
+  for (const [key, label, subject, state, summary, dismiss] of [
+    ['manelly', 'Manelly', MANELLY, manelly, manelly.finished && manellyRestartSummary(manelly.finished), manellyRestart.dismiss],
+    ['agent', 'Agent', AGENT, agent, agent.finished && agentRestartSummary(agent.finished), agentRestart.dismiss],
+  ] as const) {
+    if (state.pending) {
+      const { title, detail } = pendingText(state.pending, subject);
+      entries.push({ id: `${key}-pending-${state.pending.since}`, tone: 'progress', title, text: detail, link });
+    } else if (state.finished && summary) {
+      entries.push({ id: `${key}-${state.finished.ended}`, tone: summary.ok ? 'good' : 'critical', title: label, text: summary.text, link, at: state.finished.ended, onDismiss: dismiss });
+    }
   }
-  if (!summary) return null;
-  const Icon = ok ? CircleCheck : TriangleAlert;
-  return (
-    <div
-      role={ok ? 'status' : 'alert'}
-      className={clsx('mb-6 flex items-start gap-3 rounded-xl px-4 py-2.5 text-sm ring-1 ring-inset', ok ? 'bg-good/10 ring-good/25' : 'bg-critical/10 ring-critical/25')}
-    >
-      <Icon className={clsx('mt-0.5 size-4 shrink-0', ok ? 'text-good' : 'text-critical')} aria-hidden />
-      <p className="min-w-0 flex-1 break-words">
-        <b className="font-semibold">{label}:</b> {summary.text} {link}
-      </p>
-      <button type="button" onClick={onDismiss} aria-label="Hinweis schliessen" title="Schliessen" className="-mr-1 rounded-md p-0.5 text-ink-2 hover:text-ink">
-        <X className="size-4" aria-hidden />
-      </button>
-    </div>
-  );
+  return entries;
 }

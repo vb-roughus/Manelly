@@ -84,7 +84,7 @@ const REASONS: Record<string, ReasonText> = {
   },
   VideoRangeTypeNotSupported: {
     label: 'HDR-Format nicht unterstützt',
-    hint: 'Der Client unterstützt das HDR-Format (z. B. Dolby Vision) nicht. Je nach Format schickt Jellyfin eine Rückfallebene wie HDR10 oder wandelt das Video um.',
+    hint: 'Der Client unterstützt das HDR-Format (z. B. Dolby Vision) nicht. Je nach Format schickt Jellyfin eine Rückfallebene wie HDR10 oder transcodiert das Video.',
   },
   VideoCodecTagNotSupported: { label: 'Codec-Tag nicht unterstützt', hint: 'Der Codec-Tag (z. B. hev1 statt hvc1) wird vom Client nicht akzeptiert.' },
   StreamCountExceedsLimit: { label: 'Zu viele Spuren', hint: 'Die Datei enthält mehr Spuren, als der Client verarbeiten kann.' },
@@ -209,10 +209,10 @@ function rangeOutcome(session: StreamSession): { outcome: string | null; tip: st
   } else if (copied) {
     outcome = 'Das Video wird trotzdem nur umgepackt, nicht neu kodiert.';
   } else if (session.transcoding) {
-    outcome = 'Jellyfin kodiert das Video deshalb neu – bei der Umwandlung in SDR mit Tone-Mapping, sofern es eingeschaltet ist.';
+    outcome = 'Jellyfin kodiert das Video deshalb neu – beim Transcode in SDR mit Tone-Mapping, sofern es eingeschaltet ist.';
   }
   const tip = type.startsWith('DOVIWithEL')
-    ? 'Viele Geräte spielen Dolby Vision Profil 8.1, aber nicht Profil 7. Mit dovi_tool lässt sich die Datei in Profil 8.1 umwandeln (der Enhancement Layer fällt dabei weg); dann kann sie direkt abgespielt werden.'
+    ? 'Viele Geräte spielen Dolby Vision Profil 8.1, aber nicht Profil 7. Mit dovi_tool lässt sich die Datei in Profil 8.1 konvertieren (der Enhancement Layer fällt dabei weg); dann kann sie direkt abgespielt werden.'
     : type === 'DOVI'
       ? 'Profil 5 hat keine HDR10-Basis: Geräte ohne Dolby Vision zeigen es nur mit Tone-Mapping richtig an.'
       : null;
@@ -252,11 +252,11 @@ export function explainAudioConversion(session: StreamSession): ReasonDetails | 
     ? `Weil die Datei nicht direkt abgespielt werden kann, packt Jellyfin sie ${into}um`
     : `Für die Wiedergabe packt Jellyfin die Datei ${into}um`;
   const explanation =
-    `Für den Ton nennt Jellyfin keinen eigenen Grund – die Umwandlung ist eine Folge. ${cause}, und darin nimmt der ` +
-    `Client ${original} nicht an. Also wird der Ton in ${target} umgewandelt.`;
+    `Für den Ton nennt Jellyfin keinen eigenen Grund – der Transcode ist eine Folge. ${cause}, und darin nimmt der ` +
+    `Client ${original} nicht an. Also wird der Ton in ${target} transcodiert.`;
   const fewerChannels = audio.channels && transcoding.audioChannels && transcoding.audioChannels < audio.channels;
   const outcome = fewerChannels
-    ? `Statt ${channelsLabel(audio.channels)} gibt es ${channelsLabel(transcoding.audioChannels)}: So viele Kanäle hat der Client für umgewandelten Ton höchstens angefordert.`
+    ? `Statt ${channelsLabel(audio.channels)} gibt es ${channelsLabel(transcoding.audioChannels)}: So viele Kanäle hat der Client für transcodierten Ton höchstens angefordert.`
     : null;
   const androidTv = /android tv/i.test(session.client) ? ' (in Jellyfin Android TV muss dafür die Bitstream-Ausgabe für AC3/E-AC3 aktiv sein)' : '';
   const tip =
@@ -289,7 +289,7 @@ export function explainInferredReason(reason: string, session: StreamSession): R
   return {
     ...details,
     label: `${details.label} (vermutlich)`,
-    outcome: `Jellyfin nennt hier keinen Grund. Laut FFmpeg-Protokoll wird ${from} in ${to} umgewandelt – ein Wechsel des Codecs heisst, dass das Gerät ${from} nicht abspielen kann (oder nicht soll, z. B. wegen einer Einstellung im Client).`,
+    outcome: `Jellyfin nennt hier keinen Grund. Laut FFmpeg-Protokoll wird ${from} in ${to} transcodiert – ein Wechsel des Codecs heisst, dass das Gerät ${from} nicht abspielen kann (oder nicht soll, z. B. wegen einer Einstellung im Client).`,
   };
 }
 
@@ -298,7 +298,7 @@ export function transcodingNote(session: StreamSession): string | null {
   const { transcoding } = session;
   if (!transcoding) {
     return session.playback.method === 'Transcode'
-      ? 'Jellyfin meldet zu diesem Stream keine Details zur Umwandlung und damit auch keinen Grund. Das passiert z. B., wenn ' +
+      ? 'Jellyfin meldet zu diesem Stream keine Details zum Transcode und damit auch keinen Grund. Das passiert z. B., wenn ' +
           'dasselbe Gerät mehrere Jellyfin-Sitzungen hat (zwei Browser-Tabs): Jellyfin hängt die Angaben dann an eine andere Sitzung.'
       : null;
   }

@@ -566,7 +566,7 @@ async function besideOriginal(result: string, request: ConversionRequest, error:
   return {
     output: fallback,
     backup: null,
-    warning: `Das Original liess sich nicht verschieben (${(error as NodeJS.ErrnoException).code ?? 'Fehler'} – wird es gerade abgespielt?). Die umgewandelte Datei liegt daneben.`,
+    warning: `Das Original liess sich nicht verschieben (${(error as NodeJS.ErrnoException).code ?? 'Fehler'} – wird es gerade abgespielt?). Die konvertierte Datei liegt daneben.`,
   };
 }
 
@@ -580,7 +580,7 @@ async function finalizeArchiving(result: string, copy: string, request: Conversi
   // The copy is the original as it was at the start; one that changed since is left alone.
   const [original, copied] = await Promise.all([stat(request.source), stat(copy)]);
   if (original.size !== copied.size) {
-    throw new AgentError(409, `${request.source} hat sich während der Umwandlung verändert – das Original bleibt, wie es ist.`);
+    throw new AgentError(409, `${request.source} hat sich während der Konvertierung verändert – das Original bleibt, wie es ist.`);
   }
   const archived = await archivePath(plan.work!, request.source);
   await mkdir(pathApiFor(archived).dirname(archived), { recursive: true });
@@ -599,7 +599,7 @@ async function finalizeArchiving(result: string, copy: string, request: Conversi
   } catch (error) {
     await rename(parked, request.source).catch(() => {});
     await rename(archived, copy).catch(() => {});
-    throw new AgentError(500, `Die umgewandelte Datei liess sich nicht an ihren Platz verschieben: ${(error as Error).message}`);
+    throw new AgentError(500, `Die konvertierte Datei liess sich nicht an ihren Platz verschieben: ${(error as Error).message}`);
   }
   await unlink(parked);
   return { output: plan.output, backup: archived, warning: null, archived: true };
@@ -625,7 +625,7 @@ async function finalize(muxed: string, request: ConversionRequest, plan: OutputP
     await moveNew(muxed, plan.output);
   } catch (error) {
     await rename(plan.backup, request.source).catch(() => {});
-    throw new AgentError(500, `Die umgewandelte Datei liess sich nicht an ihren Platz verschieben: ${(error as Error).message}`);
+    throw new AgentError(500, `Die konvertierte Datei liess sich nicht an ihren Platz verschieben: ${(error as Error).message}`);
   }
   return { output: plan.output, backup: plan.backup, warning: null };
 }

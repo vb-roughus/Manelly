@@ -12,10 +12,10 @@ const TABS: Array<TabEntry<Tab>> = [
   { id: 'work', label: 'Arbeitsordner', icon: HardDrive },
 ];
 
-/** «Umwandlungen → Einstellungen»: when conversions run, where, and how fast they copy. */
+/** «Konvertierungen → Einstellungen»: when conversions run, where, and how fast they copy. */
 export function ConversionSettingsPage() {
   useEffect(() => {
-    document.title = 'Einstellungen · Umwandlungen · Manelly';
+    document.title = 'Einstellungen · Konvertierungen · Manelly';
   }, []);
   const [tab, selectTab] = useTab(TABS);
   const agent = useAgent();
@@ -23,13 +23,13 @@ export function ConversionSettingsPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <ConversionsHeader title="Einstellungen">Wann Umwandlungen laufen, wo sie umwandeln und wie schnell sie kopieren.</ConversionsHeader>
+      <ConversionsHeader title="Einstellungen">Wann Konvertierungen laufen, wo sie konvertieren und wie schnell sie kopieren.</ConversionsHeader>
 
       <div className="mt-6 space-y-4">
         <AgentNotices agent={agent} />
         {status &&
           (status.schedule ? (
-            <Tabs label="Einstellungen der Umwandlungen" tabs={TABS} tab={tab} onSelect={selectTab}>
+            <Tabs label="Einstellungen der Konvertierungen" tabs={TABS} tab={tab} onSelect={selectTab}>
               {tab === 'schedule' ? (
                 <TabCard>
                   <SchedulePanel schedule={status.schedule} />

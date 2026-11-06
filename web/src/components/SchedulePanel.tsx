@@ -27,7 +27,7 @@ export function SchedulePanel({ schedule }: { schedule: AgentScheduleStatus }) {
   return (
     <form onSubmit={submit} className="text-sm" aria-label="Zeitplan">
       <p className="text-ink-2">
-        Umwandlungen «nach Zeitplan» startet der Agent selbst, sobald alles passt – auch nach einem Neustart des Servers und ohne dass
+        Konvertierungen «nach Zeitplan» startet der Agent selbst, sobald alles passt – auch nach einem Neustart des Servers und ohne dass
         Manelly läuft. «Sofort» gestartete laufen unabhängig davon.
       </p>
 
@@ -48,7 +48,7 @@ export function SchedulePanel({ schedule }: { schedule: AgentScheduleStatus }) {
                 <input type="time" required value={end} onChange={(event) => setEnd(event.target.value)} className={timeClass} />
               </label>
               <span className="text-xs text-ink-3">
-                Uhrzeit des Jellyfin-Servers{timeZone ? ` (${timeZone})` : ''}. Eine laufende Umwandlung darf über das Ende hinaus fertig werden.
+                Uhrzeit des Jellyfin-Servers{timeZone ? ` (${timeZone})` : ''}. Eine laufende Konvertierung darf über das Ende hinaus fertig werden.
               </span>
             </div>
           )}
@@ -59,7 +59,7 @@ export function SchedulePanel({ schedule }: { schedule: AgentScheduleStatus }) {
             <span className="font-medium">Nur wenn niemand streamt</span>
           </label>
           <p className="mt-1 pl-6.5 text-xs text-ink-2">
-            Beginnt ein Stream, pausiert die Umwandlung und macht später beim zuletzt fertigen Schritt weiter. Nach einem Stream wartet
+            Beginnt ein Stream, pausiert die Konvertierung und macht später beim zuletzt fertigen Schritt weiter. Nach einem Stream wartet
             der Agent noch 5 Minuten. Dafür gibt Manelly ihm die Jellyfin-Adresse und den API-Schlüssel.
           </p>
         </div>

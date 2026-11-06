@@ -143,7 +143,7 @@ export function describeFinding(finding: StreamFinding, session: StreamSession):
           return {
             title: 'Kodierung in Software (Disc-Abbild)',
             detail: `ISO-Dateien und Ordner von DVDs oder Blu-rays kodiert Jellyfin immer in Software${encoder}.`,
-            action: 'Die Disc in eine MKV-Datei umwandeln, z. B. mit MakeMKV.',
+            action: 'Die Disc in eine MKV-Datei konvertieren, z. B. mit MakeMKV.',
           };
         default:
           return {
@@ -173,12 +173,12 @@ export function describeFinding(finding: StreamFinding, session: StreamSession):
       return finding.cause === 'disabled'
         ? {
             title: 'HDR ohne Tone-Mapping',
-            detail: `Das ${range}-Video wird in SDR umgewandelt, aber Tone-Mapping ist ausgeschaltet – die Farben wirken blass${range === 'Dolby-Vision' ? ' oder grün-violett' : ''}.`,
+            detail: `Das ${range}-Video wird in SDR transcodiert, aber Tone-Mapping ist ausgeschaltet – die Farben wirken blass${range === 'Dolby-Vision' ? ' oder grün-violett' : ''}.`,
             action: `Unter ${TRANSCODING_SETTINGS} Tone-Mapping einschalten.`,
           }
         : {
             title: 'Tone-Mapping in Software',
-            detail: `Das ${range}-Video wird ohne Hardware-Beschleunigung in SDR umgewandelt – das ist sehr rechenintensiv.`,
+            detail: `Das ${range}-Video wird ohne Hardware-Beschleunigung in SDR transcodiert – das ist sehr rechenintensiv.`,
             action: 'Hardware-Beschleunigung einrichten oder auf einem Gerät mit HDR-Unterstützung abspielen.',
           };
     }

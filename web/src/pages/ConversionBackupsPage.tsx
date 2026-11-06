@@ -5,10 +5,10 @@ import { OriginalsList } from '../components/OriginalsList';
 import { useAgent } from '../hooks/queries';
 import { OLD_DAYS, STALE_DAYS } from '../lib/originals';
 
-/** «Umwandlungen → Backups»: the originals kept in the work folder, until they are deleted here. */
+/** «Konvertierungen → Backups»: the originals kept in the work folder, until they are deleted here. */
 export function ConversionBackupsPage() {
   useEffect(() => {
-    document.title = 'Backups · Umwandlungen · Manelly';
+    document.title = 'Backups · Konvertierungen · Manelly';
   }, []);
   const agent = useAgent();
   const status = agent.data?.status;
@@ -17,7 +17,7 @@ export function ConversionBackupsPage() {
     <div className="mx-auto max-w-4xl">
       <ConversionsHeader title="Backups">
         Was «Original ersetzen» im Arbeitsordner ersetzt hat, bleibt dort, bis du es hier löschst – auf dem Speicher liegt nur noch die
-        umgewandelte Datei. Länger als {OLD_DAYS} Tage aufbewahrt: gelb, länger als {STALE_DAYS} Tage: rot.
+        konvertierte Datei. Länger als {OLD_DAYS} Tage aufbewahrt: gelb, länger als {STALE_DAYS} Tage: rot.
       </ConversionsHeader>
 
       <div className="mt-6 space-y-4">

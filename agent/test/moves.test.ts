@@ -144,7 +144,7 @@ describe('deleting in the extraction folder', () => {
 
   it('keeps what a conversion still works on', async () => {
     const result = await deleteExtracted(extracted, ['Dune (2024)', 'Arrival.mkv'], [], ['Dune (2024)/Dune.mkv']);
-    expect(result).toEqual({ deleted: ['Arrival.mkv'], problems: [{ path: 'Dune (2024)', error: 'Wird gerade umgewandelt – erst danach löschen.' }] });
+    expect(result).toEqual({ deleted: ['Arrival.mkv'], problems: [{ path: 'Dune (2024)', error: 'Wird gerade konvertiert – erst danach löschen.' }] });
     expect(await readdir(extracted)).toEqual(['Dune (2024)']);
   });
 

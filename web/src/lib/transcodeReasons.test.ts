@@ -109,6 +109,6 @@ describe('when Jellyfin names no reason', () => {
 
   it('says so when Jellyfin reports nothing at all', () => {
     const bare = { ...session, transcoding: null, playback: { ...session.playback, method: 'Transcode' } } as StreamSession;
-    expect(transcodingNote(bare)).toMatch(/^Jellyfin meldet zu diesem Stream keine Details zur Umwandlung/);
+    expect(transcodingNote(bare)).toMatch(/^Jellyfin meldet zu diesem Stream keine Details zum Transcode/);
   });
 });

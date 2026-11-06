@@ -26,9 +26,9 @@ export function WorkFolderPanel({ work }: { work: WorkFolderStatus }) {
   return (
     <div className="text-sm">
       <p className="text-ink-2">
-        Ein Ordner auf einer schnellen Platte des Jellyfin-Servers. Umwandlungen kopieren das Original dorthin, wandeln dort um und
+        Ein Ordner auf einer schnellen Platte des Jellyfin-Servers. Konvertierungen kopieren das Original dorthin, konvertieren dort und
         kopieren das Ergebnis zurück – der Speicher, auf dem die Filme liegen, wird so nur beim Kopieren belastet. Wählbar im
-        Umwandlungsdialog.
+        Konvertierungsdialog.
       </p>
 
       <form onSubmit={submit}>
@@ -81,7 +81,7 @@ function DiskSpace({ work }: { work: WorkFolderStatus }) {
   const originals = useOriginals(true);
   const backups = (originals.data?.originals ?? []).reduce((sum, original) => sum + (original.bytes ?? 0), 0);
   const { freeBytes: free, totalBytes: total } = work;
-  const fits = free === null ? null : `Reicht für eine Umwandlung bis etwa ${formatBytes(free / WORK_SPACE_FACTOR)} Filmgrösse – sie braucht dort etwa das Dreifache.`;
+  const fits = free === null ? null : `Reicht für eine Konvertierung bis etwa ${formatBytes(free / WORK_SPACE_FACTOR)} Filmgrösse – sie braucht dort etwa das Dreifache.`;
   if (free === null) return <p className="mt-2 text-xs text-ink-2">Wie viel Platz frei ist, kann der Agent nicht sagen.</p>;
   // Agents before 0.25.0 do not tell the size of the disk.
   if (!total) return <p className="mt-2 text-xs text-ink-2">Frei: {formatBytes(free)}. {fits}</p>;
@@ -162,7 +162,7 @@ function CopyLimitForm({ limit, save }: { limit: CopyLimit; save: ReturnType<typ
         Kopieren begrenzen
       </h3>
       <p className="mt-0.5 text-xs text-ink-2">
-        Damit Streams genug vom Speicher bekommen, während eine Umwandlung das Original holt oder das Ergebnis zurückbringt. Gilt nur
+        Damit Streams genug vom Speicher bekommen, während eine Konvertierung das Original holt oder das Ergebnis zurückbringt. Gilt nur
         fürs Kopieren – «Direkt am Speicherort» lässt sich nicht begrenzen.
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -199,7 +199,7 @@ function CopyLimitForm({ limit, save }: { limit: CopyLimit; save: ReturnType<typ
         <p className="mt-1.5 text-xs text-ink-3">
           Solange jemand streamt, kopiert der Agent höchstens mit: 85 % von dem, was der Speicher schafft − Bitrate der laufenden Streams
           − 20 Mbit/s Reserve. Die 15 % bleiben frei, weil Streams unter Volllast stocken, obwohl die Summe noch passt. Ohne Streams mit
-          voller Geschwindigkeit. Was dein Speicher schafft, zeigt bei einer laufenden Umwandlung im Arbeitsordner die «Auslastung der
+          voller Geschwindigkeit. Was dein Speicher schafft, zeigt bei einer laufenden Konvertierung im Arbeitsordner die «Auslastung der
           Storage-Schnittstelle» unter «Zusammen» – den gemessenen Höchstwert hier eintragen.
         </p>
       )}

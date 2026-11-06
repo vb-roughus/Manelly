@@ -51,7 +51,7 @@ export function AgentPage() {
         <p className="text-sm font-medium text-accent">Server</p>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Agent</h1>
         <p className="mt-1 text-sm text-ink-2">
-          Der Manelly-Agent läuft auf dem Jellyfin-Server: Er wandelt Dateien um, misst die Auslastung, zeichnet auf und steuert JDownloader.
+          Der Manelly-Agent läuft auf dem Jellyfin-Server: Er konvertiert Dateien, misst die Auslastung, zeichnet auf und steuert JDownloader.
         </p>
       </header>
 
@@ -156,7 +156,7 @@ function ProcessPanel({ overview, agentUrl }: { overview: AgentOverview; agentUr
         confirming ? (
           <div className="space-y-3 rounded-xl bg-critical/8 p-4 ring-1 ring-critical/25 ring-inset">
             <p className="text-sm">
-              <b className="font-semibold">Agent beenden?</b> {busy ? <>Gerade läuft eine Umwandlung: {runningJob(busy)}. Sie hält an</> : 'Eine laufende Umwandlung hält an'} und
+              <b className="font-semibold">Agent beenden?</b> {busy ? <>Gerade läuft eine Konvertierung: {runningJob(busy)}. Sie hält an</> : 'Eine laufende Konvertierung hält an'} und
               macht beim nächsten Start weiter. Bis dahin ruhen Aufzeichnung, Messungen und das Bremsen von JDownloader.
             </p>
             {stop.isError && <p className="text-sm text-critical">{stop.error.message}</p>}

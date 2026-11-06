@@ -224,7 +224,7 @@ function AgentPart({
             {updatesWhileRunning(status)
               ? 'Der Agent holt die neue Version auf den Jellyfin-Server und baut sich, während er weiterläuft.'
               : 'Der Agent holt die neue Version auf den Jellyfin-Server, baut sich und startet neu.'}{' '}
-            Läuft gerade eine Umwandlung, fragt Manelly vorher nach.
+            Läuft gerade eine Konvertierung, fragt Manelly vorher nach.
           </p>
         </>
       ) : (
@@ -256,7 +256,7 @@ function BusyQuestion({ job, asked, pending, onConfirm, onCancel }: { job: Conve
       <p className="flex gap-2 text-sm">
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
         <span>
-          <b className="font-semibold">Gerade läuft eine Umwandlung:</b> {runningJob(job)}. {asked.update ? 'Das Update startet den Agent neu und unterbricht' : 'Ein Neustart unterbricht'} sie.
+          <b className="font-semibold">Gerade läuft eine Konvertierung:</b> {runningJob(job)}. {asked.update ? 'Das Update startet den Agent neu und unterbricht' : 'Ein Neustart unterbricht'} sie.
           Danach macht sie weiter – eine Kopie dort, wo sie war, ein anderer Schritt von vorne. Am besten wartest du, bis sie fertig ist.
         </span>
       </p>

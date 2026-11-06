@@ -40,7 +40,7 @@ export function DashboardConversions() {
             className="flex items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <WandSparkles className="size-4 text-accent" aria-hidden />
-            Umwandlungen
+            Konvertierungen
             {(active > 0 || !open) && (
               <span className="text-sm font-normal text-ink-2">
                 · {[active > 0 && `${active} aktiv`, !open && finished > 0 && `${finished} beendet`].filter(Boolean).join(', ')}
@@ -50,7 +50,7 @@ export function DashboardConversions() {
           </button>
         </h2>
         <Link to="/conversions/overview" className="text-sm font-medium text-accent hover:underline">
-          Alle Umwandlungen
+          Alle Konvertierungen
         </Link>
       </div>
       <ul id="conversions-list" hidden={!open} className="grid gap-3 md:grid-cols-2">
@@ -75,7 +75,7 @@ function ConversionTile({ job, now }: { job: ConversionJob; now: number }) {
       </div>
       <div className="mt-2 text-sm">
         {job.state === 'running' && <ConversionProgress job={job} />}
-        {job.state === 'queued' && <p className="line-clamp-2 text-ink-2">{job.waitReason ?? 'Wartet, bis die laufende Umwandlung fertig ist.'}</p>}
+        {job.state === 'queued' && <p className="line-clamp-2 text-ink-2">{job.waitReason ?? 'Wartet, bis die laufende Konvertierung fertig ist.'}</p>}
         {job.state === 'done' && (
           <p className="truncate text-ink-2" title={job.output}>
             {MODE_LABELS[job.mode]} · {fileName(job.output)}

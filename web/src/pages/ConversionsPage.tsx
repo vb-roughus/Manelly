@@ -9,10 +9,10 @@ import { useAgent, useAgentNetwork, useCancelConversion, useConversions, usePaus
 import { formatAgo, formatBitrate, formatBytes, formatEta, joinParts } from '../lib/format';
 import { roleLabel } from '../lib/networkRoles';
 
-/** «Umwandlungen → Übersicht»: the running, waiting and finished conversions. */
+/** «Konvertierungen → Übersicht»: the running, waiting and finished conversions. */
 export function ConversionsPage() {
   useEffect(() => {
-    document.title = 'Umwandlungen · Manelly';
+    document.title = 'Konvertierungen · Manelly';
   }, []);
   const agent = useAgent();
   const configured = agent.data?.configured === true;
@@ -21,7 +21,7 @@ export function ConversionsPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <ConversionsHeader title="Übersicht">
-        Dolby Vision Profil 7 in Profil 8.1 umwandeln – direkt auf dem Jellyfin-Server, mit dem Manelly-Agent.
+        Dolby Vision Profil 7 in Profil 8.1 konvertieren – direkt auf dem Jellyfin-Server, mit dem Manelly-Agent.
       </ConversionsHeader>
 
       <div className="mt-6 space-y-4">
@@ -39,11 +39,11 @@ export function ConversionsPage() {
         {configured && (
           <Panel>
             <p className="text-sm text-ink-2">
-              Gestartet wird eine Umwandlung in den{' '}
+              Gestartet wird eine Konvertierung in den{' '}
               <Link to="/media?dynamicRange=DV7" className="font-medium text-accent hover:underline">
                 Medien mit dem Filter «Dolby Vision P7»
               </Link>
-              : Titel öffnen und «In Profil 8.1 umwandeln» wählen. Zeitplan, Arbeitsordner und Kopieren unter{' '}
+              : Titel öffnen und «In Profil 8.1 konvertieren» wählen. Zeitplan, Arbeitsordner und Kopieren unter{' '}
               <Link to="/conversions/settings" className="font-medium text-accent hover:underline">
                 Einstellungen
               </Link>
@@ -53,7 +53,7 @@ export function ConversionsPage() {
         )}
 
         {jobs.error && <Panel tone="critical">{jobs.error.message}</Panel>}
-        {jobs.data?.length === 0 && <p className="text-sm text-ink-2">Noch keine Umwandlungen.</p>}
+        {jobs.data?.length === 0 && <p className="text-sm text-ink-2">Noch keine Konvertierungen.</p>}
         {jobs.data?.map((job) => <JobCard key={job.id} job={job} />)}
       </div>
     </div>
@@ -125,7 +125,7 @@ function JobCard({ job }: { job: ConversionJob }) {
       {job.state === 'running' && job.paused && (
         <p className="mt-2 flex gap-2 text-sm text-ink-2">
           <Pause className="mt-0.5 size-4 shrink-0" aria-hidden />
-          Pausiert – {job.step ? `«${STEP_LABELS[job.step]}»` : 'die Umwandlung'} ist angehalten und macht beim Fortsetzen genau dort weiter. Andere Umwandlungen
+          Pausiert – {job.step ? `«${STEP_LABELS[job.step]}»` : 'die Konvertierung'} ist angehalten und macht beim Fortsetzen genau dort weiter. Andere Konvertierungen
           warten so lange.
         </p>
       )}
@@ -133,7 +133,7 @@ function JobCard({ job }: { job: ConversionJob }) {
       {job.state === 'queued' && (
         <p className="mt-3 flex gap-2 text-sm text-ink-2">
           <Clock className="mt-0.5 size-4 shrink-0" aria-hidden />
-          {job.waitReason ?? 'Wartet, bis die laufende Umwandlung fertig ist.'}
+          {job.waitReason ?? 'Wartet, bis die laufende Konvertierung fertig ist.'}
         </p>
       )}
       {isActive(job) && Boolean(job.interruptions) && (
@@ -154,7 +154,7 @@ function JobCard({ job }: { job: ConversionJob }) {
           <dd className="font-mono break-all">{job.output}</dd>
           {job.work && (
             <>
-              <dt className="text-ink-3">Umgewandelt in</dt>
+              <dt className="text-ink-3">Konvertiert in</dt>
               <dd className="font-mono break-all">{job.work}</dd>
             </>
           )}

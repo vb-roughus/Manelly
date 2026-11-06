@@ -323,7 +323,7 @@ export function ExtractedList({
       >
         <SamplesForm onClose={() => setDialog(null)} />
       </Modal>
-      <Modal open={converting !== null} onClose={() => setConverting(null)} icon={WandSparkles} title="In Dolby Vision Profil 8.1 umwandeln">
+      <Modal open={converting !== null} onClose={() => setConverting(null)} icon={WandSparkles} title="In Dolby Vision Profil 8.1 konvertieren">
         {converting?.dolbyVision && <ConvertForm entry={converting} info={converting.dolbyVision} directory={directory} onClose={() => setConverting(null)} />}
       </Modal>
     </SelectionContext.Provider>
@@ -384,8 +384,8 @@ function EntryRow({ entry, siblings, now }: { entry: ExtractedEntry; siblings: E
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-card px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-line transition hover:bg-card-2"
           >
             <WandSparkles className="size-3.5 text-accent" aria-hidden />
-            <span className="hidden sm:inline">In Profil 8.1 umwandeln</span>
-            <span className="sm:hidden">Umwandeln</span>
+            <span className="hidden sm:inline">In Profil 8.1 konvertieren</span>
+            <span className="sm:hidden">Konvertieren</span>
           </button>
         )}
       </div>
@@ -419,12 +419,12 @@ function ConversionLine({ job, now }: { job: ConversionJob; now: number }) {
   if (isActive(job)) {
     const doing =
       job.state === 'running'
-        ? joinParts([job.paused ? 'Pausiert' : 'Wird umgewandelt', job.step && STEP_LABELS[job.step], job.progress !== null && `${Math.round(job.progress * 100)} %`])
+        ? joinParts([job.paused ? 'Pausiert' : 'Wird konvertiert', job.step && STEP_LABELS[job.step], job.progress !== null && `${Math.round(job.progress * 100)} %`])
         : job.paused
-          ? 'Umwandlung pausiert'
+          ? 'Konvertierung pausiert'
           : job.scheduled
-            ? 'Umwandlung eingeplant'
-            : 'Umwandlung wartet';
+            ? 'Konvertierung eingeplant'
+            : 'Konvertierung wartet';
     return (
       <span className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-2" role="status">
         <LoaderCircle className={clsx('size-3 shrink-0 text-accent', job.state === 'running' && !job.paused && 'animate-spin')} aria-hidden />
@@ -441,7 +441,7 @@ function ConversionLine({ job, now }: { job: ConversionJob; now: number }) {
     <span className={clsx('mt-0.5 flex items-start gap-1.5 text-xs', failed ? 'text-critical' : 'text-good')}>
       {failed ? <CircleX className="mt-px size-3 shrink-0" aria-hidden /> : <CircleCheck className="mt-px size-3 shrink-0" aria-hidden />}
       <span className="min-w-0">
-        {failed ? `Umwandlung fehlgeschlagen: ${job.error ?? 'unbekannter Fehler'}` : `In Profil 8.1 umgewandelt ${formatAgo(Date.parse(job.finishedAt), now)}`}
+        {failed ? `Konvertierung fehlgeschlagen: ${job.error ?? 'unbekannter Fehler'}` : `In Profil 8.1 konvertiert ${formatAgo(Date.parse(job.finishedAt), now)}`}
         {job.warning && <span className="text-ink-2"> – {job.warning}</span>} · {details}
       </span>
     </span>
@@ -779,7 +779,7 @@ function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<st
       )}
 
       <p className="text-xs text-ink-3">
-        Auf derselben Platte geht das sofort. Sonst kopiert der Agent – so schnell, wie das Kopier-Limit der Umwandlungen es während Streams erlaubt
+        Auf derselben Platte geht das sofort. Sonst kopiert der Agent – so schnell, wie das Kopier-Limit der Konvertierungen es während Streams erlaubt
         – und löscht erst danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet.
       </p>
       {show && (
@@ -902,13 +902,13 @@ function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntr
       <div className="space-y-4 text-sm">
         <Message tone="good">
           {convert.data.scheduled
-            ? `Die Umwandlung ist eingeplant: Der Agent startet sie ${(schedule && describeSchedule(schedule)) ?? 'nach Zeitplan'}.`
-            : 'Die Umwandlung ist gestartet.'}{' '}
+            ? `Die Konvertierung ist eingeplant: Der Agent startet sie ${(schedule && describeSchedule(schedule)) ?? 'nach Zeitplan'}.`
+            : 'Die Konvertierung ist gestartet.'}{' '}
           Bis sie fertig ist, bleibt «{entry.name}» im Entpack-Ordner – verschieben und löschen gehen erst danach.
         </Message>
         <div className="flex flex-wrap justify-end gap-2">
           <Link to="/conversions/overview" className={button}>
-            Zu den Umwandlungen
+            Zu den Konvertierungen
           </Link>
           <button type="button" onClick={onClose} className={primaryButton}>
             Schliessen
@@ -930,7 +930,7 @@ function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntr
         <p className="font-medium break-all">{entry.name}</p>
         <p className="mt-0.5 text-xs text-ink-2">{joinParts([size(entry.bytes), describeDolbyVision(info)])}</p>
         <p className="mt-2 text-ink-2">
-          Viele Geräte spielen Profil 8.1 direkt, Profil 7 aber nicht. Der Agent löst die Videospur heraus, wandelt die Dolby-Vision-Daten mit
+          Viele Geräte spielen Profil 8.1 direkt, Profil 7 aber nicht. Der Agent löst die Videospur heraus, konvertiert die Dolby-Vision-Daten mit
           dovi_tool in Profil 8.1 um und setzt die Datei mit allen Ton- und Untertitelspuren neu zusammen; das Bild wird nicht neu kodiert. Die
           neue Datei ersetzt das Original im Entpack-Ordner – danach kann sie in die Mediathek.
         </p>
@@ -941,7 +941,7 @@ function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntr
           {work?.directory && (
             <Choice
               id={`${id}-where`}
-              label="Wo umwandeln"
+              label="Wo konvertieren"
               value={staged ? 'work' : 'direct'}
               onChange={(value) => setInWork(value === 'work')}
               options={[
@@ -951,8 +951,8 @@ function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntr
               description={
                 work.error ??
                 (staged
-                  ? `Kopiert die Datei nach ${work.directory}, wandelt dort um und kopiert das Ergebnis zurück. Das Original bleibt dort, bis du es unter Umwandlungen → Backups löschst.`
-                  : 'Liest und schreibt während der ganzen Umwandlung im Entpack-Ordner.')
+                  ? `Kopiert die Datei nach ${work.directory}, konvertiert dort und kopiert das Ergebnis zurück. Das Original bleibt dort, bis du es unter Konvertierungen → Backups löschst.`
+                  : 'Liest und schreibt während der ganzen Konvertierung im Entpack-Ordner.')
               }
             />
           )}
@@ -968,10 +968,10 @@ function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntr
               ]}
               description={
                 !hasSchedule
-                  ? 'Noch kein Zeitplan – einstellen unter Umwandlungen → Einstellungen.'
+                  ? 'Noch kein Zeitplan – einstellen unter Konvertierungen → Einstellungen.'
                   : scheduled
                     ? `Startet ${describeSchedule(schedule)} – bis dahin bleibt die Datei im Entpack-Ordner.`
-                    : 'Startet gleich (oder nach der laufenden Umwandlung) und läuft auch weiter, wenn jemand streamt.'
+                    : 'Startet gleich (oder nach der laufenden Konvertierung) und läuft auch weiter, wenn jemand streamt.'
               }
             />
           )}
@@ -980,7 +980,7 @@ function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntr
 
       <div className="space-y-1 rounded-lg bg-card-2 p-3 text-xs text-ink-2">
         <p>
-          Backup des Originals: {staged ? 'im Arbeitsordner, unter Umwandlungen → Backups' : <span className="font-mono break-all">{backup}</span>}
+          Backup des Originals: {staged ? 'im Arbeitsordner, unter Konvertierungen → Backups' : <span className="font-mono break-all">{backup}</span>}
         </p>
         {!staged && (
           <p>
@@ -1004,7 +1004,7 @@ function ConvertForm({ entry, info, directory, onClose }: { entry: ExtractedEntr
         </button>
         <button type="submit" disabled={convert.isPending} className={primaryButton}>
           {convert.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <WandSparkles className="size-4" aria-hidden />}
-          {scheduled && hasSchedule ? 'Umwandlung einplanen' : 'Umwandlung starten'}
+          {scheduled && hasSchedule ? 'Konvertierung einplanen' : 'Konvertierung starten'}
         </button>
       </div>
     </form>

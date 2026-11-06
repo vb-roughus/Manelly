@@ -422,7 +422,7 @@ describe('schedule', () => {
     expect((await put('/api/jellyfin', { url: 'http://unreachable:8096', apiKey: 'key' })).status).toBe(204);
     const settings = await createSettingsStore(path.join(root, 'data'));
     const gate = createGate({ settings: settings.get, fetch: async () => Promise.reject(new TypeError('fetch failed', { cause: new Error('ENOTFOUND') })), now: () => clock });
-    expect(await gate(false)).toMatchObject({ open: false, pause: false, reason: 'Jellyfin ist unter http://unreachable:8096 nicht erreichbar (ENOTFOUND). Ohne Blick auf die Streams startet keine Umwandlung.' });
+    expect(await gate(false)).toMatchObject({ open: false, pause: false, reason: 'Jellyfin ist unter http://unreachable:8096 nicht erreichbar (ENOTFOUND). Ohne Blick auf die Streams startet keine Konvertierung.' });
   });
 
   it('checks the schedule it is given', async () => {
@@ -644,7 +644,7 @@ describe('work folder', () => {
     await waitFor(second.id, (job) => job.step === 'convert');
     await writeFile(source, 'a newer file');
     const failed = await waitFor(second.id, finished);
-    expect(failed.error).toBe(`${source} hat sich während der Umwandlung verändert – das Original bleibt, wie es ist.`);
+    expect(failed.error).toBe(`${source} hat sich während der Konvertierung verändert – das Original bleibt, wie es ist.`);
     expect(await readFile(source, 'utf8')).toBe('a newer file');
     expect(await readdir(path.join(work, 'Originale'))).toEqual([]);
     expect((await readdir(work)).sort()).toEqual(['Originale']);
@@ -788,7 +788,7 @@ describe('restart', () => {
     const job = { id: 'j1', title: 'Film', source, mode: 'alongside', output: 'x', backup: null, state: 'running', step: 'convert', progress: 0.5 };
     await writeFile(path.join(dataDir, 'jobs.json'), JSON.stringify([{ job, request: {}, plan: { directory: media }, restarts: 5 }]));
     const restarted = await createJobQueue({ dataDir, roots: [], tools: async () => tools, tickMs: 0 });
-    expect(restarted.list()[0]).toMatchObject({ state: 'failed', error: 'Der Agent wurde 5-mal mitten in dieser Umwandlung beendet – sie wird nicht mehr fortgesetzt.' });
+    expect(restarted.list()[0]).toMatchObject({ state: 'failed', error: 'Der Agent wurde 5-mal mitten in dieser Konvertierung beendet – sie wird nicht mehr fortgesetzt.' });
     await restarted.stop();
   });
 });
@@ -1022,14 +1022,14 @@ describe('JDownloader routes', () => {
     const job = (await started.json()) as ConversionJob;
     expect(job).toMatchObject({ title: 'Dune.mkv', source: file, output: file });
     await waitFor(job.id, (current) => current.step === 'convert');
-    expect(await refused({ path: 'Dune (2024)/Dune.mkv' })).toEqual([409, 'Für diese Datei läuft schon eine Umwandlung.']);
+    expect(await refused({ path: 'Dune (2024)/Dune.mkv' })).toEqual([409, 'Für diese Datei läuft schon eine Konvertierung.']);
     expect(await (await post('/api/jdownloader/extracted/delete', { paths: ['Dune (2024)'] })).json()).toEqual({
       deleted: [],
-      problems: [{ path: 'Dune (2024)', error: 'Wird gerade umgewandelt – erst danach löschen.' }],
+      problems: [{ path: 'Dune (2024)', error: 'Wird gerade konvertiert – erst danach löschen.' }],
     });
     const moved = await post('/api/jdownloader/extracted/move', { paths: ['Dune (2024)'], target: root, label: 'Filme' });
     expect(moved.status).toBe(409);
-    expect(((await moved.json()) as { error: { message: string } }).error.message).toBe('«Dune (2024)» wird gerade umgewandelt – erst danach verschieben.');
+    expect(((await moved.json()) as { error: { message: string } }).error.message).toBe('«Dune (2024)» wird gerade konvertiert – erst danach verschieben.');
     await call(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
     await waitFor(job.id, finished);
     delete process.env.FAKE_DOVI_SLEEP;
@@ -1181,7 +1181,7 @@ describe('process', () => {
       await waitFor(created.id, (job) => job.step === 'convert');
       const refused = await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: true }) });
       expect(refused.status).toBe(409);
-      expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(/^Gerade läuft die Umwandlung «Film» \(\d+ %\)\. Ein Neustart würde sie unterbrechen/);
+      expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(/^Gerade läuft die Konvertierung «Film» \(\d+ %\)\. Ein Neustart würde sie unterbrechen/);
       expect(exits).toEqual([]);
       expect((await call('/api/restart', { method: 'POST', body: JSON.stringify({ update: false, force: true }) })).status).toBe(202);
       await new Promise((resolve) => setTimeout(resolve, 20));

@@ -141,7 +141,7 @@ function RecordingPanel({ history }: { history: HistoryResponse }) {
         <p className="font-medium">Aufzeichnung ist aus</p>
         <p className="mt-1 max-w-3xl text-sm text-ink-2">
           Eingeschaltet hält der Agent rund um die Uhr alle 15 Sekunden fest, wie stark CPU, GPU und die gewählten Netzwerkschnittstellen ausgelastet sind –
-          und jeden Stream: wer mit welchem Client was abspielt, und warum Jellyfin umwandelt. Läuft der Agent nicht, bleibt eine Lücke. Ein Tag braucht
+          und jeden Stream: wer mit welchem Client was abspielt, und warum Jellyfin transcodiert. Läuft der Agent nicht, bleibt eine Lücke. Ein Tag braucht
           etwa 1 MB.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-4">
@@ -274,12 +274,12 @@ const keyOf = (span: StreamSpan) => span.id + span.start;
 const LOAD_SERIES = {
   cpu: [
     { key: 'cpuJellyfin', label: 'Jellyfin (FFmpeg)', stroke: 'stroke-series-jellyfin', fill: 'fill-series-jellyfin', swatch: 'bg-series-jellyfin' },
-    { key: 'cpuConversion', label: 'Umwandlung', stroke: 'stroke-series-conversion', fill: 'fill-series-conversion', swatch: 'bg-series-conversion' },
+    { key: 'cpuConversion', label: 'Konvertierung', stroke: 'stroke-series-conversion', fill: 'fill-series-conversion', swatch: 'bg-series-conversion' },
     { key: 'cpu', label: 'Gesamt', stroke: 'stroke-ink-3', fill: 'fill-ink-3', swatch: 'bg-ink-3', thin: true },
   ],
   gpu: [
     { key: 'gpuJellyfin', label: 'Jellyfin (FFmpeg)', stroke: 'stroke-series-jellyfin', fill: 'fill-series-jellyfin', swatch: 'bg-series-jellyfin' },
-    { key: 'gpuConversion', label: 'Umwandlung', stroke: 'stroke-series-conversion', fill: 'fill-series-conversion', swatch: 'bg-series-conversion' },
+    { key: 'gpuConversion', label: 'Konvertierung', stroke: 'stroke-series-conversion', fill: 'fill-series-conversion', swatch: 'bg-series-conversion' },
     { key: 'gpu', label: 'Gesamt', stroke: 'stroke-ink-3', fill: 'fill-ink-3', swatch: 'bg-ink-3', thin: true },
   ],
 } satisfies Record<string, Array<ChartSeries<HistoryPoint>>>;

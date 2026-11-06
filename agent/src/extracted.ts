@@ -178,7 +178,7 @@ export async function deleteExtracted(directory: string, paths: string[], moving
     try {
       const full = resolveExtracted(directory, path);
       if (moving.some((busy) => within(busy, path) || within(path, busy))) throw new AgentError(409, 'Wird gerade verschoben – erst danach löschen.');
-      if (converting.some((busy) => within(busy, path))) throw new AgentError(409, 'Wird gerade umgewandelt – erst danach löschen.');
+      if (converting.some((busy) => within(busy, path))) throw new AgentError(409, 'Wird gerade konvertiert – erst danach löschen.');
       const info = await lstat(full).catch(() => null);
       if (!info) throw new AgentError(404, 'Gibt es im Entpack-Ordner nicht (mehr).');
       // A link goes, not what it points to.

@@ -131,8 +131,8 @@ const updater = createUpdater({
     const busy = force ? null : queue.running();
     const moving = force ? null : mover.running();
     if (!busy && !moving) return shutdown('Update fertig, Neustart', RESTART_EXIT);
-    log(`Update fertig – Neustart, sobald ${busy ? `die Umwandlung ${busy.source}` : `das Verschieben nach ${moving!.target}`} fertig ist.`);
-    void Promise.all([queue.idle(), mover.idle()]).then(() => shutdown('Update fertig, Neustart nach Umwandlung und Verschieben', RESTART_EXIT));
+    log(`Update fertig – Neustart, sobald ${busy ? `die Konvertierung ${busy.source}` : `das Verschieben nach ${moving!.target}`} fertig ist.`);
+    void Promise.all([queue.idle(), mover.idle()]).then(() => shutdown('Update fertig, Neustart nach Konvertierung und Verschieben', RESTART_EXIT));
   },
   log,
 });

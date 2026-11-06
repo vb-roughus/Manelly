@@ -175,7 +175,7 @@ export async function planOutput(
 
   const target = output.mode === 'replace' ? api.join(directory, `${stem(source, api)}.mkv`) : api.join(directory, fileName);
   if (output.mode !== 'replace' && samePath(target, source, api)) {
-    throw new AgentError(409, 'Die umgewandelte Datei braucht einen anderen Namen als das Original.');
+    throw new AgentError(409, 'Die konvertierte Datei braucht einen anderen Namen als das Original.');
   }
   // Replacing an .mkv reuses its name; any other existing file stays untouched.
   if (!(output.mode === 'replace' && samePath(target, source, api)) && (await kindOf(target))) {
@@ -184,7 +184,7 @@ export async function planOutput(
 
   let work: string | null = null;
   if (request.work === true) {
-    if (!workFolder) throw new AgentError(400, 'Für den Agent ist kein Arbeitsordner eingerichtet – in Manelly unter Umwandlungen eintragen.');
+    if (!workFolder) throw new AgentError(400, 'Für den Agent ist kein Arbeitsordner eingerichtet – in Manelly unter Konvertierungen eintragen.');
     await requireKind('Der Ordner', workFolder, 'directory', access);
     work = workFolder;
     // Replaced in the work folder, the original stays there instead of in a backup folder on the storage.

@@ -168,7 +168,7 @@ export async function agentRoutes(
       await handOverJellyfin(client);
       const job = await startConversion(requireClient(connection.client), client, request.body);
       watcher.track(job);
-      request.log.info(`Umwandlung gestartet: ${job.source} → ${job.output}`);
+      request.log.info(`Konvertierung gestartet: ${job.source} → ${job.output}`);
       reply.status(201);
       return job;
     },
@@ -178,19 +178,19 @@ export async function agentRoutes(
 
   app.post<{ Params: { id: string } }>('/jobs/:id/pause', async (request): Promise<ConversionJob> => {
     const job = await requireAgent(agent).pauseJob(request.params.id);
-    request.log.info(`Umwandlung pausiert: ${job.source}`);
+    request.log.info(`Konvertierung pausiert: ${job.source}`);
     return job;
   });
 
   app.post<{ Params: { id: string } }>('/jobs/:id/resume', async (request): Promise<ConversionJob> => {
     const job = await requireAgent(agent).resumeJob(request.params.id);
-    request.log.info(`Umwandlung fortgesetzt: ${job.source}`);
+    request.log.info(`Konvertierung fortgesetzt: ${job.source}`);
     return job;
   });
 
   app.post<{ Params: { id: string } }>('/jobs/:id/start', async (request): Promise<ConversionJob> => {
     const job = await requireAgent(agent).startJob(request.params.id);
-    request.log.info(`Umwandlung ohne Zeitplan gestartet: ${job.source}`);
+    request.log.info(`Konvertierung ohne Zeitplan gestartet: ${job.source}`);
     return job;
   });
 
@@ -320,7 +320,7 @@ export async function agentRoutes(
     },
     async (request): Promise<WorkFolderStatus> => {
       const work = await requireAgent(agent).setWorkFolder(request.body.directory);
-      request.log.info(work.directory ? `Arbeitsordner für Umwandlungen: ${work.directory}` : 'Arbeitsordner für Umwandlungen ausgeschaltet');
+      request.log.info(work.directory ? `Arbeitsordner für Konvertierungen: ${work.directory}` : 'Arbeitsordner für Konvertierungen ausgeschaltet');
       return work;
     },
   );
@@ -411,7 +411,7 @@ export async function agentRoutes(
         throw new AppError('BAD_REQUEST', `Der Agent auf ${status.hostname} ${reason} und kann sich nicht neu starten. Einmal scripts\\start-agent.cmd -Install als Administrator ausführen.`, 400);
       }
       const answer = await client.restart(request.body.update, request.body.force);
-      request.log.info(`Agent auf ${status.hostname}: ${request.body.update ? 'Update' : 'Neustart'} angefordert${request.body.force ? ' – auch während einer Umwandlung' : ''}.`);
+      request.log.info(`Agent auf ${status.hostname}: ${request.body.update ? 'Update' : 'Neustart'} angefordert${request.body.force ? ' – auch während einer Konvertierung' : ''}.`);
       return reply.status(202).send(answer);
     },
   );
@@ -550,7 +550,7 @@ export async function agentRoutes(
     },
     async (request, reply): Promise<ConversionJob> => {
       const job = await requireAgent(agent).convertExtracted(request.body);
-      request.log.info(`Umwandlung im Entpack-Ordner gestartet: ${job.source}`);
+      request.log.info(`Konvertierung im Entpack-Ordner gestartet: ${job.source}`);
       return reply.status(202).send(job);
     },
   );
@@ -747,7 +747,7 @@ export async function agentRoutes(
       // The agent needs Jellyfin to see whether anybody streams.
       if (request.body.idleOnly) await handOverJellyfin(client);
       const schedule = await client.setSchedule(request.body);
-      request.log.info(`Zeitplan der Umwandlungen gespeichert: ${request.body.window ? `${request.body.window.start}–${request.body.window.end}` : 'jederzeit'}${request.body.idleOnly ? ', nur ohne Stream' : ''}`);
+      request.log.info(`Zeitplan der Konvertierungen gespeichert: ${request.body.window ? `${request.body.window.start}–${request.body.window.end}` : 'jederzeit'}${request.body.idleOnly ? ', nur ohne Stream' : ''}`);
       return schedule;
     },
   );

@@ -55,7 +55,7 @@ const NAV: Array<NavItem | NavGroup> = [
   { to: '/media', label: 'Medien', icon: Library },
   {
     id: 'conversions',
-    label: 'Umwandlungen',
+    label: 'Konvertierungen',
     icon: WandSparkles,
     children: [
       { to: '/conversions/overview', label: 'Übersicht', icon: ListChecks },

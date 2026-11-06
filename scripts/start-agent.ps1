@@ -125,7 +125,7 @@ function Stop-RunningAgent([int]$Value) {
   foreach ($processId in @($ids | Sort-Object -Unique)) {
     $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
     if (-not $process -or $process.ProcessName -ne 'node') { continue }
-    Write-Info "Beende den laufenden Agent (node.exe, Prozess $processId) – eine laufende Umwandlung macht danach weiter."
+    Write-Info "Beende den laufenden Agent (node.exe, Prozess $processId) – eine laufende Konvertierung macht danach weiter."
     try {
       Stop-Process -Id $processId -Force -ErrorAction Stop
     } catch {
@@ -282,7 +282,7 @@ if ($Install) {
   $runnerArguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$runner`" -Node `"$node`" -Autostart"
   $user = "$env:USERDOMAIN\$env:USERNAME"
   $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-  $task = @{ TaskName = $TaskName; Settings = $taskSettings; Description = 'Manelly-Agent: wandelt auf Anfrage von Manelly Dateien um.'; Force = $true }
+  $task = @{ TaskName = $TaskName; Settings = $taskSettings; Description = 'Manelly-Agent: konvertiert auf Anfrage von Manelly Dateien.'; Force = $true }
 
   if (Test-Admin) {
     # With Windows, before anybody logs on – e.g. after a nightly restart.

@@ -246,7 +246,7 @@ export function createGate({ settings, fetch: fetchImpl = fetch, now = () => new
       streams = await createJellyfinApi(jellyfin, fetchImpl).countStreams();
     } catch (error) {
       // Without knowing about streams, nothing starts – and nothing running is stopped.
-      return result(false, `${(error as Error).message} Ohne Blick auf die Streams startet keine Umwandlung.`);
+      return result(false, `${(error as Error).message} Ohne Blick auf die Streams startet keine Konvertierung.`);
     }
     if (streams > 0) {
       lastStreamAt = date.getTime();

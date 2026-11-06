@@ -25,7 +25,7 @@ export const PLAY_METHODS: Record<PlayMethod, MethodMeta> = {
   },
   DirectStream: {
     label: 'Direct Stream',
-    description: 'Das Video wird kopiert, nur der Ton wird umgewandelt.',
+    description: 'Das Video wird kopiert, nur der Ton wird transcodiert.',
     icon: Shuffle,
     tone: 'bg-info/12 text-info ring-info/25',
   },

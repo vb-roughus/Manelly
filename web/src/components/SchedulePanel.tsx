@@ -1,6 +1,6 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { AgentScheduleStatus, ConversionSchedule } from '@manelly/shared';
-import { CalendarClock, LoaderCircle } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { useSaveSchedule } from '../hooks/queries';
 import { foreignTimeZone } from '../lib/schedule';
 
@@ -8,7 +8,6 @@ const DEFAULT_WINDOW = { start: '01:00', end: '07:00' };
 
 /** When scheduled conversions may run: a time window and/or only while nobody streams. Kept on the agent. */
 export function SchedulePanel({ schedule }: { schedule: AgentScheduleStatus }) {
-  const id = useId();
   const save = useSaveSchedule();
   const [useWindow, setUseWindow] = useState(schedule.window !== null);
   const [start, setStart] = useState(schedule.window?.start ?? DEFAULT_WINDOW.start);
@@ -26,12 +25,8 @@ export function SchedulePanel({ schedule }: { schedule: AgentScheduleStatus }) {
   }
 
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-line bg-card p-4 text-sm" aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`} className="flex items-center gap-2 font-semibold">
-        <CalendarClock className="size-4 text-accent" aria-hidden />
-        Zeitplan
-      </h2>
-      <p className="mt-1 text-ink-2">
+    <form onSubmit={submit} className="text-sm" aria-label="Zeitplan">
+      <p className="text-ink-2">
         Umwandlungen «nach Zeitplan» startet der Agent selbst, sobald alles passt – auch nach einem Neustart des Servers und ohne dass
         Manelly läuft. «Sofort» gestartete laufen unabhängig davon.
       </p>

@@ -1,10 +1,11 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { DiscActivity, DiscDrive, DiscInfo, DiscRead, DiscRip, DiscsStatus, DiscTitle } from '@manelly/shared';
-import { CircleCheck, CircleX, Disc3, Eject, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
+import { CircleCheck, CircleX, Disc3, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Code, Message } from '../components/ConnectionForm';
+import { Tabs, useTab, type TabEntry } from '../components/Tabs';
 import { fetchJson } from '../lib/api';
 import {
   useAgent,
@@ -33,11 +34,19 @@ function Card({ children }: { children: ReactNode }) {
   return <div className="rounded-2xl border border-line bg-card p-4 text-sm shadow-sm shadow-black/5 sm:p-5">{children}</div>;
 }
 
+type Tab = 'drives' | 'rips' | 'settings';
+const TABS: Array<TabEntry<Tab>> = [
+  { id: 'drives', label: 'Laufwerk', icon: Disc3 },
+  { id: 'rips', label: 'Rips', icon: HardDriveDownload },
+  { id: 'settings', label: 'Einstellungen', icon: Settings2 },
+];
+
 /** DVDs from the drive of the Jellyfin server into MKV files, with MakeMKV on the agent. */
 export function DiscsPage() {
   useEffect(() => {
     document.title = 'Discs · Server · Manelly';
   }, []);
+  const [tab, selectTab] = useTab(TABS);
   const agentSettings = useAgentSettings();
   const agent = useAgent({ enabled: Boolean(agentSettings.data?.url) });
   const status = agent.data?.status;
@@ -74,6 +83,9 @@ export function DiscsPage() {
     content = <Setup hostname={status.hostname} />;
   } else {
     const { drives, reads, rips, settings, target, error } = discs.data;
+    const active = (rip: DiscRip) => rip.state === 'queued' || rip.state === 'running';
+    const counts: Record<Tab, number | null> = { drives: null, rips: rips.filter(active).length, settings: null };
+    const tabs = TABS.map((entry) => ({ ...entry, label: entry.id === 'drives' && drives.length > 1 ? 'Laufwerke' : entry.label, count: counts[entry.id] }));
     content = (
       <div className="space-y-4">
         {!target && (
@@ -86,19 +98,36 @@ export function DiscsPage() {
           </Message>
         )}
         {error && <Message tone="critical">{error}</Message>}
-        {drives.length === 0 && !error && <Card>MakeMKV findet auf {status.hostname} kein Laufwerk.</Card>}
-        {drives.map((drive) => (
-          <DriveCard
-            key={drive.index}
-            drive={drive}
-            read={reads.find((entry) => entry.drive === drive.index) ?? null}
-            ripping={rips.some((rip) => rip.drive === drive.index && (rip.state === 'queued' || rip.state === 'running'))}
-            ejectByDefault={settings.eject}
-            canRip={Boolean(target)}
-          />
-        ))}
-        {rips.length > 0 && <Rips rips={rips} />}
-        <AutoSettings auto={settings.auto} eject={settings.eject} />
+        <div>
+          <Tabs label="Discs" tabs={tabs} tab={tab} onSelect={selectTab}>
+            {tab === 'drives' ? (
+              <div className="space-y-4">
+                {drives.length === 0 && !error && <Card>MakeMKV findet auf {status.hostname} kein Laufwerk.</Card>}
+                {drives.map((drive) => (
+                  <DriveCard
+                    key={drive.index}
+                    drive={drive}
+                    read={reads.find((entry) => entry.drive === drive.index) ?? null}
+                    ripping={rips.some((rip) => rip.drive === drive.index && active(rip))}
+                    ejectByDefault={settings.eject}
+                    canRip={Boolean(target)}
+                    onShowRips={() => selectTab('rips')}
+                  />
+                ))}
+              </div>
+            ) : tab === 'rips' ? (
+              rips.length > 0 ? (
+                <Rips rips={rips} />
+              ) : (
+                <Card>
+                  <p className="text-ink-2">Noch nichts gerippt. Im Tab «Laufwerk» die Disc lesen und die Titel wählen.</p>
+                </Card>
+              )
+            ) : (
+              <AutoSettings auto={settings.auto} eject={settings.eject} />
+            )}
+          </Tabs>
+        </div>
       </div>
     );
   }
@@ -196,7 +225,21 @@ function Setup({ hostname }: { hostname: string }) {
 const STATES: Record<DiscDrive['state'], string> = { empty: 'Leer', open: 'Lade offen', loading: 'Disc wird geladen …', inserted: '' };
 const KINDS: Record<string, string> = { dvd: 'DVD', bluray: 'Blu-ray' };
 
-function DriveCard({ drive, read, ripping, ejectByDefault, canRip }: { drive: DiscDrive; read: DiscRead | null; ripping: boolean; ejectByDefault: boolean; canRip: boolean }) {
+function DriveCard({
+  drive,
+  read,
+  ripping,
+  ejectByDefault,
+  canRip,
+  onShowRips,
+}: {
+  drive: DiscDrive;
+  read: DiscRead | null;
+  ripping: boolean;
+  ejectByDefault: boolean;
+  canRip: boolean;
+  onShowRips: () => void;
+}) {
   const readDisc = useReadDisc();
   const eject = useEjectDisc();
   const inserted = drive.state === 'inserted';
@@ -237,8 +280,16 @@ function DriveCard({ drive, read, ripping, ejectByDefault, canRip }: { drive: Di
           <Messages activity={read} />
         </div>
       )}
-      {ripping && <p className="mt-3 text-ink-2">Von dieser Disc wird gerade gerippt – unten der Fortschritt.</p>}
-      {info && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} />}
+      {ripping && (
+        <p className="mt-3 text-ink-2">
+          Von dieser Disc wird gerade gerippt – den Fortschritt zeigt der Tab{' '}
+          <button type="button" onClick={onShowRips} className="font-medium text-accent hover:underline">
+            «Rips»
+          </button>
+          .
+        </p>
+      )}
+      {info && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} onStarted={onShowRips} />}
     </Card>
   );
 }
@@ -324,7 +375,7 @@ function Messages({ activity }: { activity: DiscActivity }) {
 const two = (value: number) => String(value).padStart(2, '0');
 
 /** Which titles to rip, and under which names. */
-function RipForm({ info, ejectByDefault, canRip }: { info: DiscInfo; ejectByDefault: boolean; canRip: boolean }) {
+function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; ejectByDefault: boolean; canRip: boolean; onStarted: () => void }) {
   const id = useId();
   const rip = useRipDisc();
   const [suggested] = useState(() => suggestSelection(info.titles));
@@ -365,7 +416,8 @@ function RipForm({ info, ejectByDefault, canRip }: { info: DiscInfo; ejectByDefa
   function submit(event: FormEvent) {
     event.preventDefault();
     if (problem) return;
-    rip.mutate({ drive: info.drive, folder, titles: chosen.map((title) => ({ index: title.index, fileName: fileName(title.index) })), eject });
+    // The progress shows in the tab «Rips».
+    rip.mutate({ drive: info.drive, folder, titles: chosen.map((title) => ({ index: title.index, fileName: fileName(title.index) })), eject }, { onSuccess: onStarted });
   }
 
   return (
@@ -563,8 +615,7 @@ function Rips({ rips }: { rips: DiscRip[] }) {
   const cancel = useCancelDiscRip();
   return (
     <Card>
-      <p className="font-medium">Rippen</p>
-      <ul className="mt-2 divide-y divide-line">
+      <ul className="-my-3 divide-y divide-line">
         {rips.slice(0, 8).map((rip) => {
           const active = rip.state === 'queued' || rip.state === 'running';
           const done = rip.titles.filter((title) => title.state === 'done').length;
@@ -639,10 +690,7 @@ function AutoSettings({ auto, eject }: { auto: boolean; eject: boolean }) {
   const save = useSetDiscSettings();
   return (
     <Card>
-      <p className="flex items-center gap-2 font-medium">
-        <Settings2 className="size-4 text-accent" aria-hidden /> Einstellungen
-      </p>
-      <label className="mt-3 flex items-start gap-2.5">
+      <label className="flex items-start gap-2.5">
         <input type="checkbox" checked={auto} disabled={save.isPending} onChange={(event) => save.mutate({ auto: event.target.checked, eject })} className="mt-0.5 size-4 accent-accent" />
         <span>
           <span className="font-medium">Automatisch rippen</span>

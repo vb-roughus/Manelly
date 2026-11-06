@@ -1,5 +1,5 @@
 import type { ClickNLoadEvent } from '@manelly/shared';
-import { CircleCheck, CircleX, Download, LoaderCircle, MousePointerClick } from 'lucide-react';
+import { CircleCheck, CircleX, Download, LoaderCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { useAgent, useClickNLoad, useSetLocalClickNLoad } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
@@ -20,16 +20,11 @@ export function ClickNLoadSettings() {
   const agentTooOld = status?.jdownloader !== undefined && !status.jdownloader.links;
 
   return (
-    <section className="mt-6 space-y-4 border-t border-line pt-5 text-sm" aria-labelledby="clicknload-heading">
-      <div>
-        <h3 id="clicknload-heading" className="flex items-center gap-2 font-semibold">
-          <MousePointerClick className="size-4 text-accent" aria-hidden /> Click'n'Load
-        </h3>
-        <p className="mt-1 text-ink-2">
-          Ein Klick auf «Click'n'Load» schickt die Links an einen JDownloader auf dem eigenen Rechner (<Code>127.0.0.1:9666</Code>). Manelly nimmt sie
-          an und übergibt sie mit Paketname und Passwort dem JDownloader auf dem Jellyfin-Server – sie erscheinen im Link Grabber.
-        </p>
-      </div>
+    <div className="space-y-4 text-sm">
+      <p className="text-ink-2">
+        Ein Klick auf «Click'n'Load» schickt die Links an einen JDownloader auf dem eigenen Rechner (<Code>127.0.0.1:9666</Code>). Manelly nimmt sie an
+        und übergibt sie mit Paketname und Passwort dem JDownloader auf dem Jellyfin-Server – sie erscheinen im Link Grabber.
+      </p>
       {agentTooOld && (
         <Message tone="critical">Der Agent ist zu alt für Click'n'Load (ab 0.32.0) – unter Server → Agent «Aktualisieren & neu starten».</Message>
       )}
@@ -105,7 +100,7 @@ export function ClickNLoadSettings() {
           </ul>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 

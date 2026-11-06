@@ -1,12 +1,13 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { FindingSeverity, HardwareTestResult, TranscodeLogInfo, TranscodingReport } from '@manelly/shared';
-import { AppWindow, CircleCheck, CircleMinus, CircleX, Cpu, Info, Library, LoaderCircle, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { AppWindow, CircleCheck, CircleMinus, CircleX, Cpu, Film, Info, Library, LoaderCircle, TriangleAlert, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { LibraryScanPanel } from '../components/LibraryScan';
 import { ManellyProcess } from '../components/ManellyProcess';
 import { SetupPanel } from '../components/SetupPanel';
+import { TabCard, Tabs, useTab, type TabEntry } from '../components/Tabs';
 import { isConfigured, useAgent, useHardwareTest, useSettings, useTranscodingReport } from '../hooks/queries';
 import { codecLabel, joinParts } from '../lib/format';
 import { decoderLabel, hardwareLabel } from '../lib/streamFindings';
@@ -14,13 +15,65 @@ import { describeCheck, HARDWARE_TEST_LABELS } from '../lib/transcodingChecks';
 
 const SYSTEM_LABELS: Record<string, string> = { windows: 'Windows', linux: 'Linux', macos: 'macOS' };
 
+type Tab = 'manelly' | 'libraries' | 'hardware' | 'transcodes';
+const TABS: Array<TabEntry<Tab>> = [
+  { id: 'manelly', label: 'Manelly', icon: AppWindow },
+  { id: 'libraries', label: 'Mediatheken', icon: Library },
+  { id: 'hardware', label: 'Hardware-Beschleunigung', short: 'Hardware', icon: Cpu },
+  { id: 'transcodes', label: 'Letzte Transcodes', short: 'Transcodes', icon: Film },
+];
+
 export function ServerPage() {
   useEffect(() => {
     document.title = 'Allgemein · Server · Manelly';
   }, []);
+  const [tab, selectTab] = useTab(TABS);
   const { data: settings } = useSettings();
   const configured = settings ? isConfigured(settings) : undefined;
   const report = useTranscodingReport(configured === true);
+  const loading = <div aria-busy className="h-64 animate-pulse rounded-2xl bg-card-2" />;
+
+  // Everything but Manelly itself comes from Jellyfin.
+  let panel: ReactNode;
+  if (tab === 'manelly') {
+    panel = (
+      <TabCard>
+        <ManellyProcess />
+      </TabCard>
+    );
+  } else if (configured === false) {
+    panel = <SetupPanel />;
+  } else if (!configured) {
+    panel = loading;
+  } else if (tab === 'libraries') {
+    panel = (
+      <TabCard>
+        <LibraryScanPanel />
+      </TabCard>
+    );
+  } else if (report.error) {
+    panel = <ErrorPanel error={report.error} />;
+  } else if (!report.data) {
+    panel = loading;
+  } else if (tab === 'hardware') {
+    panel = (
+      <TabCard description="Wie Jellyfin Videos beim Transcodieren dekodiert und kodiert – und ob das so passt.">
+        <HardwareReport report={report.data} />
+      </TabCard>
+    );
+  } else {
+    panel = (
+      <TabCard description="Die letzten Transcodes aus den FFmpeg-Protokollen von Jellyfin: ob Grafikkarte oder Prozessor gearbeitet hat.">
+        {!report.data.logsReadable ? (
+          <p className="text-ink-2">Die Protokolle von Jellyfin liessen sich nicht lesen – dafür braucht der API-Schlüssel Administratorrechte.</p>
+        ) : report.data.recent.length === 0 ? (
+          <p className="text-ink-2">In den Protokollen von Jellyfin findet sich noch kein Transcode.</p>
+        ) : (
+          <RecentTranscodes logs={report.data.recent} />
+        )}
+      </TabCard>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -29,72 +82,51 @@ export function ServerPage() {
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Allgemein</h1>
         <p className="mt-1 text-sm text-ink-2">Manelly selbst, die Mediatheken, dazu Transcoding und Hardware-Beschleunigung deines Jellyfin-Servers.</p>
       </header>
-      <div className="mt-6 space-y-6">
-        <Card title="Manelly" icon={AppWindow}>
-          <ManellyProcess />
-        </Card>
-        {configured === false && <SetupPanel />}
-        {configured && (
-          <Card title="Mediatheken" icon={Library}>
-            <LibraryScanPanel />
-          </Card>
-        )}
-        {report.isPending && configured && <div aria-busy className="h-64 animate-pulse rounded-2xl bg-card-2" />}
-        {report.error && <ErrorPanel error={report.error} />}
-        {report.data && <Transcoding report={report.data} />}
+      <div className="mt-6">
+        <Tabs label="Server" tabs={TABS} tab={tab} onSelect={selectTab}>
+          {panel}
+        </Tabs>
       </div>
     </div>
   );
 }
 
-function Transcoding({ report }: { report: TranscodingReport }) {
+function HardwareReport({ report }: { report: TranscodingReport }) {
   return (
     <>
-      <Card title="Hardware-Beschleunigung" icon={Cpu}>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-          <Row label="Beschleunigung">{report.hardwareAcceleration ? hardwareLabel(report.hardwareAcceleration) : 'Keine'}</Row>
-          <Row label="System">{report.operatingSystem ? SYSTEM_LABELS[report.operatingSystem] : '–'}</Row>
-          <Row label="Hardware-Kodierung">
-            {report.hardwareEncoding ? 'Eingeschaltet' : 'Ausgeschaltet'}
-            {report.hardwareEncoding && (
-              <span className="text-ink-2">
-                {' '}
-                · {joinParts(['H.264', report.allowHevcEncoding && 'HEVC', report.allowAv1Encoding && 'AV1'])}
-              </span>
-            )}
-          </Row>
-          <Row label="Hardware-Dekodierung">
-            {report.hardwareDecodingCodecs.length ? report.hardwareDecodingCodecs.map((codec) => codecLabel(codec)).join(', ') : 'Keine Codecs'}
-            {report.hardwareDecodingCodecs.includes('hevc') && <span className="text-ink-2"> · HEVC 10 bit {report.hevc10Bit ? 'an' : 'aus'}</span>}
-          </Row>
-          <Row label="Tone-Mapping">{report.toneMapping ? 'Eingeschaltet' : 'Ausgeschaltet'}</Row>
-          <Row label="FFmpeg">
-            <span className="font-mono text-xs break-all">{report.encoderPath ?? 'von Jellyfin mitgeliefert'}</span>
-          </Row>
-        </dl>
-        <ul className="mt-4 space-y-2.5">
-          {report.checks.map((check) => {
-            const text = describeCheck(check);
-            return (
-              <Finding key={check.kind} severity={check.severity} title={text.title}>
-                <p className="text-ink-2">{text.detail}</p>
-                {text.action && <p className="mt-0.5 text-xs text-ink-3">→ {text.action}</p>}
-              </Finding>
-            );
-          })}
-        </ul>
-        {report.hardwareAcceleration && <HardwareTest />}
-      </Card>
-
-      <Card title="Letzte Transcodes" icon={Cpu}>
-        {!report.logsReadable ? (
-          <p className="text-sm text-ink-2">Die Protokolle von Jellyfin liessen sich nicht lesen – dafür braucht der API-Schlüssel Administratorrechte.</p>
-        ) : report.recent.length === 0 ? (
-          <p className="text-sm text-ink-2">In den Protokollen von Jellyfin findet sich noch kein Transcode.</p>
-        ) : (
-          <RecentTranscodes logs={report.recent} />
-        )}
-      </Card>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+        <Row label="Beschleunigung">{report.hardwareAcceleration ? hardwareLabel(report.hardwareAcceleration) : 'Keine'}</Row>
+        <Row label="System">{report.operatingSystem ? SYSTEM_LABELS[report.operatingSystem] : '–'}</Row>
+        <Row label="Hardware-Kodierung">
+          {report.hardwareEncoding ? 'Eingeschaltet' : 'Ausgeschaltet'}
+          {report.hardwareEncoding && (
+            <span className="text-ink-2">
+              {' '}
+              · {joinParts(['H.264', report.allowHevcEncoding && 'HEVC', report.allowAv1Encoding && 'AV1'])}
+            </span>
+          )}
+        </Row>
+        <Row label="Hardware-Dekodierung">
+          {report.hardwareDecodingCodecs.length ? report.hardwareDecodingCodecs.map((codec) => codecLabel(codec)).join(', ') : 'Keine Codecs'}
+          {report.hardwareDecodingCodecs.includes('hevc') && <span className="text-ink-2"> · HEVC 10 bit {report.hevc10Bit ? 'an' : 'aus'}</span>}
+        </Row>
+        <Row label="Tone-Mapping">{report.toneMapping ? 'Eingeschaltet' : 'Ausgeschaltet'}</Row>
+        <Row label="FFmpeg">
+          <span className="font-mono text-xs break-all">{report.encoderPath ?? 'von Jellyfin mitgeliefert'}</span>
+        </Row>
+      </dl>
+      <ul className="mt-4 space-y-2.5">
+        {report.checks.map((check) => {
+          const text = describeCheck(check);
+          return (
+            <Finding key={check.kind} severity={check.severity} title={text.title}>
+              <p className="text-ink-2">{text.detail}</p>
+              {text.action && <p className="mt-0.5 text-xs text-ink-3">→ {text.action}</p>}
+            </Finding>
+          );
+        })}
+      </ul>
+      {report.hardwareAcceleration && <HardwareTest />}
     </>
   );
 }
@@ -228,20 +260,6 @@ function Finding({ severity, title, children }: { severity: FindingSeverity; tit
         {children}
       </div>
     </li>
-  );
-}
-
-function Card({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-line bg-card p-5 shadow-sm shadow-black/5 sm:p-6">
-      <h2 className="mb-4 flex items-center gap-2.5 font-semibold">
-        <span className="grid size-8 place-items-center rounded-lg bg-accent/12 text-accent">
-          <Icon className="size-4" aria-hidden />
-        </span>
-        {title}
-      </h2>
-      {children}
-    </section>
   );
 }
 

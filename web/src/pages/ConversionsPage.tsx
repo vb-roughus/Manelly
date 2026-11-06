@@ -218,7 +218,7 @@ function StorageLoadDetails() {
     return (
       <p className="text-ink-2">
         Gib in den{' '}
-        <Link to="/settings#network" className="font-medium text-accent hover:underline">
+        <Link to="/settings?tab=network" className="font-medium text-accent hover:underline">
           Einstellungen
         </Link>{' '}
         der Netzwerkschnittstelle zum Speicher (z. B. NAS) die Rolle «Storage», um hier zu sehen, wie ausgelastet sie ist.

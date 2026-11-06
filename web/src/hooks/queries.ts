@@ -11,6 +11,11 @@ import type {
   AgentStatus,
   ArchivedOriginals,
   ClickNLoadStatus,
+  DiscRead,
+  DiscRip,
+  DiscRipRequest,
+  DiscSettings,
+  DiscsStatus,
   ConversionJob,
   ConversionOptions,
   ConversionSchedule,
@@ -963,5 +968,51 @@ export function useSetLocalClickNLoad() {
   return useMutation({
     mutationFn: (local: boolean) => sendJson<ClickNLoadStatus>('PUT', '/api/cnl', { local }),
     onSuccess: (status) => queryClient.setQueryData(['clicknload'], status),
+  });
+}
+
+const ripping = (status: DiscsStatus | undefined) => status?.rips.some((rip) => rip.state === 'queued' || rip.state === 'running') ?? false;
+
+/** From agent 0.33.0: the disc drives of the Jellyfin server, what was read from them and what is being ripped. */
+export function useDiscs(enabled: boolean) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ['discs'],
+    queryFn: ({ signal }) => fetchJson<DiscsStatus>('/api/agent/discs', signal),
+    // Quick while something happens, so reading and ripping show their progress.
+    refetchInterval: (q) => (ripping(q.state.data) || q.state.data?.reads.some((read) => read.state === 'reading') ? 2_000 : 8_000),
+    enabled: useAgentLive(enabled),
+    retry: false,
+  });
+  // A finished rip shows up in the extraction folder.
+  const busy = query.data ? ripping(query.data) : undefined;
+  const previous = useRef(busy);
+  useEffect(() => {
+    if (previous.current && busy === false) void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
+    previous.current = busy;
+  }, [busy, queryClient]);
+  return query;
+}
+
+function useDiscMutation<T, R>(send: (value: T) => Promise<R>) {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: send, onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['discs'] }) });
+}
+
+export const useReadDisc = () => useDiscMutation((drive: number) => sendJson<DiscRead>('POST', '/api/agent/discs/read', { drive }));
+export const useEjectDisc = () => useDiscMutation((drive: number) => sendJson<{ ejected: boolean }>('POST', '/api/agent/discs/eject', { drive }));
+export const useRipDisc = () => useDiscMutation((request: DiscRipRequest) => sendJson<DiscRip>('POST', '/api/agent/discs/rips', request));
+export const useCancelDiscRip = () => useDiscMutation((id: string) => sendJson<DiscRip>('POST', `/api/agent/discs/rips/${encodeURIComponent(id)}/cancel`));
+export const useSetDiscSettings = () => useDiscMutation((settings: DiscSettings) => sendJson<DiscSettings>('PUT', '/api/agent/discs/settings', settings));
+
+/** Titles of the library whose name holds every word of `q`: to see whether a disc is in it already. */
+export function useLibraryMatches(q: string, type: 'Movie' | 'Series') {
+  const params = new URLSearchParams({ q, type, limit: '5' });
+  return useQuery({
+    queryKey: ['media', 'matches', q, type],
+    queryFn: ({ signal }) => fetchJson<MediaSearchResponse>(`/api/media/search?${params}`, signal),
+    enabled: q.length >= 2,
+    staleTime: 60_000,
+    retry: false,
   });
 }

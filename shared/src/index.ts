@@ -1476,7 +1476,8 @@ export interface AgentStatus {
   version: string;
   hostname: string;
   platform: string;
-  tools: { ffmpeg: AgentTool; ffprobe: AgentTool; mkvmerge: AgentTool; doviTool: AgentTool };
+  /** makemkv (makemkvcon, for discs) is missing before 0.33.0. */
+  tools: { ffmpeg: AgentTool; ffprobe: AgentTool; mkvmerge: AgentTool; doviTool: AgentTool; makemkv?: AgentTool };
   /** Folders the agent may work in; empty means any folder Manelly names. */
   roots: string[];
   /** Whether everything needed for a conversion is installed. */
@@ -1517,6 +1518,8 @@ export interface AgentStatus {
   history?: { enabled: boolean };
   /** Missing on agents before 0.7.0, which cannot be stopped from Manelly either. */
   process?: AgentProcess;
+  /** Reads DVDs into MKV files with MakeMKV; missing before agent 0.33.0. */
+  discs?: boolean;
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */
@@ -1768,3 +1771,123 @@ export interface ClickNLoadRequest {
 
 /** The answer to POST /api/cnl/:kind; `duplicate` when the same links came a moment ago and were not handed over again. */
 export type ClickNLoadAnswer = ClickNLoadEvent & { duplicate: boolean };
+
+/** A disc drive of the agent's computer, as MakeMKV sees it. */
+export interface DiscDrive {
+  /** MakeMKV's number of the drive ("disc:0"). */
+  index: number;
+  state: 'empty' | 'open' | 'loading' | 'inserted';
+  /** The drive's model. */
+  name: string;
+  /** "D:" on Windows. */
+  device: string;
+  /** The disc's label; null without a disc. */
+  disc: string | null;
+  kind: 'dvd' | 'bluray' | null;
+  /** A read or a rip is using it right now. */
+  busy: boolean;
+}
+
+export interface DiscStream {
+  /** ISO 639-2, e.g. "deu"; null when the disc does not say. */
+  language: string | null;
+  /** As MakeMKV names it, e.g. "German". */
+  languageName: string | null;
+  codec: string | null;
+  /** Audio: "5.1", "stereo" and the like. */
+  channels: string | null;
+}
+
+/** A title of a disc: a film, an episode, an extra – MakeMKV makes one MKV file of each. */
+export interface DiscTitle {
+  index: number;
+  durationSeconds: number;
+  chapters: number;
+  /** About as big as the MKV file will be; null when MakeMKV does not say. */
+  bytes: number | null;
+  video: { size: string | null; aspect: string | null; codec: string | null } | null;
+  audio: DiscStream[];
+  subtitles: DiscStream[];
+}
+
+export interface DiscInfo {
+  drive: number;
+  /** The disc's title, as MakeMKV reads it; often the label. */
+  name: string;
+  label: string | null;
+  /** "DVD disc", "Blu-ray disc". */
+  type: string | null;
+  /** Titles from 60 seconds on, in the disc's order. */
+  titles: DiscTitle[];
+  readAt: string;
+}
+
+/** Reading a disc's titles takes a while; this is how far it is. */
+export interface DiscRead {
+  drive: number;
+  state: 'reading' | 'done' | 'failed';
+  info: DiscInfo | null;
+  error: string | null;
+}
+
+export interface DiscRipTitle {
+  index: number;
+  fileName: string;
+  bytes: number | null;
+  state: 'waiting' | 'running' | 'done' | 'failed';
+  error: string | null;
+}
+
+/** Ripping titles of a disc into a folder of the extraction folder, one after the other. */
+export interface DiscRip {
+  id: string;
+  drive: number;
+  disc: string;
+  /** The new folder, as a path in the extraction folder. */
+  folder: string;
+  titles: DiscRipTitle[];
+  state: 'queued' | 'running' | 'done' | 'failed' | 'canceled';
+  /** 0–1 over all titles. */
+  progress: number;
+  /** How fast the running title is written. */
+  bytesPerSecond: number | null;
+  error: string | null;
+  /** Ejected afterwards. */
+  eject: boolean;
+  /** Started by itself when the disc came in. */
+  auto: boolean;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface DiscSettings {
+  /** A DVD that comes in is read, its main title ripped and the disc ejected – without anybody asking. */
+  auto: boolean;
+  /** Eject when a rip is done. */
+  eject: boolean;
+}
+
+/** GET /api/discs on the agent (from 0.33.0). */
+export interface DiscsStatus {
+  /** makemkvcon; null when MakeMKV is not installed. */
+  tool: string | null;
+  drives: DiscDrive[];
+  reads: DiscRead[];
+  /** Newest first. */
+  rips: DiscRip[];
+  settings: DiscSettings;
+  /** Where rips go: the extraction folder; null without one. */
+  target: string | null;
+  /** E.g. MakeMKV refuses to run, or no drive could be read. */
+  error: string | null;
+}
+
+/** POST /api/discs/rips on the agent. */
+export interface DiscRipRequest {
+  drive: number;
+  /** The new folder in the extraction folder. */
+  folder: string;
+  titles: Array<{ index: number; fileName: string }>;
+  eject?: boolean;
+}

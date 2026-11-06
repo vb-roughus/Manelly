@@ -1,6 +1,16 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentJellyfinAccess, ConversionGate, ConversionSchedule, ConversionWindow, CopyLimit, HistorySettings, JDownloaderSettings, NetworkRole } from '@manelly/shared';
+import type {
+  AgentJellyfinAccess,
+  ConversionGate,
+  ConversionSchedule,
+  ConversionWindow,
+  CopyLimit,
+  DiscSettings,
+  HistorySettings,
+  JDownloaderSettings,
+  NetworkRole,
+} from '@manelly/shared';
 import type { NetworkCredential } from './drives.js';
 import { AgentError } from './errors.js';
 import { createJellyfinApi } from './jellyfin.js';
@@ -38,11 +48,20 @@ export interface AgentSettings {
   work: string | null;
   /** How fast they copy to and from there. */
   copyLimit: CopyLimit;
+  /** Ripping discs: automatically, and ejecting afterwards. */
+  discs: DiscSettings;
 }
 
 const SETTINGS_FILE = 'settings.json';
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const DEFAULT_SCHEDULE: ConversionSchedule = { window: null, idleOnly: false };
+export const DEFAULT_DISC_SETTINGS: DiscSettings = { auto: false, eject: true };
+
+export function parseDiscSettings(input: unknown): DiscSettings {
+  const { auto, eject } = (input ?? {}) as Partial<DiscSettings>;
+  if (typeof auto !== 'boolean' || typeof eject !== 'boolean') throw new AgentError(400, 'Automatik und Auswerfen erwartet (ja/nein).');
+  return { auto, eject };
+}
 
 export function parseSchedule(input: unknown): ConversionSchedule {
   const value = (input ?? {}) as Partial<ConversionSchedule>;
@@ -130,6 +149,7 @@ export async function createSettingsStore(dataDir: string) {
     networkCredentials: [],
     work: null,
     copyLimit: DEFAULT_COPY_LIMIT,
+    discs: DEFAULT_DISC_SETTINGS,
   };
   try {
     const stored = JSON.parse(await readFile(file, 'utf8')) as Partial<AgentSettings>;
@@ -143,6 +163,7 @@ export async function createSettingsStore(dataDir: string) {
       networkCredentials: Array.isArray(stored.networkCredentials) ? stored.networkCredentials.filter(isCredential) : [],
       work: typeof stored.work === 'string' && stored.work ? stored.work : null,
       copyLimit: stored.copyLimit ? parseCopyLimit(stored.copyLimit) : DEFAULT_COPY_LIMIT,
+      discs: stored.discs ? parseDiscSettings(stored.discs) : DEFAULT_DISC_SETTINGS,
     };
   } catch {
     // Missing or damaged: Manelly sends both again.
@@ -167,6 +188,7 @@ export async function createSettingsStore(dataDir: string) {
     setNetworkCredentials: (networkCredentials: NetworkCredential[]) => save({ ...current, networkCredentials }),
     setWork: (work: string | null) => save({ ...current, work }),
     setCopyLimit: (copyLimit: CopyLimit) => save({ ...current, copyLimit }),
+    setDiscs: (discs: DiscSettings) => save({ ...current, discs }),
   };
 }
 

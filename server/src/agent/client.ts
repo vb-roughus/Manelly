@@ -12,6 +12,11 @@ import type {
   ConversionJob,
   CopyLimit,
   ConversionRequest,
+  DiscRead,
+  DiscRip,
+  DiscRipRequest,
+  DiscSettings,
+  DiscsStatus,
   ConversionSchedule,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
@@ -82,6 +87,13 @@ export interface AgentClient {
   addLinkGrabberContainer(request: LinkGrabberContainerRequest): Promise<LinkGrabberContainerAnswer>;
   /** From agent 0.32.0: links for the link grabber, e.g. from Click'n'Load. */
   addLinkGrabberLinks(request: LinkGrabberLinksRequest): Promise<LinkGrabberLinksAnswer>;
+  /** From agent 0.33.0: DVDs into MKV files with MakeMKV. */
+  discs(): Promise<DiscsStatus>;
+  readDisc(drive: number): Promise<DiscRead>;
+  ejectDisc(drive: number): Promise<{ ejected: boolean }>;
+  ripDisc(request: DiscRipRequest): Promise<DiscRip>;
+  cancelDiscRip(id: string): Promise<DiscRip>;
+  setDiscSettings(settings: DiscSettings): Promise<DiscSettings>;
   /** Moves packages and links from the link grabber to the download list; answers with what is left. */
   moveFromLinkGrabber(request: LinkGrabberMoveRequest): Promise<LinkGrabberStatus>;
   /** From agent 0.29.0: removes packages and links from the link grabber; answers with what is left. */
@@ -186,6 +198,13 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     linkGrabber: () => call('GET', '/api/jdownloader/linkgrabber', undefined, 20_000),
     addLinkGrabberContainer: (request) => call('POST', '/api/jdownloader/linkgrabber/container', request, 30_000),
     addLinkGrabberLinks: (request) => call('POST', '/api/jdownloader/linkgrabber/links', request, 30_000),
+    // Listing the drives starts MakeMKV, which may take a moment.
+    discs: () => call('GET', '/api/discs', undefined, 45_000),
+    readDisc: (drive) => call('POST', '/api/discs/read', { drive }, 45_000),
+    ejectDisc: (drive) => call('POST', '/api/discs/eject', { drive }, 60_000),
+    ripDisc: (request) => call('POST', '/api/discs/rips', request, 60_000),
+    cancelDiscRip: (id) => call('POST', `/api/discs/rips/${encodeURIComponent(id)}/cancel`),
+    setDiscSettings: (settings) => call('PUT', '/api/discs/settings', settings),
     moveFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/move', request, 30_000),
     removeFromLinkGrabber: (request) => call('POST', '/api/jdownloader/linkgrabber/remove', request, 30_000),
     removeDownloads: (request) => call('POST', '/api/jdownloader/downloads/remove', request, 60_000),

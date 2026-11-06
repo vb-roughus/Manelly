@@ -13,6 +13,11 @@ import type {
   CopyLimit,
   ConversionOptions,
   ConversionSchedule,
+  DiscRead,
+  DiscRip,
+  DiscRipRequest,
+  DiscSettings,
+  DiscsStatus,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
   ExtractedConvertRequest,
@@ -547,6 +552,71 @@ export async function agentRoutes(
       const job = await requireAgent(agent).convertExtracted(request.body);
       request.log.info(`Umwandlung im Entpack-Ordner gestartet: ${job.source}`);
       return reply.status(202).send(job);
+    },
+  );
+
+  // DVDs into MKV files on the Jellyfin server; the agent reads the drives with MakeMKV and writes into the extraction folder.
+  app.get('/discs', async (): Promise<DiscsStatus> => requireAgent(agent).discs());
+
+  const driveBody = {
+    body: { type: 'object', additionalProperties: false, required: ['drive'], properties: { drive: { type: 'integer', minimum: 0, maximum: 99 } } },
+  };
+  app.post<{ Body: { drive: number } }>('/discs/read', { schema: driveBody }, async (request, reply): Promise<DiscRead> => {
+    return reply.status(202).send(await requireAgent(agent).readDisc(request.body.drive));
+  });
+  app.post<{ Body: { drive: number } }>('/discs/eject', { schema: driveBody }, async (request) => requireAgent(agent).ejectDisc(request.body.drive));
+
+  app.post<{ Body: DiscRipRequest }>(
+    '/discs/rips',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['drive', 'folder', 'titles'],
+          properties: {
+            drive: { type: 'integer', minimum: 0, maximum: 99 },
+            folder: { type: 'string', minLength: 1, maxLength: 200 },
+            titles: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 200,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['index', 'fileName'],
+                properties: { index: { type: 'integer', minimum: 0 }, fileName: { type: 'string', minLength: 1, maxLength: 255 } },
+              },
+            },
+            eject: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (request, reply): Promise<DiscRip> => {
+      const rip = await requireAgent(agent).ripDisc(request.body);
+      request.log.info(`Disc «${rip.disc}» wird gerippt: ${rip.titles.length} Titel nach ${rip.folder}`);
+      return reply.status(202).send(rip);
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/discs/rips/:id/cancel',
+    { schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^[\\w-]{1,64}$' } } } } },
+    async (request): Promise<DiscRip> => requireAgent(agent).cancelDiscRip(request.params.id),
+  );
+
+  app.put<{ Body: DiscSettings }>(
+    '/discs/settings',
+    {
+      schema: {
+        body: { type: 'object', additionalProperties: false, required: ['auto', 'eject'], properties: { auto: { type: 'boolean' }, eject: { type: 'boolean' } } },
+      },
+    },
+    async (request): Promise<DiscSettings> => {
+      const settings = await requireAgent(agent).setDiscSettings(request.body);
+      request.log.info(`Discs: automatisch ${settings.auto ? 'ein' : 'aus'}, auswerfen ${settings.eject ? 'ein' : 'aus'}`);
+      return settings;
     },
   );
 

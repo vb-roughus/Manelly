@@ -25,6 +25,7 @@ import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
 import { createMover } from '../src/moves.js';
 import { createCopyLimiter } from '../src/copyLimit.js';
+import { createDiscs } from '../src/discs.js';
 import { createOriginals } from '../src/originals.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
 import { createResourceMonitor, type ResourceMonitor } from '../src/resources.js';
@@ -197,6 +198,8 @@ async function start() {
     },
     drives: fakeDrives,
     originals,
+    // Without MakeMKV: the routes and settings; ripping itself is tested in discs.test.ts.
+    discs: createDiscs({ tool: async () => null, settings: { get: () => settings.get().discs, set: settings.setDiscs }, target: () => settings.get().jdownloader.extractTo ?? null }),
     mover: createMover({
       rename: async (from, to) => {
         await moveHold;
@@ -1033,6 +1036,23 @@ describe('JDownloader routes', () => {
 
     const again = (await (await convert({ path: 'Dune (2024)/Dune.mkv' })).json()) as ConversionJob;
     expect(await waitFor(again.id, finished)).toMatchObject({ state: 'done', output: file, backup: path.join(extracted, 'Dune (2024)', '.manelly-backup', 'Dune.mkv') });
+  });
+
+  it('answers about discs, and keeps their settings', async () => {
+    expect(((await (await call('/api/status')).json()) as AgentStatus).discs).toBe(true);
+    expect(await (await call('/api/discs')).json()).toEqual({ tool: null, drives: [], reads: [], rips: [], settings: { auto: false, eject: true }, target: null, error: null });
+    const refused = async (pathname: string, body: unknown, method = 'POST') => {
+      const response = await call(pathname, { method, body: JSON.stringify(body) });
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refused('/api/discs/read', { drive: 'D:' })).toEqual([400, 'Das Laufwerk (Nummer) erwartet.']);
+    expect(await refused('/api/discs/read', { drive: 0 })).toEqual([409, 'MakeMKV fehlt auf dem Server – zuerst installieren (makemkv.com).']);
+    expect(await refused('/api/discs/rips', { drive: 0, folder: 'Nemo', titles: [{ index: 0, fileName: 'Nemo.mkv' }] })).toEqual([409, 'MakeMKV fehlt auf dem Server – zuerst installieren (makemkv.com).']);
+    expect(await refused('/api/discs/rips/abc/cancel', {})).toEqual([404, 'Diesen Auftrag gibt es nicht (mehr).']);
+    expect(await refused('/api/discs/settings', { auto: 'ja', eject: true }, 'PUT')).toEqual([400, 'Automatik und Auswerfen erwartet (ja/nein).']);
+    const saved = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: true, eject: false }) });
+    expect(await saved.json()).toEqual({ auto: true, eject: false });
+    expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({ auto: true, eject: false });
   });
 
   it('hands single links to the link grabber, with package name and password', async () => {

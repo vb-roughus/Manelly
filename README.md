@@ -108,7 +108,7 @@ kennt, findet nur der Scan der Mediathek.
 
 ### Server
 
-Im Menü öffnet und schliesst «Server» drei Seiten: **Allgemein**, **Agent** und **JDownloader**.
+Im Menü öffnet und schliesst «Server» vier Seiten: **Allgemein**, **Agent**, **JDownloader** und **Discs**.
 
 - **Allgemein – Manelly selbst:** Stand (Git-Commit), Rechner, Prozess-ID, Startzeit und das letzte Update; neu
   starten und aktualisieren unter **Einstellungen → Updates** – siehe [Manelly aktualisieren](#manelly-aktualisieren)
@@ -303,6 +303,34 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
   **Deprecated API** einschalten (die Einstellung «nur localhost» kann eingeschaltet bleiben – der Agent läuft auf
   demselben Rechner). Dann in Manelly unter **Server → JDownloader** über das Zahnrad «JDownloader einbinden» wählen; die Adresse
   ist meist `http://127.0.0.1:3128`
+
+### Discs (DVDs in MKV, mit Agent ab 0.33.0)
+
+Unter **Server → Discs** liest der Agent DVDs aus dem Laufwerk des Jellyfin-Servers und überführt sie ohne
+Qualitätsverlust in MKV-Dateien – mit allen Ton- und Untertitelspuren und Kapiteln; das Bild wird nicht neu kodiert. Das
+übernimmt **MakeMKV**, das einmal auf dem Jellyfin-Server installiert wird ([makemkv.com](https://www.makemkv.com/download/),
+für DVDs gratis, auch nach der Testzeit; einmal starten und die Lizenz bestätigen). Der Agent findet `makemkvcon64.exe`
+unter `C:\Program Files (x86)\MakeMKV` von selbst, sonst in `agent.json` unter `tools.makemkv` eintragen. Meldet
+MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monaten), die neue Version darüber installieren.
+
+- Die Seite zeigt das Laufwerk und die eingelegte Disc. **«Disc lesen»** listet die Titel mit Länge, Kapiteln, Grösse,
+  Bild sowie Ton- und Untertitelspuren (Titel unter einer Minute – Menüs, Trailer – lässt MakeMKV weg)
+- **Film oder Serie** erkennt Manelly selbst: Bei einem Film ist der Hauptfilm (der längste Titel) angekreuzt, bei einer
+  Serien-DVD sind es die Folgen – Titel ähnlicher Länge, ohne den «Alle abspielen»-Titel. Der Name kommt aus dem Namen
+  der Disc («FINDET_NEMO» → «Findet Nemo», «DARK_S2_D1» → Serie «Dark», Staffel 2). Filme heissen dann
+  `Name.mkv` (am besten mit Jahr, z. B. «Findet Nemo (2003)»), Folgen `Name S02E05.mkv` ab der angegebenen ersten Folge;
+  jeder Dateiname lässt sich noch ändern
+- **Schon in der Mediathek?** Zum Namen sucht Manelly im Medienindex nach dem Film bzw. der Serie und zeigt Treffer mit
+  Jahr, Auflösung und Anzahl Folgen – mit Link in die Medien
+- **«Rippen»** schreibt die gewählten Titel in einen neuen Ordner im **Entpack-Ordner** (bei Serien «Name S02»), mit
+  Fortschritt, Tempo und Restzeit; danach wirft der Agent die Disc aus (abschaltbar). Die Dateien erscheinen unter
+  JDownloader → **Extracted** und kommen von dort mit «Move to Library» in die Mediathek. Der Agent prüft vorher den
+  Platz und überschreibt nichts; ein Neustart des Agents fragt nach, solange gerippt wird
+- **Automatisch rippen** (Einstellung auf der Seite): Eine eingelegte DVD liest der Agent selbst, rippt den Hauptfilm in
+  einen Ordner mit dem Namen der Disc und wirft sie aus – auch ohne dass Manelly offen ist; Disc nach Disc einlegen
+  genügt. Serien-DVDs besser von Hand
+- Kopien eigener Discs für den Eigengebrauch sind in der Schweiz erlaubt; die Entschlüsselung übernimmt MakeMKV.
+  Blu-rays kann MakeMKV auch (mit Beta-Schlüssel oder Lizenz), UHD-Blu-rays nur mit einem «LibreDrive»-Laufwerk
 
 ### Troubleshooting (Aufzeichnung, mit Agent)
 

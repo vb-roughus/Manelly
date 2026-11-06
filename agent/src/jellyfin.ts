@@ -1,6 +1,6 @@
 import type { AgentJellyfinAccess, ConversionJob } from '@manelly/shared';
 
-export const AGENT_VERSION = '0.34.0';
+export const AGENT_VERSION = '0.34.1';
 const TIMEOUT_MS = 8000;
 
 interface JfMediaStream {

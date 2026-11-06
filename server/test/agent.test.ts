@@ -100,7 +100,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         return Response.json({ accounts: [{ id: 7, hoster: 'rapidgator.net', username: 'rolf', state: 'ok', error: null, validUntil: null, trafficLeft: 87e9, trafficMax: 100e9, unlimited: false }] });
       }
       if (url.pathname.startsWith('/api/discs')) {
-        sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
+        sent.jdownloader.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
         if (url.pathname === '/api/discs/read') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null }, { status: 202 });
         if (url.pathname === '/api/discs/eject') return Response.json({ ejected: true });
         if (url.pathname === '/api/discs/read/cancel') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null });
@@ -553,6 +553,7 @@ describe('agent connection', () => {
     const { app, world } = await setup();
     const inject = (method: 'GET' | 'POST' | 'PUT', url: string, payload?: object) => app.inject({ method, url: `/api/agent/discs${url}`, payload });
     expect((await inject('GET', '')).json()).toMatchObject({ target: 'D:\\Entpackt' });
+    expect((await inject('GET', '?refresh=1')).statusCode).toBe(200);
     expect((await inject('POST', '/read', { drive: 0 })).statusCode).toBe(202);
     expect((await inject('POST', '/read', { drive: 'D:' })).statusCode).toBe(400);
     expect((await inject('POST', '/eject', { drive: 0 })).json()).toEqual({ ejected: true });
@@ -567,6 +568,7 @@ describe('agent connection', () => {
     expect((await inject('PUT', '/settings', { auto: true })).statusCode).toBe(400);
     expect(world.sent.jdownloader.map((entry) => `${entry.method} ${entry.path}`)).toEqual([
       'GET /api/discs',
+      'GET /api/discs?refresh=1',
       'POST /api/discs/read',
       'POST /api/discs/eject',
       'POST /api/discs/read/cancel',

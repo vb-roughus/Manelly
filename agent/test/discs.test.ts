@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DiscSettings } from '@manelly/shared';
-import { createDiscs, folderNameFrom, mainTitle } from '../src/discs.js';
+import { createDiscs, ejectDisc, ejectScript, folderNameFrom, mainTitle } from '../src/discs.js';
 import { createActivity, durationSeconds, parseDiscInfo, parseDrives, parseRobotLine, runMakemkv } from '../src/makemkv.js';
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-makemkvcon.cjs', import.meta.url));
@@ -138,6 +138,15 @@ describe('makemkvcon output', () => {
     expect([activity.step, activity.stepProgress]).toEqual(['Saving to MKV file', null]);
   });
 
+  it('ejects on Windows through the drive, with numbers Windows PowerShell takes as UInt32', async () => {
+    const script = ejectScript('E');
+    expect(script).toContain("CreateFile('\\\\.\\E:', [UInt32]2147483648,");
+    // 0x80000000 is a negative Int32 for Windows PowerShell 5.1, which CreateFile refuses.
+    expect(script).not.toMatch(/0x[89A-F][0-9A-F]{7}/i);
+    expect(script).toContain('[UInt32]2967560');
+    await expect(ejectDisc('/dev/sr0', 'win32')).rejects.toThrow('Unbekanntes Laufwerk «/dev/sr0».');
+  });
+
   it('names folders after discs and finds the main title', () => {
     expect(folderNameFrom('FINDET_NEMO')).toBe('Findet Nemo');
     expect(folderNameFrom('Die Hard: With a Vengeance')).toBe('Die Hard With a Vengeance');
@@ -208,6 +217,20 @@ describe('ripping discs', () => {
     await expect(runMakemkv(FAKE, ['-r', '--progress=-same', 'info', 'disc:0'], { timeoutMs: 300 })).rejects.toThrow(
       "MakeMKV war nach 0 Sekunden nicht fertig und wurde abgebrochen. Zuletzt: Using direct disc access mode Error 'Scsi error - MEDIUM ERROR' occurred while reading",
     );
+  });
+
+  it('forgets the titles of a disc that was swapped by hand, and asks the drive again when told', async () => {
+    const discs = service();
+    await discs.status();
+    await discs.read(0);
+    for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((await discs.status()).reads[0]?.state).toBe('done');
+    // Another disc goes in, without Manelly: the cached list still shows the old one until asked again.
+    await insert('series');
+    expect((await discs.status()).drives[0]?.disc).toBe('FINDET_NEMO');
+    const fresh = await discs.status(true);
+    expect(fresh.drives[0]?.disc).toBe('DARK_S1_D1');
+    expect(fresh.reads).toEqual([]);
   });
 
   it('checks a rip before it starts', async () => {

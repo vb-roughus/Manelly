@@ -556,7 +556,11 @@ export async function agentRoutes(
   );
 
   // DVDs into MKV files on the Jellyfin server; the agent reads the drives with MakeMKV and writes into the extraction folder.
-  app.get('/discs', async (): Promise<DiscsStatus> => requireAgent(agent).discs());
+  app.get<{ Querystring: { refresh?: '1' } }>(
+    '/discs',
+    { schema: { querystring: { type: 'object', properties: { refresh: { type: 'string', enum: ['1'] } } } } },
+    async (request): Promise<DiscsStatus> => requireAgent(agent).discs(request.query.refresh === '1'),
+  );
 
   const driveBody = {
     body: { type: 'object', additionalProperties: false, required: ['drive'], properties: { drive: { type: 'integer', minimum: 0, maximum: 99 } } },

@@ -3,14 +3,22 @@ import { Link } from 'react-router';
 import { CloudDownload, Network, Plug } from 'lucide-react';
 import { ConnectionForm } from '../components/ConnectionForm';
 import { NetworkInterfacesForm } from '../components/NetworkInterfacesForm';
-import { SettingsSection } from '../components/SettingsSection';
+import { TabCard, Tabs, useTab, type TabEntry } from '../components/Tabs';
 import { UpdatesPanel } from '../components/Updates';
 import { useAgentSettings } from '../hooks/queries';
+
+type Tab = 'updates' | 'jellyfin' | 'network';
+const TABS: Array<TabEntry<Tab>> = [
+  { id: 'updates', label: 'Updates', icon: CloudDownload },
+  { id: 'jellyfin', label: 'Jellyfin-Verbindung', short: 'Jellyfin', icon: Plug },
+  { id: 'network', label: 'Netzwerk', icon: Network },
+];
 
 export function SettingsPage() {
   useEffect(() => {
     document.title = 'Einstellungen · Manelly';
   }, []);
+  const [tab, selectTab] = useTab(TABS);
   const agentSettings = useAgentSettings();
 
   return (
@@ -31,24 +39,37 @@ export function SettingsPage() {
         </p>
       </header>
 
-      <SettingsSection id="updates" icon={CloudDownload} title="Updates" description="Manelly und den Agent auf den neuesten Stand bringen oder neu starten.">
-        <UpdatesPanel />
-      </SettingsSection>
-
-      <SettingsSection icon={Plug} title="Jellyfin-Verbindung" description="Der API-Schlüssel bleibt auf dem Manelly-Server und wird nie angezeigt.">
-        <ConnectionForm />
-      </SettingsSection>
-
-      {agentSettings.data?.url && (
-        <SettingsSection
-          id="network"
-          icon={Network}
-          title="Netzwerk des Jellyfin-Servers"
-          description="Welche Schnittstellen das Dashboard zeigt und wofür sie da sind. Der Agent misst nur diese, und nur solange Manelly sie anzeigt oder aufzeichnet."
-        >
-          <NetworkInterfacesForm />
-        </SettingsSection>
-      )}
+      <div className="mt-6">
+        <Tabs label="Einstellungen" tabs={TABS} tab={tab} onSelect={selectTab}>
+          {tab === 'updates' ? (
+            <TabCard description="Manelly und den Agent auf den neuesten Stand bringen oder neu starten.">
+              <UpdatesPanel />
+            </TabCard>
+          ) : tab === 'jellyfin' ? (
+            <TabCard description="Der API-Schlüssel bleibt auf dem Manelly-Server und wird nie angezeigt.">
+              <ConnectionForm />
+            </TabCard>
+          ) : (
+            <TabCard description="Welche Schnittstellen des Jellyfin-Servers das Dashboard zeigt und wofür sie da sind. Der Agent misst nur diese, und nur solange Manelly sie anzeigt oder aufzeichnet.">
+              {agentSettings.error ? (
+                <p className="text-critical">{agentSettings.error.message}</p>
+              ) : !agentSettings.data ? (
+                <div aria-busy className="h-24 animate-pulse rounded-xl bg-card-2" />
+              ) : agentSettings.data.url ? (
+                <NetworkInterfacesForm />
+              ) : (
+                <p className="text-ink-2">
+                  Die Schnittstellen misst der Agent auf dem Jellyfin-Server. Zuerst den Agent unter{' '}
+                  <Link to="/server/agent" className="font-medium text-accent hover:underline">
+                    Server → Agent
+                  </Link>{' '}
+                  verbinden.
+                </p>
+              )}
+            </TabCard>
+          )}
+        </Tabs>
+      </div>
     </div>
   );
 }

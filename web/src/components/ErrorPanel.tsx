@@ -92,7 +92,7 @@ export function ErrorPanel({ error }: { error: unknown }) {
       )}
       {guide?.settings && (
         <Link
-          to="/settings"
+          to="/settings?tab=jellyfin"
           className="mt-5 inline-flex items-center gap-2 rounded-lg bg-card-2 px-3 py-2 text-sm font-medium ring-1 ring-line transition hover:bg-card hover:ring-accent/40"
         >
           <Settings className="size-4" aria-hidden />

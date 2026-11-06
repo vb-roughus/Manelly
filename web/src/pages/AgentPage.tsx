@@ -7,28 +7,43 @@ import { AgentForm } from '../components/AgentForm';
 import { NetworkDrives } from '../components/NetworkDrives';
 import { Code, Message } from '../components/ConnectionForm';
 import { runningJob } from '../components/ConversionStatus';
-import { SettingsSection } from '../components/SettingsSection';
+import { TabCard, Tabs, useTab, type TabEntry } from '../components/Tabs';
 import { useAgent, useAgentSettings, useConversions, useStopAgent } from '../hooks/queries';
 import { useAgentRestart } from '../hooks/useAgentRestart';
 import { formatSpan } from '../lib/timeline';
 
 const PLATFORMS: Record<string, string> = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
 
+type Tab = 'connection' | 'process';
+const TABS: Array<TabEntry<Tab>> = [
+  { id: 'connection', label: 'Verbindung', icon: Plug },
+  { id: 'process', label: 'Prozess', icon: Activity },
+];
+
 export function AgentPage() {
   useEffect(() => {
     document.title = 'Agent · Server · Manelly';
   }, []);
   const settings = useAgentSettings();
-  // The same query as the connection form above.
+  // The same query as the connection form.
   const overview = useAgent({ refreshTools: true, enabled: Boolean(settings.data?.url) });
   const { pending } = useAgentRestart();
   const agentUrl = settings.data?.url;
+  const [tab, selectTab] = useTab(TABS);
   // During a restart the notice on top of the page tells how it goes.
-  const process = !agentUrl ? null : pending ? (
-    <p className="text-sm text-ink-2">Der Agent startet gerade neu oder wird aktualisiert.</p>
+  const process = !settings.data ? (
+    <div aria-busy className="h-24 animate-pulse rounded-xl bg-card-2" />
+  ) : !agentUrl ? (
+    <p className="text-ink-2">Zuerst den Agent im Tab «Verbindung» verbinden.</p>
+  ) : pending ? (
+    <p className="text-ink-2">Der Agent startet gerade neu oder wird aktualisiert.</p>
   ) : overview.data ? (
     <ProcessPanel overview={overview.data} agentUrl={agentUrl} />
-  ) : null;
+  ) : overview.error ? (
+    <Message tone="critical">{overview.error.message}</Message>
+  ) : (
+    <div aria-busy className="h-24 animate-pulse rounded-xl bg-card-2" />
+  );
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -40,15 +55,17 @@ export function AgentPage() {
         </p>
       </header>
 
-      <SettingsSection icon={Plug} title="Verbindung" description="Adresse und Schlüssel des Agents. Manelly prüft beides, bevor es speichert.">
-        <AgentForm />
-      </SettingsSection>
-
-      {process && (
-        <SettingsSection icon={Activity} title="Prozess" description="Wo der Agent läuft, seit wann – und ihn beenden. Neu starten und aktualisieren unter Einstellungen → Updates.">
-          {process}
-        </SettingsSection>
-      )}
+      <div className="mt-6">
+        <Tabs label="Agent" tabs={TABS} tab={tab} onSelect={selectTab}>
+          {tab === 'connection' ? (
+            <TabCard description="Adresse und Schlüssel des Agents. Manelly prüft beides, bevor es speichert.">
+              <AgentForm />
+            </TabCard>
+          ) : (
+            <TabCard description="Wo der Agent läuft, seit wann – und ihn beenden. Neu starten und aktualisieren unter Einstellungen → Updates.">{process}</TabCard>
+          )}
+        </Tabs>
+      </div>
     </div>
   );
 }

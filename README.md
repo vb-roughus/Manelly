@@ -9,8 +9,13 @@ Aufklappbares – Menügruppen wie **Umwandlungen**, **Server** und **Links**, A
 nach jedem Laden der Seite eingeklappt. Eine eingeklappte Menügruppe zeigt, wenn eine ihrer Seiten offen ist. Im Menü
 ist immer nur eine Gruppe offen: Öffnet man eine andere, klappt die vorherige zu; beides gleitet animiert auf und zu (auf
 dem Handy seitwärts). Auch der Wechsel zu einer anderen Seite ist animiert: Die bisherige blendet aus, die neue gleitet
-herein, das Menü bleibt stehen (in Browsern mit View Transitions; mit «Bewegung reduzieren» ohne Animation). Die Reiter
-von JDownloader gleiten je nach Richtung von rechts oder links herein.
+herein, das Menü bleibt stehen (in Browsern mit View Transitions; mit «Bewegung reduzieren» ohne Animation).
+
+Seiten mit mehreren Themen zeigen diese als **Reiter** statt als Kästen untereinander: **Einstellungen**, **Server →
+Allgemein**, **Agent**, **JDownloader** (auch seine Einstellungen hinter dem Zahnrad), **Discs** und **Umwandlungen →
+Einstellungen**. Der offene Reiter steht in der Adresse (z. B. `/settings?tab=network`), so führen Links direkt dorthin
+und ein Neuladen bleibt dort; die Pfeiltasten wechseln zwischen den Reitern. Ein Reiter gleitet je nach Richtung von
+rechts oder links herein.
 
 ### Dashboard
 
@@ -108,7 +113,9 @@ kennt, findet nur der Scan der Mediathek.
 
 ### Server
 
-Im Menü öffnet und schliesst «Server» vier Seiten: **Allgemein**, **Agent**, **JDownloader** und **Discs**.
+Im Menü öffnet und schliesst «Server» vier Seiten: **Allgemein**, **Agent**, **JDownloader** und **Discs**. **Allgemein**
+hat die Reiter Manelly, Mediatheken, Hardware-Beschleunigung und Letzte Transcodes, **Agent** die Reiter Verbindung und
+Prozess.
 
 - **Allgemein – Manelly selbst:** Stand (Git-Commit), Rechner, Prozess-ID, Startzeit und das letzte Update; neu
   starten und aktualisieren unter **Einstellungen → Updates** – siehe [Manelly aktualisieren](#manelly-aktualisieren)
@@ -136,8 +143,8 @@ Im Menü öffnet und schliesst «Server» vier Seiten: **Allgemein**, **Agent**,
 
 Dolby Vision **Profil 7** (UHD-Blu-ray-Remuxe) spielen viele Geräte nicht ab, Profil 8.1 schon. Ein kleiner Agent auf dem
 Jellyfin-Server wandelt solche Dateien direkt dort um. Im Menü ist **Umwandlungen** aufklappbar: **Übersicht** (laufende
-und fertige Umwandlungen), **Backups** (die im Arbeitsordner behaltenen Originale) und **Einstellungen** (Zeitplan,
-Arbeitsordner, Kopieren begrenzen).
+und fertige Umwandlungen), **Backups** (die im Arbeitsordner behaltenen Originale) und **Einstellungen** (Reiter Zeitplan
+und Arbeitsordner, dort auch Kopieren begrenzen).
 
 - In den Medien mit dem Filter **«Dolby Vision P7»** die Kandidaten finden, Titel öffnen, **«In Profil 8.1 umwandeln»**
 - Speicherort wählen: **neben dem Original** (Jellyfin zeigt beide als Versionen), **Original ersetzen** (das Original
@@ -245,7 +252,7 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     im Link Grabber. Verschlüsselte Links (CNL2) entschlüsselt Manelly selbst: Den Schlüssel liest es aus der kleinen
     JavaScript-Funktion der Seite, ohne deren Code auszuführen – steckt er in aufwendigerem JavaScript, nennt Manelly
     das. Ein doppelter Klick innert einer Minute übergibt nichts zweimal. Einrichten in den JDownloader-Einstellungen
-    (Zahnrad) unter «Click'n'Load», dort steht auch, was zuletzt ankam:
+    (Zahnrad) im Reiter «Click'n'Load», dort steht auch, was zuletzt ankam:
     - **Windows und andere Rechner:** die **Browser-Erweiterung** für Chrome und Edge. «Erweiterung herunterladen»
       liefert eine ZIP, die die Adresse von Manelly schon kennt; entpacken, unter `edge://extensions` bzw.
       `chrome://extensions` den Entwicklermodus einschalten und «Entpackte Erweiterung laden» (Edge: «Entpackt laden»)
@@ -293,8 +300,8 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
     Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
     die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird
-- Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite: einbinden, Adresse, Entpack-Ordner und das
-  Bremsen beim Streamen
+- Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite: im Reiter «JDownloader» einbinden,
+  Adresse, Entpack-Ordner und das Bremsen beim Streamen, im Reiter «Click'n'Load» die Übergabe von Links aus dem Browser
 - **Bremsen, solange jemand streamt** (in den JDownloader-Einstellungen): Beginnt ein Stream, begrenzt der Agent
   JDownloader auf ein Tempo (z. B. 16 Mbit/s) oder pausiert ihn. Fünf Minuten nach dem letzten Stream stellt er ihn wieder
   so ein wie vorher – auch nach einem Neustart des Servers. Was du in der Zwischenzeit von Hand änderst, bleibt; ein von
@@ -313,7 +320,8 @@ für DVDs gratis, auch nach der Testzeit; einmal starten und die Lizenz bestäti
 unter `C:\Program Files (x86)\MakeMKV` von selbst, sonst in `agent.json` unter `tools.makemkv` eintragen. Meldet
 MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monaten), die neue Version darüber installieren.
 
-- Die Seite zeigt das Laufwerk und die eingelegte Disc; sie schaut alle paar Sekunden nach, **«Aktualisieren»** fragt
+- Die Seite hat drei Reiter: **Laufwerk** (das Laufwerk und die eingelegte Disc), **Rips** (laufende und fertige; die
+  Zahl am Reiter zählt die laufenden) und **Einstellungen**. Sie schaut alle paar Sekunden nach, **«Aktualisieren»** fragt
   das Laufwerk sofort neu ab, z. B. nach dem Einlegen einer Disc. Wird eine Disc von Hand gewechselt, verschwindet die
   Titelliste der alten. **«Disc lesen»** listet die Titel mit Länge, Kapiteln, Grösse,
   Bild sowie Ton- und Untertitelspuren (Titel unter einer Minute – Menüs, Trailer – lässt MakeMKV weg)
@@ -328,11 +336,11 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   jeder Dateiname lässt sich noch ändern
 - **Schon in der Mediathek?** Zum Namen sucht Manelly im Medienindex nach dem Film bzw. der Serie und zeigt Treffer mit
   Jahr, Auflösung und Anzahl Folgen – mit Link in die Medien
-- **«Rippen»** schreibt die gewählten Titel in einen neuen Ordner im **Entpack-Ordner** (bei Serien «Name S02»), mit
-  Fortschritt, Tempo und Restzeit; danach wirft der Agent die Disc aus (abschaltbar). Die Dateien erscheinen unter
+- **«Rippen»** schreibt die gewählten Titel in einen neuen Ordner im **Entpack-Ordner** (bei Serien «Name S02»); die Seite
+  wechselt dabei zum Reiter **Rips** mit Fortschritt, Tempo und Restzeit; danach wirft der Agent die Disc aus (abschaltbar). Die Dateien erscheinen unter
   JDownloader → **Extracted** und kommen von dort mit «Move to Library» in die Mediathek. Der Agent prüft vorher den
   Platz und überschreibt nichts; ein Neustart des Agents fragt nach, solange gerippt wird
-- **Automatisch rippen** (Einstellung auf der Seite): Eine eingelegte DVD liest der Agent selbst, rippt den Hauptfilm in
+- **Automatisch rippen** (Reiter «Einstellungen»): Eine eingelegte DVD liest der Agent selbst, rippt den Hauptfilm in
   einen Ordner mit dem Namen der Disc und wirft sie aus – auch ohne dass Manelly offen ist; Disc nach Disc einlegen
   genügt. Serien-DVDs besser von Hand
 - Kopien eigener Discs für den Eigengebrauch sind in der Schweiz erlaubt; die Entschlüsselung übernimmt MakeMKV.
@@ -472,7 +480,7 @@ dem Jellyfin läuft:
 - Konfiguration in `agent\data\agent.json`: `port`, `token` (der Schlüssel), `tools` (Pfade, falls ein Werkzeug nicht
   gefunden wird; `-Install` trägt Werkzeuge ein, die nur über den PATH gefunden werden) und `roots` – eine Liste von Ordnern, auf die der Agent sich beschränken soll (leer: jeder Ordner, den
   Manelly nennt). Nach Änderungen den Agent neu starten.
-- Netzwerk: Unter **Einstellungen → Netzwerk des Jellyfin-Servers** die Schnittstellen wählen, die das Dashboard zeigen
+- Netzwerk: Unter **Einstellungen → Netzwerk** die Schnittstellen wählen, die das Dashboard zeigen
   soll, und ihnen **Rollen** geben (ab Agent 0.19.0): **Streaming** (zu den Abspielgeräten), **Management** (Verwaltung,
   z. B. Manelly) und **Storage** (zum Speicher mit den Filmen, z. B. dem NAS – diese zeigt Manelly bei den Umwandlungen).
   Hat der Server nicht für alles eine eigene Schnittstelle, bekommt eine Schnittstelle mehrere Rollen. Auf Windows liest
@@ -513,8 +521,8 @@ dem Jellyfin läuft:
 
 2. <http://localhost:3000> öffnen.
 3. In Jellyfin unter **Dashboard → API-Schlüssel** einen neuen Schlüssel erstellen (z. B. «Manelly»).
-4. Server-Adresse und Schlüssel im Einrichtungsformular eintragen. Später lässt sich beides unter **Einstellungen**
-   ändern.
+4. Server-Adresse und Schlüssel im Einrichtungsformular eintragen. Später lässt sich beides unter **Einstellungen →
+   Jellyfin-Verbindung** ändern.
 
 Die Einstellungen liegen im Docker-Volume `manelly-data` und bleiben bei Updates erhalten.
 

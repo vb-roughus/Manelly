@@ -1,4 +1,4 @@
-import { addTransitionType, startTransition, useEffect, useRef, useState, ViewTransition, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type {
   JDownloaderAccount,
@@ -22,6 +22,7 @@ import {
   KeyRound,
   Link2,
   LoaderCircle,
+  MousePointerClick,
   PackageOpen,
   RefreshCw,
   Settings,
@@ -37,6 +38,7 @@ import { Code, Message } from '../components/ConnectionForm';
 import { ExtractedList } from '../components/ExtractedList';
 import { JDownloaderForm } from '../components/JDownloaderForm';
 import { Modal } from '../components/Modal';
+import { Tabs, useTab, type TabEntry } from '../components/Tabs';
 import { keepTextOnShift, Tick } from '../components/Tick';
 import {
   useAddLinkGrabberContainer,
@@ -71,15 +73,17 @@ import { formatBytes } from '../lib/format';
 
 type Tab = 'downloads' | 'linkgrabber' | 'accounts' | 'extracted';
 /** `short` and no icons keep the tabs narrow on a phone. */
-const TABS: Array<{ id: Tab; label: string; short?: string; icon: LucideIcon }> = [
+const TABS: Array<TabEntry<Tab>> = [
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'linkgrabber', label: 'Link Grabber', short: 'Grabber', icon: Link2 },
   { id: 'accounts', label: 'Premium-Accounts', short: 'Accounts', icon: KeyRound },
   { id: 'extracted', label: 'Extracted', icon: PackageOpen },
 ];
-const isTab = (value: string | null): value is Tab => TABS.some((entry) => entry.id === value);
-const TAB_ENTER = { 'tab-next': 'tab-in-next', 'tab-previous': 'tab-in-previous', default: 'none' };
-const TAB_EXIT = { 'tab-next': 'tab-out-next', 'tab-previous': 'tab-out-previous', default: 'none' };
+type Section = 'jdownloader' | 'clicknload';
+const SECTIONS: Array<TabEntry<Section>> = [
+  { id: 'jdownloader', label: 'JDownloader', icon: Download },
+  { id: 'clicknload', label: "Click'n'Load", icon: MousePointerClick },
+];
 
 const button =
   'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-wait disabled:opacity-60';
@@ -97,8 +101,7 @@ export function JDownloaderPage() {
   }, []);
   // Tab and settings live in the address, so the dashboard can link straight to them.
   const [params, setParams] = useSearchParams();
-  const requested = params.get('tab');
-  const tab: Tab = isTab(requested) ? requested : 'downloads';
+  const [tab, selectTab] = useTab(TABS);
   const settingsOpen = params.has('settings');
   const change = (update: (next: URLSearchParams) => void) =>
     setParams(
@@ -127,14 +130,6 @@ export function JDownloaderPage() {
   const extracted = useExtracted('', enabled && extractedSupported, 60_000);
 
   const openSettings = () => change((next) => next.set('settings', ''));
-  // Animated by direction: a tab further right slides in from the right.
-  const selectTab = (id: Tab) =>
-    startTransition(() => {
-      const order = (entry: Tab) => TABS.findIndex((candidate) => candidate.id === entry);
-      addTransitionType(order(id) > order(tab) ? 'tab-next' : 'tab-previous');
-      change((next) => (id === 'downloads' ? next.delete('tab') : next.set('tab', id)));
-    });
-
   let content: ReactNode;
   if (agentSettings.data && !agentSettings.data.url) {
     content = (
@@ -168,76 +163,70 @@ export function JDownloaderPage() {
       extracted: extracted.data?.directory && !extracted.data.error ? extracted.data.entries.length : null,
     };
     content = (
-      <>
-        <TabList tab={tab} counts={counts} onSelect={selectTab} />
-        {/* The new tab slides in from the side it sits on (see index.css); other updates of the panel stay still. */}
-        <ViewTransition key={tab} enter={TAB_ENTER} exit={TAB_EXIT} default="none">
-          <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="mt-4">
-            {tab === 'downloads' ? (
-              !downloads.data ? (
-                downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+      <Tabs label="JDownloader" tabs={TABS.map((entry) => ({ ...entry, count: counts[entry.id] }))} tab={tab} onSelect={selectTab}>
+        {tab === 'downloads' ? (
+          !downloads.data ? (
+            downloads.error ? <Message tone="critical">{downloads.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+          ) : (
+            <Card>
+              {downloads.data.reachable ? (
+                <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable removable={Boolean(status.jdownloader?.remove)} />
               ) : (
-                <Card>
-                  {downloads.data.reachable ? (
-                    <Downloads status={downloads.data} maxShown={Number.POSITIVE_INFINITY} expandable removable={Boolean(status.jdownloader?.remove)} />
-                  ) : (
-                    <p className="text-sm text-critical">{downloads.data.error}</p>
-                  )}
-                </Card>
-              )
-            ) : tab === 'extracted' ? (
-              extractedSupported ? (
-                <ExtractedList
-                  onOpenSettings={openSettings}
-                  actions={Boolean(status.jdownloader?.moves)}
-                  newFolders={Boolean(status.jdownloader?.newFolders)}
-                  deletable={Boolean(status.jdownloader?.extractedDelete)}
-                  convertible={Boolean(status.jdownloader?.extractedConvert)}
-                />
-              ) : (
-                <Message tone="critical">
-                  Der Agent auf {status.hostname} ist zu alt für den Entpack-Ordner (Version {status.version}). Unter{' '}
-                  <Link to="/server/agent" className="font-medium underline">
-                    Server → Agent
-                  </Link>{' '}
-                  «Aktualisieren & neu starten».
-                </Message>
-              )
-            ) : tab === 'accounts' ? (
-              !accountsSupported ? (
-                <Message tone="critical">
-                  Der Agent auf {status.hostname} ist zu alt für die Premium-Accounts (Version {status.version}). Unter{' '}
-                  <Link to="/server/agent" className="font-medium underline">
-                    Server → Agent
-                  </Link>{' '}
-                  «Aktualisieren & neu starten».
-                </Message>
-              ) : !accounts.data ? (
-                accounts.error ? <Message tone="critical">{accounts.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
-              ) : (
-                <Accounts data={accounts.data} />
-              )
-            ) : !grabberSupported ? (
-              <Message tone="critical">
-                Der Agent auf {status.hostname} ist zu alt für den Link Grabber (Version {status.version}). Auf dem Jellyfin-Server <Code>git pull</Code> und{' '}
-                <Code>scripts\start-agent.cmd -Install</Code> ausführen.
-              </Message>
-            ) : !grabber.data ? (
-              grabber.error ? <Message tone="critical">{grabber.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
-            ) : (
-              <LinkGrabber
-                status={grabber.data}
-                removable={Boolean(status.jdownloader?.remove)}
-                tooOld={
-                  status.jdownloader?.containers
-                    ? null
-                    : `Der Agent auf ${status.hostname} ist zu alt für DLC-Dateien (Version ${status.version}). Unter Server → Agent «Aktualisieren & neu starten».`
-                }
-              />
-            )}
-          </div>
-        </ViewTransition>
-      </>
+                <p className="text-sm text-critical">{downloads.data.error}</p>
+              )}
+            </Card>
+          )
+        ) : tab === 'extracted' ? (
+          extractedSupported ? (
+            <ExtractedList
+              onOpenSettings={openSettings}
+              actions={Boolean(status.jdownloader?.moves)}
+              newFolders={Boolean(status.jdownloader?.newFolders)}
+              deletable={Boolean(status.jdownloader?.extractedDelete)}
+              convertible={Boolean(status.jdownloader?.extractedConvert)}
+            />
+          ) : (
+            <Message tone="critical">
+              Der Agent auf {status.hostname} ist zu alt für den Entpack-Ordner (Version {status.version}). Unter{' '}
+              <Link to="/server/agent" className="font-medium underline">
+                Server → Agent
+              </Link>{' '}
+              «Aktualisieren & neu starten».
+            </Message>
+          )
+        ) : tab === 'accounts' ? (
+          !accountsSupported ? (
+            <Message tone="critical">
+              Der Agent auf {status.hostname} ist zu alt für die Premium-Accounts (Version {status.version}). Unter{' '}
+              <Link to="/server/agent" className="font-medium underline">
+                Server → Agent
+              </Link>{' '}
+              «Aktualisieren & neu starten».
+            </Message>
+          ) : !accounts.data ? (
+            accounts.error ? <Message tone="critical">{accounts.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+          ) : (
+            <Accounts data={accounts.data} />
+          )
+        ) : !grabberSupported ? (
+          <Message tone="critical">
+            Der Agent auf {status.hostname} ist zu alt für den Link Grabber (Version {status.version}). Auf dem Jellyfin-Server <Code>git pull</Code> und{' '}
+            <Code>scripts\start-agent.cmd -Install</Code> ausführen.
+          </Message>
+        ) : !grabber.data ? (
+          grabber.error ? <Message tone="critical">{grabber.error.message}</Message> : <div aria-busy className="h-48 animate-pulse rounded-2xl bg-card-2" />
+        ) : (
+          <LinkGrabber
+            status={grabber.data}
+            removable={Boolean(status.jdownloader?.remove)}
+            tooOld={
+              status.jdownloader?.containers
+                ? null
+                : `Der Agent auf ${status.hostname} ist zu alt für DLC-Dateien (Version ${status.version}). Unter Server → Agent «Aktualisieren & neu starten».`
+            }
+          />
+        )}
+      </Tabs>
     );
   }
 
@@ -263,71 +252,21 @@ export function JDownloaderPage() {
       </header>
 
       <div className="mt-6">{content}</div>
-      <SettingsDialog open={settingsOpen} onClose={() => change((next) => next.delete('settings'))} />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() =>
+          change((next) => {
+            next.delete('settings');
+            next.delete('section');
+          })
+        }
+      />
     </div>
   );
 }
 
 function Card({ children }: { children: ReactNode }) {
   return <div className="rounded-2xl border border-line bg-card p-4 text-sm shadow-sm shadow-black/5 sm:p-5">{children}</div>;
-}
-
-function TabList({ tab, counts, onSelect }: { tab: Tab; counts: Record<Tab, number | null>; onSelect: (tab: Tab) => void }) {
-  const refs = useRef<Record<Tab, HTMLButtonElement | null>>({ downloads: null, linkgrabber: null, accounts: null, extracted: null });
-
-  // Where the tabs still do not fit, the open one is scrolled into sight.
-  useEffect(() => {
-    refs.current[tab]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [tab]);
-
-  // Arrow keys move between the tabs, as in any tab list.
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    const index = TABS.findIndex((entry) => entry.id === tab);
-    const next = TABS[(index + (event.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]!.id;
-    onSelect(next);
-    refs.current[next]?.focus();
-  }
-
-  return (
-    // Scrolls sideways only where the tabs do not fit; the line below is drawn inside, so nothing sticks out to scroll.
-    <div role="tablist" aria-label="JDownloader" onKeyDown={onKeyDown} className="flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--line)]">
-      {TABS.map(({ id, label, short, icon: Icon }) => (
-        <button
-          key={id}
-          ref={(element) => {
-            refs.current[id] = element;
-          }}
-          type="button"
-          role="tab"
-          id={`tab-${id}`}
-          aria-selected={tab === id}
-          aria-controls={`panel-${id}`}
-          tabIndex={tab === id ? 0 : -1}
-          onClick={() => onSelect(id)}
-          className={clsx(
-            'flex shrink-0 items-center gap-2 border-b-2 px-2 py-2 text-[13px] font-medium whitespace-nowrap transition outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset sm:px-3 sm:text-sm',
-            tab === id ? 'border-accent text-ink' : 'border-transparent text-ink-2 hover:text-ink',
-          )}
-        >
-          <Icon className="hidden size-4 sm:block" aria-hidden />
-          {short ? (
-            <>
-              <span className="sm:hidden">{short}</span>
-              <span className="hidden sm:inline">{label}</span>
-            </>
-          ) : (
-            label
-          )}
-          {/* On a phone only the open tab shows its count, so all tabs fit in one line. */}
-          {counts[id] !== null && (
-            <span className={clsx('rounded-full bg-card-2 px-1.5 text-xs tabular-nums text-ink-2', tab !== id && 'hidden sm:inline')}>{counts[id]}</span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 const ACCOUNT_STATES: Record<JDownloaderAccountState, { label: string; icon: LucideIcon; tone: string }> = {
@@ -930,16 +869,32 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                 </span>
                 JDownloader-Einstellungen
               </h2>
-              <p className="mt-1 text-sm text-ink-2">Ob Manelly JDownloader zeigt, wo der Agent ihn erreicht, und was beim Streamen passiert.</p>
+              <p className="mt-1 text-sm text-ink-2">Wie Manelly den JDownloader auf dem Jellyfin-Server einbindet und Links per Click'n'Load annimmt.</p>
             </div>
             <button type="button" onClick={onClose} aria-label="Schliessen" className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 hover:bg-card-2 hover:text-ink">
               <X className="size-4" aria-hidden />
             </button>
           </div>
-          <JDownloaderForm />
-          <ClickNLoadSettings />
+          <SettingsTabs />
         </div>
       )}
     </dialog>
+  );
+}
+
+/** Only while the dialog is open, so the address keeps its section only then. */
+function SettingsTabs() {
+  const [section, selectSection] = useTab(SECTIONS, 'section');
+  return (
+    <Tabs label="JDownloader-Einstellungen" tabs={SECTIONS} tab={section} onSelect={selectSection}>
+      {section === 'jdownloader' ? (
+        <>
+          <p className="mb-5 text-sm text-ink-2">Ob Manelly JDownloader zeigt, wo der Agent ihn erreicht, und was beim Streamen passiert.</p>
+          <JDownloaderForm />
+        </>
+      ) : (
+        <ClickNLoadSettings />
+      )}
+    </Tabs>
   );
 }

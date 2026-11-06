@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import type { CopyLimit, CopyLimitMode, WorkFolderStatus } from '@manelly/shared';
-import { HardDrive, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import clsx from 'clsx';
 import { useOriginals, useSaveCopyLimit, useSaveWorkFolder } from '../hooks/queries';
 import { formatBytes } from '../lib/format';
@@ -24,12 +24,8 @@ export function WorkFolderPanel({ work }: { work: WorkFolderStatus }) {
   }
 
   return (
-    <section className="rounded-2xl border border-line bg-card p-4 text-sm" aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`} className="flex items-center gap-2 font-semibold">
-        <HardDrive className="size-4 text-accent" aria-hidden />
-        Arbeitsordner
-      </h2>
-      <p className="mt-1 text-ink-2">
+    <div className="text-sm">
+      <p className="text-ink-2">
         Ein Ordner auf einer schnellen Platte des Jellyfin-Servers. Umwandlungen kopieren das Original dorthin, wandeln dort um und
         kopieren das Ergebnis zurück – der Speicher, auf dem die Filme liegen, wird so nur beim Kopieren belastet. Wählbar im
         Umwandlungsdialog.
@@ -73,7 +69,7 @@ export function WorkFolderPanel({ work }: { work: WorkFolderStatus }) {
             «Aktualisieren & neu starten».
           </p>
         ))}
-    </section>
+    </div>
   );
 }
 

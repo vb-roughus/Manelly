@@ -160,8 +160,13 @@ export function createDiscs(options: DiscsOptions) {
     }
   }
 
+  /** One write after the other, each whole: a temporary file first, then renamed over the old one. */
+  let saving: Promise<void> = Promise.resolve();
   function saveRipped() {
-    if (options.stateFile) void writeFile(options.stateFile, JSON.stringify(Object.fromEntries(ripped))).catch(() => {});
+    const file = options.stateFile;
+    if (!file) return;
+    const content = JSON.stringify(Object.fromEntries(ripped));
+    saving = saving.then(() => writeFile(`${file}.tmp`, content).then(() => rename(`${file}.tmp`, file))).catch(() => {});
   }
 
   /** A drive without a disc forgets what was ripped from it. */
@@ -556,6 +561,7 @@ export function createDiscs(options: DiscsOptions) {
         await ticking;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
+      await saving;
     },
   };
 }

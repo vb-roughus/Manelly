@@ -371,6 +371,7 @@ describe('ripping discs', () => {
     await insert(null);
     await new Promise((resolve) => setTimeout(resolve, 3100));
     await second.tick();
+    await second.idle();
     expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({});
   }, 15_000);
 

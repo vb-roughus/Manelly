@@ -26,6 +26,8 @@ import type {
   ExtractedFolder,
   ExtractedMove,
   ExtractedMoveTarget,
+  ExtractedRenamed,
+  ExtractedRenameRequest,
   ExtractedSamples,
   ExtractedSamplesDeleted,
   HistoryResponse,
@@ -531,6 +533,26 @@ export async function agentRoutes(
       request.log.info(
         `Im Entpack-Ordner gelöscht: ${result.deleted.join(', ') || 'nichts'}${result.problems.length ? `; nicht gelöscht: ${result.problems.map((problem) => `${problem.path} (${problem.error})`).join(', ')}` : ''}`,
       );
+      return result;
+    },
+  );
+
+  // A new name for an entry there (agent from 0.36.0); the agent keeps to that folder and to the file's extension.
+  app.post<{ Body: ExtractedRenameRequest }>(
+    '/jdownloader/extracted/rename',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['path', 'name'],
+          properties: { path: { type: 'string', minLength: 1, maxLength: 2000 }, name: { type: 'string', minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    async (request): Promise<ExtractedRenamed> => {
+      const result = await requireAgent(agent).renameExtracted(request.body);
+      request.log.info(`Im Entpack-Ordner umbenannt: ${request.body.path} → ${result.path}`);
       return result;
     },
   );

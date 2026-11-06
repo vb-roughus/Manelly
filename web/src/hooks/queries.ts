@@ -25,6 +25,8 @@ import type {
   ExtractedConvertRequest,
   ExtractedDeleted,
   ExtractedFolder,
+  ExtractedRenamed,
+  ExtractedRenameRequest,
   ExtractedMove,
   ExtractedMoveTarget,
   ExtractedSamples,
@@ -781,6 +783,15 @@ export function useDeleteExtracted() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (paths: string[]) => sendJson<ExtractedDeleted>('POST', '/api/agent/jdownloader/extracted/delete', { paths }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] }),
+  });
+}
+
+/** From agent 0.36.0: a new name for an entry of the extraction folder; a file keeps its extension. */
+export function useRenameExtracted() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: ExtractedRenameRequest) => sendJson<ExtractedRenamed>('POST', '/api/agent/jdownloader/extracted/rename', request),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] }),
   });
 }

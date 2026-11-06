@@ -25,6 +25,8 @@ import type {
   ExtractedFolder,
   ExtractedMove,
   ExtractedMoveRequest,
+  ExtractedRenamed,
+  ExtractedRenameRequest,
   ExtractedSamples,
   ExtractedSamplesDeleted,
   HardwareTestRequest,
@@ -114,6 +116,7 @@ export interface AgentClient {
   deleteExtractedSamples(paths: string[]): Promise<ExtractedSamplesDeleted>;
   /** From agent 0.30.0: entries of the extraction folder, for good. */
   deleteExtracted(paths: string[]): Promise<ExtractedDeleted>;
+  renameExtracted(request: ExtractedRenameRequest): Promise<ExtractedRenamed>;
   /** From agent 0.31.0: a file there with Dolby Vision profile 7 into profile 8.1, replacing it. */
   convertExtracted(request: ExtractedConvertRequest): Promise<ConversionJob>;
   /** No ids: all of them. */
@@ -222,6 +225,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     extractedSamples: () => call('GET', '/api/jdownloader/extracted/samples', undefined, 60_000),
     deleteExtractedSamples: (paths) => call('POST', '/api/jdownloader/extracted/samples/delete', { paths }, 60_000),
     deleteExtracted: (paths) => call('POST', '/api/jdownloader/extracted/delete', { paths }, 120_000),
+    renameExtracted: (request) => call('POST', '/api/jdownloader/extracted/rename', request, 60_000),
     // The agent reads the file's header first.
     convertExtracted: (request) => call('POST', '/api/jdownloader/extracted/convert', request, 60_000),
     refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),

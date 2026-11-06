@@ -13,6 +13,7 @@ import {
   FolderOpen,
   FolderSearch,
   LoaderCircle,
+  Pencil,
   RefreshCw,
   ScanSearch,
   Settings,
@@ -35,6 +36,7 @@ import {
   useLibrarySeries,
   useMediaLibraries,
   useMoveExtracted,
+  useRenameExtracted,
   useSeriesSeasons,
 } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
@@ -118,6 +120,9 @@ interface Conversions {
 
 const ConversionsContext = createContext<Conversions>({ enabled: false, open: () => {}, jobFor: () => undefined });
 
+/** Renaming folders and files (agent from 0.36.0): opens the dialog for an entry. */
+const RenameContext = createContext<{ enabled: boolean; open: (entry: ExtractedEntry) => void }>({ enabled: false, open: () => {} });
+
 /**
  * The conversions of files in the extraction folder, newest first; when one ends, the folder is read again, so the
  * file shows its new profile.
@@ -148,6 +153,7 @@ export function ExtractedList({
   newFolders,
   deletable,
   convertible,
+  renamable,
 }: {
   onOpenSettings: () => void;
   actions: boolean;
@@ -156,6 +162,8 @@ export function ExtractedList({
   deletable: boolean;
   /** Agent from 0.31.0: files with Dolby Vision profile 7 can be converted here. */
   convertible: boolean;
+  /** Agent from 0.36.0: folders and files can be renamed. */
+  renamable: boolean;
 }) {
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
@@ -164,6 +172,7 @@ export function ExtractedList({
   const [anchor, setAnchor] = useState<string | null>(null);
   const [dialog, setDialog] = useState<'move' | 'samples' | 'delete' | null>(null);
   const [converting, setConverting] = useState<ExtractedEntry | null>(null);
+  const [renaming, setRenaming] = useState<ExtractedEntry | null>(null);
   const jobs = useFolderConversions(root.data?.directory ?? null, convertible);
 
   function toggle(entry: ExtractedEntry, siblings: ExtractedEntry[], shift: boolean) {
@@ -180,6 +189,13 @@ export function ExtractedList({
     }
     setSelected(next);
     setAnchor(entry.path);
+  }
+
+  // What was ticked keeps its tick under the new name.
+  function renamed(from: string, to: string) {
+    const moved = (path: string) => (path === from || path.startsWith(`${from}/`) ? to + path.slice(from.length) : path);
+    setSelected((current) => new Map([...current].map(([path, ticked]) => [moved(path), ticked])));
+    setAnchor((current) => (current === null ? null : moved(current)));
   }
 
   if (root.error) return <Message tone="critical">{root.error.message}</Message>;
@@ -278,11 +294,13 @@ export function ExtractedList({
         {!error && entries.length === 0 && <p className="mt-3 text-ink-2">Der Ordner ist leer.</p>}
         {entries.length > 0 && (
           <ConversionsContext.Provider value={conversions}>
-            <ul className="mt-3 divide-y divide-line border-t border-line" onMouseDown={keepTextOnShift}>
-              {entries.map((entry) => (
-                <EntryRow key={entry.path} entry={entry} siblings={entries} now={now} />
-              ))}
-            </ul>
+            <RenameContext.Provider value={{ enabled: renamable && !error, open: setRenaming }}>
+              <ul className="mt-3 divide-y divide-line border-t border-line" onMouseDown={keepTextOnShift}>
+                {entries.map((entry) => (
+                  <EntryRow key={entry.path} entry={entry} siblings={entries} now={now} />
+                ))}
+              </ul>
+            </RenameContext.Provider>
           </ConversionsContext.Provider>
         )}
       </div>
@@ -323,6 +341,25 @@ export function ExtractedList({
       >
         <SamplesForm onClose={() => setDialog(null)} />
       </Modal>
+      <Modal
+        open={renaming !== null}
+        onClose={() => setRenaming(null)}
+        icon={Pencil}
+        title={renaming?.kind === 'directory' ? 'Ordner umbenennen' : 'Datei umbenennen'}
+        description="Im Entpack-Ordner, an derselben Stelle – etwa damit Jellyfin den Film oder die Serie am Namen erkennt."
+      >
+        {renaming && (
+          <RenameForm
+            key={renaming.path}
+            entry={renaming}
+            onDone={(path) => {
+              renamed(renaming.path, path);
+              setRenaming(null);
+            }}
+            onCancel={() => setRenaming(null)}
+          />
+        )}
+      </Modal>
       <Modal open={converting !== null} onClose={() => setConverting(null)} icon={WandSparkles} title="In Dolby Vision Profil 8.1 konvertieren">
         {converting?.dolbyVision && <ConvertForm entry={converting} info={converting.dolbyVision} directory={directory} onClose={() => setConverting(null)} />}
       </Modal>
@@ -334,6 +371,7 @@ function EntryRow({ entry, siblings, now }: { entry: ExtractedEntry; siblings: E
   const [open, setOpen] = useState(false);
   const selection = useContext(SelectionContext);
   const conversions = useContext(ConversionsContext);
+  const rename = useContext(RenameContext);
   const Icon = iconFor(entry, open);
   const folder = entry.kind === 'directory';
   const covered = coveredBy(selection.selected, entry.path);
@@ -375,6 +413,17 @@ function EntryRow({ entry, siblings, now }: { entry: ExtractedEntry; siblings: E
           </button>
         ) : (
           <div className="flex min-w-0 flex-1 items-start gap-2.5">{body}</div>
+        )}
+        {rename.enabled && (
+          <button
+            type="button"
+            onClick={() => rename.open(entry)}
+            aria-label={`«${entry.name}» umbenennen`}
+            title="Umbenennen"
+            className="grid size-7 shrink-0 place-items-center rounded-lg text-ink-3 transition hover:bg-card-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          >
+            <Pencil className="size-3.5" aria-hidden />
+          </button>
         )}
         {convertible && (
           <button
@@ -809,6 +858,65 @@ function MoveForm({ selected, newFolders, onDone, onCancel }: { selected: Map<st
 }
 
 /** The ticked entries, deleted for good after a look; what could not be deleted stays listed. */
+/** A new name for a folder or file; a file keeps its extension, so only the name before it can be changed. */
+function RenameForm({ entry, onDone, onCancel }: { entry: ExtractedEntry; onDone: (path: string) => void; onCancel: () => void }) {
+  const id = useId();
+  const rename = useRenameExtracted();
+  const dot = entry.kind === 'directory' ? -1 : entry.name.lastIndexOf('.');
+  const extension = dot > 0 ? entry.name.slice(dot) : '';
+  const initial = extension ? entry.name.slice(0, dot) : entry.name;
+  const [base, setBase] = useState(initial);
+  const name = `${base.trim()}${extension}`;
+  const problem = !base.trim()
+    ? 'Einen Namen eingeben.'
+    : !isFolderName(name)
+      ? `«${name}» geht nicht als Name – ohne < > : " / \\ | ? * und nicht mit Punkt oder Leerzeichen am Ende.`
+      : null;
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (problem || name === entry.name) return;
+    rename.mutate({ path: entry.path, name }, { onSuccess: (result) => onDone(result.path) });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4 text-sm">
+      <div>
+        <label htmlFor={`${id}-name`} className="mb-1 block font-medium">
+          Neuer Name
+        </label>
+        <div className="flex items-center gap-1.5">
+          <input
+            id={`${id}-name`}
+            value={base}
+            onChange={(event) => setBase(event.target.value)}
+            onFocus={(event) => event.target.select()}
+            maxLength={200}
+            autoFocus
+            spellCheck={false}
+            className={`${fieldClass} font-mono`}
+          />
+          {extension && <span className="shrink-0 font-mono text-ink-2">{extension}</span>}
+        </div>
+        <p className="mt-1.5 text-xs text-ink-3">
+          Bisher: <span className="font-mono break-all">{entry.name}</span>
+          {extension && ' – die Endung bleibt.'}
+        </p>
+        {problem && base !== initial && <p className="mt-1.5 text-xs text-critical">{problem}</p>}
+      </div>
+      {rename.error && <Message tone="critical">{rename.error.message}</Message>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onCancel} className={button}>
+          Abbrechen
+        </button>
+        <button type="submit" disabled={Boolean(problem) || name === entry.name || rename.isPending} className={primaryButton}>
+          {rename.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Pencil className="size-4" aria-hidden />} Umbenennen
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function DeleteForm({ selected, onDone, onCancel }: { selected: Map<string, Ticked>; onDone: () => void; onCancel: () => void }) {
   const remove = useDeleteExtracted();
   const paths = [...selected.keys()];

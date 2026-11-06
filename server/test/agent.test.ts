@@ -115,6 +115,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (url.pathname.endsWith('/moves')) return Response.json([]);
         if (url.pathname.endsWith('/samples')) return Response.json({ samples: [{ path: 'Dune/Sample/dune-sample.mkv', bytes: 2 }] });
         if (url.pathname.endsWith('/convert')) return Response.json({ id: 'j1', state: 'queued', source: `D:\\Entpackt\\${body.path}`, output: `D:\\Entpackt\\${body.path}` }, { status: 202 });
+        if (url.pathname.endsWith('/rename')) return Response.json({ path: body.name });
         return Response.json({ deleted: body.paths, problems: [] });
       }
       if (url.pathname === '/api/jdownloader/extracted') {
@@ -547,6 +548,15 @@ describe('agent connection', () => {
     expect((await remove({ paths: [] })).statusCode).toBe(400);
     expect((await remove({ paths: [''] })).statusCode).toBe(400);
     expect(world.sent.jdownloader).toEqual([{ method: 'POST', path: '/api/jdownloader/extracted/delete', body: { paths: ['Dune', 'readme.nfo'] } }]);
+  });
+
+  it('renames in the extraction folder through the agent', async () => {
+    const { app, world } = await setup();
+    const rename = (payload: unknown) => app.inject({ method: 'POST', url: '/api/agent/jdownloader/extracted/rename', payload: payload as object });
+    expect((await rename({ path: 'Dune', name: 'Dune (2021)' })).json()).toEqual({ path: 'Dune (2021)' });
+    expect((await rename({ path: 'Dune' })).statusCode).toBe(400);
+    expect((await rename({ path: '', name: 'x' })).statusCode).toBe(400);
+    expect(world.sent.jdownloader).toEqual([{ method: 'POST', path: '/api/jdownloader/extracted/rename', body: { path: 'Dune', name: 'Dune (2021)' } }]);
   });
 
   it('reads and rips discs through the agent', async () => {

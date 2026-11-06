@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import type {
   JDownloaderAccount,
   JDownloaderAccounts,
@@ -23,7 +23,6 @@ import {
   Link2,
   LoaderCircle,
   MousePointerClick,
-  PackageOpen,
   RefreshCw,
   Settings,
   Trash2,
@@ -35,7 +34,6 @@ import clsx from 'clsx';
 import { Downloads, downloadsSummary, isActivePackage } from '../components/DashboardDownloads';
 import { ClickNLoadSettings } from '../components/ClickNLoadSettings';
 import { Code, Message } from '../components/ConnectionForm';
-import { ExtractedList } from '../components/ExtractedList';
 import { JDownloaderForm } from '../components/JDownloaderForm';
 import { Modal } from '../components/Modal';
 import { Tabs, useTab, type TabEntry } from '../components/Tabs';
@@ -44,7 +42,6 @@ import {
   useAddLinkGrabberContainer,
   useAgent,
   useAgentSettings,
-  useExtracted,
   useJDownloader,
   useJDownloaderAccounts,
   useLinkGrabber,
@@ -71,13 +68,12 @@ import {
 } from '../lib/packageSelection';
 import { formatBytes } from '../lib/format';
 
-type Tab = 'downloads' | 'linkgrabber' | 'accounts' | 'extracted';
+type Tab = 'downloads' | 'linkgrabber' | 'accounts';
 /** `short` and no icons keep the tabs narrow on a phone. */
 const TABS: Array<TabEntry<Tab>> = [
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'linkgrabber', label: 'Link Grabber', short: 'Grabber', icon: Link2 },
   { id: 'accounts', label: 'Premium-Accounts', short: 'Accounts', icon: KeyRound },
-  { id: 'extracted', label: 'Extracted', icon: PackageOpen },
 ];
 type Section = 'jdownloader' | 'clicknload';
 const SECTIONS: Array<TabEntry<Section>> = [
@@ -102,6 +98,12 @@ export function JDownloaderPage() {
   // Tab and settings live in the address, so the dashboard can link straight to them.
   const [params, setParams] = useSearchParams();
   const [tab, selectTab] = useTab(TABS);
+  // The extraction folder has its own page now; old links still lead there.
+  const navigate = useNavigate();
+  const legacyExtracted = params.get('tab') === 'extracted';
+  useEffect(() => {
+    if (legacyExtracted) navigate('/server/extracted', { replace: true });
+  }, [legacyExtracted, navigate]);
   const settingsOpen = params.has('settings');
   const change = (update: (next: URLSearchParams) => void) =>
     setParams(
@@ -125,9 +127,6 @@ export function JDownloaderPage() {
   const accountsSupported = Boolean(status?.jdownloader?.accounts);
   // Traffic and premium time change slowly; JDownloader itself checks the hosters only now and then.
   const accounts = useJDownloaderAccounts(enabled && accountsSupported, tab === 'accounts' ? 30_000 : false);
-  const extractedSupported = Boolean(status?.jdownloader?.extracted);
-  // Always, for the count on the tab: the folder is small and on a local disk, and the agent reads only that folder.
-  const extracted = useExtracted('', enabled && extractedSupported, 60_000);
 
   const openSettings = () => change((next) => next.set('settings', ''));
   let content: ReactNode;
@@ -160,7 +159,6 @@ export function JDownloaderPage() {
       downloads: downloads.data?.reachable ? downloads.data.packages.filter(isActivePackage).length : null,
       linkgrabber: grabber.data ? grabber.data.packages.length : null,
       accounts: accounts.data ? accounts.data.accounts.length : null,
-      extracted: extracted.data?.directory && !extracted.data.error ? extracted.data.entries.length : null,
     };
     content = (
       <Tabs label="JDownloader" tabs={TABS.map((entry) => ({ ...entry, count: counts[entry.id] }))} tab={tab} onSelect={selectTab}>
@@ -175,25 +173,6 @@ export function JDownloaderPage() {
                 <p className="text-sm text-critical">{downloads.data.error}</p>
               )}
             </Card>
-          )
-        ) : tab === 'extracted' ? (
-          extractedSupported ? (
-            <ExtractedList
-              onOpenSettings={openSettings}
-              actions={Boolean(status.jdownloader?.moves)}
-              newFolders={Boolean(status.jdownloader?.newFolders)}
-              deletable={Boolean(status.jdownloader?.extractedDelete)}
-              convertible={Boolean(status.jdownloader?.extractedConvert)}
-              renamable={Boolean(status.jdownloader?.extractedRename)}
-            />
-          ) : (
-            <Message tone="critical">
-              Der Agent auf {status.hostname} ist zu alt für den Entpack-Ordner (Version {status.version}). Unter{' '}
-              <Link to="/server/agent" className="font-medium underline">
-                Server → Agent
-              </Link>{' '}
-              «Aktualisieren & neu starten».
-            </Message>
           )
         ) : tab === 'accounts' ? (
           !accountsSupported ? (

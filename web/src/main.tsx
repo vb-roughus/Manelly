@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { AgentPage } from './pages/AgentPage';
 import { DiscsPage } from './pages/DiscsPage';
+import { ExtractedPage } from './pages/ExtractedPage';
 import { JDownloaderPage } from './pages/JDownloaderPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { MediaPage } from './pages/MediaPage';
@@ -45,6 +46,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/server/agent" element={<AgentPage />} />
             <Route path="/server/jdownloader" element={<JDownloaderPage />} />
             <Route path="/server/discs" element={<DiscsPage />} />
+            <Route path="/server/extracted" element={<ExtractedPage />} />
             <Route path="/troubleshooting" element={<TroubleshootingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

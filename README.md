@@ -11,6 +11,11 @@ ist immer nur eine Gruppe offen: Öffnet man eine andere, klappt die vorherige z
 dem Handy seitwärts). Auch der Wechsel zu einer anderen Seite ist animiert: Die bisherige blendet aus, die neue gleitet
 herein, das Menü bleibt stehen (in Browsern mit View Transitions; mit «Bewegung reduzieren» ohne Animation).
 
+Links neben der Glocke zeigt das **Streams-Symbol** auf jeder Seite, wie viele gerade streamen (kleine Zahl), und
+klappt per Klick eine Übersicht auf: Titel, wer auf welchem Gerät, Wiedergabeart (Direct Play, Direct Stream,
+Transcode), Bitrate, Fortschritt und ein Warnzeichen, wenn die Diagnose etwas gefunden hat; ein Klick führt zum
+Dashboard mit allen Details.
+
 **Meldungen** stehen nie oben auf der Seite, sondern in der **Glocke** oben rechts (auf dem Handy in der Leiste neben
 dem Zahnrad, sonst in der Ecke, die beim Scrollen mitkommt). Läuft etwas – z. B. ein Update von Manelly oder dem Agent –,
 dreht sich ein kleines Rad an der Glocke; neue Meldungen zählt eine Zahl, rot, wenn ein Fehler dabei ist. Ein Klick
@@ -118,7 +123,7 @@ kennt, findet nur der Scan der Mediathek.
 
 ### Server
 
-Im Menü öffnet und schliesst «Server» vier Seiten: **Allgemein**, **Agent**, **JDownloader** und **Discs**. **Allgemein**
+Im Menü öffnet und schliesst «Server» fünf Seiten: **Allgemein**, **Agent**, **JDownloader**, **Discs** und **Extracted**. **Allgemein**
 hat die Reiter Manelly, Mediatheken, Hardware-Beschleunigung und Letzte Transcodes, **Agent** die Reiter Verbindung und
 Prozess.
 
@@ -230,7 +235,8 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
 - **Entpacken** nach dem Download (ab Agent 0.10.0): Ein Paket, dessen Archive JDownloader gerade entpackt, bleibt
   oben in der Liste, mit «Entpacken 40 %» und blauem Balken; schlägt das Entpacken fehl (z. B. falsches Passwort),
   steht es rot mit dem Grund von JDownloader da. Erfolgreich entpackte Pakete zählen zu den fertigen («entpackt»)
-- Seite **Server → JDownloader** mit vier Reitern. Wo es Häkchen gibt, kreuzt ein **Shift-Klick** alles zwischen dem
+- Seite **Server → JDownloader** mit drei Reitern (der Entpack-Ordner hat seine eigene Seite, siehe
+  [Extracted](#extracted-entpack-ordner-mit-agent)). Wo es Häkchen gibt, kreuzt ein **Shift-Klick** alles zwischen dem
   zuletzt angeklickten Eintrag und diesem an (oder ab) – Pakete untereinander, Dateien bzw. Links innerhalb eines Pakets,
   Einträge innerhalb eines Ordners:
   - **Downloads:** alle Pakete; ein Klick auf ein Paket klappt seine **einzelnen Dateien (Parts)** auf, jede mit
@@ -272,43 +278,6 @@ Läuft auf dem Jellyfin-Server JDownloader 2, zeigt und steuert Manelly ihn übe
     (aktiv, vorübergehend gesperrt, abgelaufen, ungültig, ausgeschaltet), dem **restlichen Traffic** (mit Balken, oder
     «unbegrenzt») und wie lange das **Premium** noch läuft (rot ab sieben Tagen). «Neu prüfen» lässt JDownloader die
     Hoster sofort nach den aktuellen Werten fragen
-  - **Extracted** (ab Agent 0.26.0): was im **Entpack-Ordner** liegt, das zuletzt Entpackte zuoberst – mit Grösse, Anzahl
-    Dateien und Zeitpunkt; Ordner klappen auf und zeigen ihren Inhalt (Filme, Untertitel, Samples …). Den Entpack-Ordner
-    legst du in den Einstellungen fest (so wie beim Archiv-Entpacker von JDownloader eingestellt, z. B. `D:\Downloads\Entpackt`
-    oder `\\NAS\Downloads\Entpackt`). Der Agent liest nur diesen Ordner, jede Minute neu – auch für die Zahl am Reiter,
-    wenn ein anderer Reiter offen ist.
-    **Dolby Vision** (ab Agent 0.31.0): Videodateien zeigen ihr Profil – «DV P7» hervorgehoben, «DV P8.1» und andere
-    schlicht. Der Agent liest dafür mit ffprobe nur den Kopf jeder Datei, einmal pro Datei (neu erst, wenn sie sich
-    ändert). Bei Profil 7 konvertiert **«In Profil 8.1 konvertieren»** die Datei, bevor sie in die Mediathek kommt: Die neue
-    Datei ersetzt das Original im Entpack-Ordner; das Original kommt beim Konvertieren im Arbeitsordner unter Konvertierungen →
-    Backups, sonst in den Ordner `.manelly-backup` neben der Datei (Jellyfin ignoriert ihn, beim Verschieben des Ordners
-    kommt er aber mit – vorher löschen). Wie im Medien-Dialog wählst du «Wo konvertieren» und «Wann» (sofort oder nach
-    Zeitplan). Solange die Konvertierung wartet oder läuft, steht ihr Stand bei der Datei, und Verschieben und Löschen der
-    Datei (oder ihres Ordners) lehnt der Agent ab; danach liest er die Datei neu ein.
-    **Move to Library** (ab Agent 0.27.0): Ordner und Dateien ankreuzen (ein angekreuzter Ordner nimmt alles darin mit),
-    dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter. Bei einer Serien-Mediathek folgt
-    die **Serie** (aus Jellyfin, mit dem Ordner, in dem Jellyfin sie führt; vorgeschlagen nach dem Namen, z. B. «The
-    Expanse S06» → The Expanse) und, wenn die Serie Staffelordner hat, die **Staffel** (für einzelne Folgen wie
-    «S05E11» schlägt Manelly die passende vor). Für eine **neue Serie** gibst du den Namen des Serienordners an
-    (ab Agent 0.28.0; vorgeschlagen aus dem Namen, z. B. «Dark.2017.S01.German.1080p» → «Dark (2017)»): Der Agent legt
-    ihn in der Mediathek an und verschiebt die Einträge hinein. Gibt es die Serie in Jellyfin schon, weist der Dialog
-    darauf hin. Mit einem älteren Agent kommt der Ordner als neue Serie direkt in die Mediathek. Unten steht der
-    Zielordner. Bei einer bestehenden Serie gibt es zusätzlich **«Verschieben & scannen»**: Ist das Verschieben fertig,
-    lässt Manelly Jellyfin genau diese Serie oder Staffel scannen – der Manelly-Server wartet darauf, auch wenn der
-    Browser zu ist, und die Liste zeigt, ob der Scan lief. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit
-    Fortschritt und Tempo, so schnell, wie das Kopier-Limit der Konvertierungen es während Streams erlaubt) und löscht erst
-    danach im Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich
-    von den neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.
-    **Löschen** (ab Agent 0.30.0) löscht die angekreuzten Einträge – Ordner samt Inhalt – nach einer Rückfrage mit der
-    Liste und der Grösse endgültig, ohne Papierkorb. Der Agent löscht nur im Entpack-Ordner und nichts, was gerade
-    verschoben oder konvertiert wird; was nicht ging, nennt der Dialog mit dem Grund.
-    **Umbenennen** (ab Agent 0.36.0): Der Stift neben einem Ordner oder einer Datei gibt ihr einen neuen Namen, an
-    derselben Stelle – etwa «Dune.Part.One.2021.German.DL.2160p» → «Dune - Part One (2021)», damit Jellyfin den Film
-    erkennt. Eine Datei behält ihre Endung, und der Agent überschreibt nichts. Was gerade verschoben oder konvertiert wird,
-    behält seinen Namen; eine Datei, die noch offen ist (abgespielt oder noch entpackt), lässt Windows nicht umbenennen.
-    **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
-    Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
-    die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird
 - Die Einstellungen liegen hinter dem **Zahnrad** oben rechts auf dieser Seite: im Reiter «JDownloader» einbinden,
   Adresse, Entpack-Ordner und das Bremsen beim Streamen, im Reiter «Click'n'Load» die Übergabe von Links aus dem Browser
 - **Bremsen, solange jemand streamt** (in den JDownloader-Einstellungen): Beginnt ein Stream, begrenzt der Agent
@@ -351,7 +320,7 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   Jahr, Auflösung und Anzahl Folgen – mit Link in die Medien
 - **«Rippen»** schreibt die gewählten Titel in einen neuen Ordner im **Entpack-Ordner** (bei Serien «Name S02»); die Seite
   wechselt dabei zum Reiter **Rips** mit Fortschritt, Tempo und Restzeit; danach wirft der Agent die Disc aus (abschaltbar). Die Dateien erscheinen unter
-  JDownloader → **Extracted** und kommen von dort mit «Move to Library» in die Mediathek. Der Agent prüft vorher den
+  **Server → Extracted** und kommen von dort mit «Move to Library» in die Mediathek. Der Agent prüft vorher den
   Platz und überschreibt nichts; ein Neustart des Agents fragt nach, solange gerippt wird. Eine gerippte Disc, die im
   Laufwerk bleibt, nimmt der Agent nicht nochmals – auch nach einem Neustart nicht (ab Agent 0.37.0)
 - **Automatisch rippen** (Reiter «Einstellungen»): Eine eingelegte DVD liest der Agent selbst, rippt den Hauptfilm in
@@ -359,6 +328,50 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   genügt. Serien-DVDs besser von Hand
 - Kopien eigener Discs für den Eigengebrauch sind in der Schweiz erlaubt; die Entschlüsselung übernimmt MakeMKV.
   Blu-rays kann MakeMKV auch (mit Beta-Schlüssel oder Lizenz), UHD-Blu-rays nur mit einem «LibreDrive»-Laufwerk
+
+### Extracted (Entpack-Ordner, mit Agent)
+
+Unter **Server → Extracted** (ab Agent 0.26.0) steht, was im **Entpack-Ordner** des Jellyfin-Servers liegt – von
+JDownloader entpackt oder von [Discs](#discs-dvds-in-mkv-mit-agent-ab-0330) gerippt –, das Neueste zuoberst, mit
+Grösse, Anzahl Dateien und Zeitpunkt; Ordner klappen auf und zeigen ihren Inhalt (Filme, Untertitel, Samples …). Den
+Entpack-Ordner legst du in den JDownloader-Einstellungen fest (Zahnrad unter Server → JDownloader; so wie beim
+Archiv-Entpacker von JDownloader eingestellt, z. B. `D:\Downloads\Entpackt` oder `\\NAS\Downloads\Entpackt`). Der Agent
+liest nur diesen Ordner, jede Minute neu.
+
+- **Dolby Vision** (ab Agent 0.31.0): Videodateien zeigen ihr Profil – «DV P7» hervorgehoben, «DV P8.1» und andere
+  schlicht. Der Agent liest dafür mit ffprobe nur den Kopf jeder Datei, einmal pro Datei (neu erst, wenn sie sich
+  ändert). Bei Profil 7 konvertiert **«In Profil 8.1 konvertieren»** die Datei, bevor sie in die Mediathek kommt: Die
+  neue Datei ersetzt das Original im Entpack-Ordner; das Original kommt beim Konvertieren im Arbeitsordner unter
+  Konvertierungen → Backups, sonst in den Ordner `.manelly-backup` neben der Datei (Jellyfin ignoriert ihn, beim
+  Verschieben des Ordners kommt er aber mit – vorher löschen). Wie im Medien-Dialog wählst du «Wo konvertieren» und
+  «Wann» (sofort oder nach Zeitplan). Solange die Konvertierung wartet oder läuft, steht ihr Stand bei der Datei, und
+  Verschieben und Löschen der Datei (oder ihres Ordners) lehnt der Agent ab; danach liest er die Datei neu ein.
+- **Move to Library** (ab Agent 0.27.0): Ordner und Dateien ankreuzen (ein angekreuzter Ordner nimmt alles darin mit),
+  dann im Dialog die Mediathek wählen – jede mit ihrem Ordner aus Jellyfin dahinter. Bei einer Serien-Mediathek folgt
+  die **Serie** (aus Jellyfin, mit dem Ordner, in dem Jellyfin sie führt; vorgeschlagen nach dem Namen, z. B. «The
+  Expanse S06» → The Expanse) und, wenn die Serie Staffelordner hat, die **Staffel** (für einzelne Folgen wie «S05E11»
+  schlägt Manelly die passende vor). Für eine **neue Serie** gibst du den Namen des Serienordners an (ab Agent 0.28.0;
+  vorgeschlagen aus dem Namen, z. B. «Dark.2017.S01.German.1080p» → «Dark (2017)»): Der Agent legt ihn in der
+  Mediathek an und verschiebt die Einträge hinein. Gibt es die Serie in Jellyfin schon, weist der Dialog darauf hin.
+  Mit einem älteren Agent kommt der Ordner als neue Serie direkt in die Mediathek. Unten steht der Zielordner. Bei
+  einer bestehenden Serie gibt es zusätzlich **«Verschieben & scannen»**: Ist das Verschieben fertig, lässt Manelly
+  Jellyfin genau diese Serie oder Staffel scannen – der Manelly-Server wartet darauf, auch wenn der Browser zu ist,
+  und die Liste zeigt, ob der Scan lief. Als Ziel taugen nur Ordner, die Jellyfin selbst nennt. Auf derselben Platte
+  ist das ein Umbenennen und sofort fertig; sonst kopiert der Agent im Hintergrund (mit Fortschritt und Tempo, so
+  schnell, wie das Kopier-Limit der Konvertierungen es während Streams erlaubt) und löscht erst danach im
+  Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich von den
+  neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.
+- **Löschen** (ab Agent 0.30.0) löscht die angekreuzten Einträge – Ordner samt Inhalt – nach einer Rückfrage mit der
+  Liste und der Grösse endgültig, ohne Papierkorb. Der Agent löscht nur im Entpack-Ordner und nichts, was gerade
+  verschoben oder konvertiert wird; was nicht ging, nennt der Dialog mit dem Grund.
+- **Umbenennen** (ab Agent 0.36.0): Der Stift neben einem Ordner oder einer Datei gibt ihr einen neuen Namen, an
+  derselben Stelle – etwa «Dune.Part.One.2021.German.DL.2160p» → «Dune - Part One (2021)», damit Jellyfin den Film
+  erkennt. Eine Datei behält ihre Endung, und der Agent überschreibt nichts. Was gerade verschoben oder konvertiert
+  wird, behält seinen Namen; eine Datei, die noch offen ist (abgespielt oder noch entpackt), lässt Windows nicht
+  umbenennen.
+- **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
+  Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
+  die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird
 
 ### Troubleshooting (Aufzeichnung, mit Agent)
 

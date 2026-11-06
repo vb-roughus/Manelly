@@ -145,8 +145,8 @@ export function DiscsPage() {
         <p className="mt-1 text-sm text-ink-2">
           DVDs aus dem Laufwerk des Jellyfin-Servers ohne Qualitätsverlust in MKV-Dateien überführen – mit allen Ton- und Untertitelspuren und Kapiteln.
           Die Dateien landen im Entpack-Ordner und erscheinen unter{' '}
-          <Link to="/server/jdownloader?tab=extracted" className="font-medium text-accent hover:underline">
-            JDownloader → Extracted
+          <Link to="/server/extracted" className="font-medium text-accent hover:underline">
+            Server → Extracted
           </Link>
           , von wo sie in die Mediathek kommen.
         </p>
@@ -654,8 +654,8 @@ function Rips({ rips }: { rips: DiscRip[] }) {
                   </button>
                 ) : (
                   rip.state === 'done' && (
-                    <Link to="/server/jdownloader?tab=extracted" className="text-xs font-medium text-accent hover:underline">
-                      Im Extracted-Tab
+                    <Link to="/server/extracted" className="text-xs font-medium text-accent hover:underline">
+                      Unter Extracted
                     </Link>
                   )
                 )}

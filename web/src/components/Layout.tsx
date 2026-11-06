@@ -14,6 +14,7 @@ import {
   ListChecks,
   Monitor,
   Moon,
+  PackageOpen,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -35,6 +36,7 @@ import { linkHint } from '../lib/links';
 import { LinkDialog } from './LinkDialog';
 import { NotificationBell } from './Notifications';
 import { RestartWatcher } from './Restart';
+import { StreamsMenu } from './StreamsMenu';
 import { useTheme, type Theme } from '../hooks/useTheme';
 
 interface NavItem {
@@ -73,6 +75,7 @@ const NAV: Array<NavItem | NavGroup> = [
       { to: '/server/agent', label: 'Agent', icon: ServerCog },
       { to: '/server/jdownloader', label: 'JDownloader', icon: Download },
       { to: '/server/discs', label: 'Discs', icon: Disc3 },
+      { to: '/server/extracted', label: 'Extracted', icon: PackageOpen },
     ],
   },
   { to: '/troubleshooting', label: 'Troubleshooting', icon: Stethoscope },
@@ -104,8 +107,9 @@ export function Layout({ children }: { children: ReactNode }) {
         >
           <Logo compact={collapsed} />
           <div className="flex items-center gap-2">
-            {/* On large screens the bell sits at the top right of the page. */}
-            <div className="lg:hidden">
+            {/* On large screens streams and bell sit at the top right of the page. */}
+            <div className="flex items-center gap-2 lg:hidden">
+              <StreamsMenu />
               <NotificationBell />
             </div>
             {/* On small screens the settings live up here; the sidebar footer is hidden. */}
@@ -183,9 +187,10 @@ export function Layout({ children }: { children: ReactNode }) {
       </aside>
       <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:pt-3 lg:pb-8">
         <RestartWatcher />
-        {/* Messages go into the bell, never on top of the page; it stays at the top right while the page scrolls. */}
+        {/* Streams and messages (the bell, never on top of the page) stay at the top right while the page scrolls. */}
         <div className="pointer-events-none sticky top-3 z-30 mb-1 hidden h-9 justify-end lg:flex">
-          <div className="pointer-events-auto rounded-lg bg-page">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-lg bg-page">
+            <StreamsMenu />
             <NotificationBell />
           </div>
         </div>

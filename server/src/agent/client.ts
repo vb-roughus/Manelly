@@ -90,6 +90,8 @@ export interface AgentClient {
   /** From agent 0.33.0: DVDs into MKV files with MakeMKV. */
   discs(): Promise<DiscsStatus>;
   readDisc(drive: number): Promise<DiscRead>;
+  /** From agent 0.34.0. */
+  cancelDiscRead(drive: number): Promise<DiscRead>;
   ejectDisc(drive: number): Promise<{ ejected: boolean }>;
   ripDisc(request: DiscRipRequest): Promise<DiscRip>;
   cancelDiscRip(id: string): Promise<DiscRip>;
@@ -201,6 +203,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     // Listing the drives starts MakeMKV, which may take a moment.
     discs: () => call('GET', '/api/discs', undefined, 45_000),
     readDisc: (drive) => call('POST', '/api/discs/read', { drive }, 45_000),
+    cancelDiscRead: (drive) => call('POST', '/api/discs/read/cancel', { drive }),
     ejectDisc: (drive) => call('POST', '/api/discs/eject', { drive }, 60_000),
     ripDisc: (request) => call('POST', '/api/discs/rips', request, 60_000),
     cancelDiscRip: (id) => call('POST', `/api/discs/rips/${encodeURIComponent(id)}/cancel`),

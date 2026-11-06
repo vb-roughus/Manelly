@@ -565,6 +565,10 @@ export async function agentRoutes(
     return reply.status(202).send(await requireAgent(agent).readDisc(request.body.drive));
   });
   app.post<{ Body: { drive: number } }>('/discs/eject', { schema: driveBody }, async (request) => requireAgent(agent).ejectDisc(request.body.drive));
+  app.post<{ Body: { drive: number } }>('/discs/read/cancel', { schema: driveBody }, async (request): Promise<DiscRead> => {
+    request.log.info(`Disc in Laufwerk ${request.body.drive}: Lesen abgebrochen`);
+    return requireAgent(agent).cancelDiscRead(request.body.drive);
+  });
 
   app.post<{ Body: DiscRipRequest }>(
     '/discs/rips',

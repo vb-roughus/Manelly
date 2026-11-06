@@ -103,6 +103,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: url.pathname, body });
         if (url.pathname === '/api/discs/read') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null }, { status: 202 });
         if (url.pathname === '/api/discs/eject') return Response.json({ ejected: true });
+        if (url.pathname === '/api/discs/read/cancel') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null });
         if (url.pathname === '/api/discs/settings') return Response.json(body);
         if (url.pathname === '/api/discs/rips') return Response.json({ id: 'r1', disc: 'FINDET_NEMO', folder: body.folder, titles: body.titles, state: 'queued' }, { status: 202 });
         if (url.pathname.endsWith('/cancel')) return Response.json({ id: 'r1', state: 'canceled' });
@@ -555,6 +556,7 @@ describe('agent connection', () => {
     expect((await inject('POST', '/read', { drive: 0 })).statusCode).toBe(202);
     expect((await inject('POST', '/read', { drive: 'D:' })).statusCode).toBe(400);
     expect((await inject('POST', '/eject', { drive: 0 })).json()).toEqual({ ejected: true });
+    expect((await inject('POST', '/read/cancel', { drive: 0 })).json()).toMatchObject({ drive: 0 });
     const rip = { drive: 0, folder: 'Findet Nemo (2003)', titles: [{ index: 0, fileName: 'Findet Nemo (2003).mkv' }], eject: true };
     expect((await inject('POST', '/rips', rip)).statusCode).toBe(202);
     expect((await inject('POST', '/rips', { ...rip, titles: [] })).statusCode).toBe(400);
@@ -567,6 +569,7 @@ describe('agent connection', () => {
       'GET /api/discs',
       'POST /api/discs/read',
       'POST /api/discs/eject',
+      'POST /api/discs/read/cancel',
       'POST /api/discs/rips',
       'POST /api/discs/rips/r1/cancel',
       'PUT /api/discs/settings',

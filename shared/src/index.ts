@@ -1822,12 +1822,32 @@ export interface DiscInfo {
   readAt: string;
 }
 
+/** Something MakeMKV reported while reading or ripping, e.g. a read error of a scratched disc. */
+export interface DiscMessage {
+  at: string;
+  text: string;
+  /** Sounds like an error. */
+  error: boolean;
+}
+
+/** What MakeMKV is at (from agent 0.34.0): its step, how far it is with it, and what it reported, oldest first. */
+export interface DiscActivity {
+  /** E.g. "Opening DVD disc – Scanning contents". */
+  step?: string | null;
+  /** 0–1 of the step; null when MakeMKV does not say. */
+  stepProgress?: number | null;
+  messages?: DiscMessage[];
+}
+
 /** Reading a disc's titles takes a while; this is how far it is. */
-export interface DiscRead {
+export interface DiscRead extends DiscActivity {
   drive: number;
-  state: 'reading' | 'done' | 'failed';
+  /** canceled: from agent 0.34.0. */
+  state: 'reading' | 'done' | 'failed' | 'canceled';
   info: DiscInfo | null;
   error: string | null;
+  /** Missing before agent 0.34.0. */
+  startedAt?: string;
 }
 
 export interface DiscRipTitle {
@@ -1839,7 +1859,7 @@ export interface DiscRipTitle {
 }
 
 /** Ripping titles of a disc into a folder of the extraction folder, one after the other. */
-export interface DiscRip {
+export interface DiscRip extends DiscActivity {
   id: string;
   drive: number;
   disc: string;

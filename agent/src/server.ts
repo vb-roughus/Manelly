@@ -513,9 +513,10 @@ export function createAgentServer(options: AgentServerOptions) {
       const discs = options.discs;
       if (!discs) throw new AgentError(404, 'Discs kann dieser Agent nicht.');
       if (route === 'GET /api/discs') return send(response, 200, await discs.status());
-      if (route === 'POST /api/discs/read' || route === 'POST /api/discs/eject') {
+      if (route === 'POST /api/discs/read' || route === 'POST /api/discs/eject' || route === 'POST /api/discs/read/cancel') {
         const { drive } = await readJson<{ drive?: unknown }>(request);
         if (!Number.isInteger(drive) || (drive as number) < 0) throw new AgentError(400, 'Das Laufwerk (Nummer) erwartet.');
+        if (route === 'POST /api/discs/read/cancel') return send(response, 200, discs.cancelRead(drive as number));
         if (route === 'POST /api/discs/eject') {
           await discs.eject(drive as number);
           return send(response, 200, { ejected: true });

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { DiscDrive, DiscInfo, DiscRead, DiscRip, DiscTitle } from '@manelly/shared';
+import type { DiscActivity, DiscDrive, DiscInfo, DiscRead, DiscRip, DiscTitle } from '@manelly/shared';
 import { CircleCheck, CircleX, Disc3, Eject, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -9,6 +9,7 @@ import { fetchJson } from '../lib/api';
 import {
   useAgent,
   useAgentSettings,
+  useCancelDiscRead,
   useCancelDiscRip,
   useDiscs,
   useEjectDisc,
@@ -198,15 +199,94 @@ function DriveCard({ drive, read, ripping, ejectByDefault, canRip }: { drive: Di
       </div>
       {readDisc.isError && <p className="mt-3 text-critical">{readDisc.error.message}</p>}
       {eject.isError && <p className="mt-3 text-critical">{eject.error.message}</p>}
-      {read?.state === 'reading' && (
-        <p className="mt-3 flex items-center gap-2 text-ink-2" role="status">
-          <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden /> MakeMKV liest die Titel – bei einer DVD bis etwa eine Minute …
-        </p>
+      {read?.state === 'reading' && <Reading read={read} />}
+      {(read?.state === 'failed' || read?.state === 'canceled') && (
+        <div className="mt-3">
+          <p className={read.state === 'failed' ? 'text-critical' : 'text-ink-2'}>{read.state === 'canceled' ? 'Lesen abgebrochen.' : read.error}</p>
+          <Messages activity={read} />
+        </div>
       )}
-      {read?.state === 'failed' && <p className="mt-3 text-critical">{read.error}</p>}
       {ripping && <p className="mt-3 text-ink-2">Von dieser Disc wird gerade gerippt – unten der Fortschritt.</p>}
       {info && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} />}
     </Card>
+  );
+}
+
+/** "2:05" since `since`; hours as "1:02:05". */
+function elapsed(since: string, now: number): string {
+  const seconds = Math.max(0, Math.round((now - Date.parse(since)) / 1000));
+  return formatDuration(seconds);
+}
+
+/** While MakeMKV reads: its step, how far, for how long – and a way out for a disc it does not get through. */
+function Reading({ read }: { read: DiscRead }) {
+  const cancel = useCancelDiscRead();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  // Agents before 0.34.0 tell neither the step nor take a cancel.
+  const detailed = read.messages !== undefined;
+  const slow = read.startedAt !== undefined && now - Date.parse(read.startedAt) > 3 * 60_000;
+  return (
+    <div className="mt-3 rounded-xl bg-card-2/50 p-3 ring-1 ring-line" role="status">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="flex min-w-0 items-start gap-2 text-ink-2">
+          <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-accent" aria-hidden />
+          <span className="min-w-0">
+            <span className="text-ink">MakeMKV liest die Disc</span>
+            {read.startedAt && <span className="tabular-nums"> · seit {elapsed(read.startedAt, now)}</span>}
+            <span className="block text-xs">
+              {joinParts([
+                read.step ?? (detailed ? 'Startet …' : 'Bei einer DVD meist bis etwa eine Minute'),
+                read.stepProgress != null && `${Math.round(read.stepProgress * 100)} %`,
+              ])}
+            </span>
+          </span>
+        </p>
+        {detailed && (
+          <button type="button" onClick={() => cancel.mutate(read.drive)} disabled={cancel.isPending} className={button}>
+            Abbrechen
+          </button>
+        )}
+      </div>
+      {read.stepProgress != null && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-accent/15">
+          <div className="bg-brand h-full rounded-full transition-[width]" style={{ width: `${Math.max(read.stepProgress * 100, 1)}%` }} />
+        </div>
+      )}
+      {slow && (
+        <p className="mt-2 text-xs text-ink-2">
+          Das dauert ungewöhnlich lange. Oft ist die Disc zerkratzt oder hat einen Kopierschutz mit vielen Schein-Titeln – die Meldungen unten zeigen
+          Lesefehler. Nach 30 Minuten gibt der Agent auf.
+        </p>
+      )}
+      <Messages activity={read} />
+      {cancel.isError && <p className="mt-2 text-xs text-critical">{cancel.error.message}</p>}
+    </div>
+  );
+}
+
+/** What MakeMKV reported, folded away; errors count and show in red. */
+function Messages({ activity }: { activity: DiscActivity }) {
+  const messages = activity.messages ?? [];
+  if (messages.length === 0) return null;
+  const errors = messages.filter((message) => message.error).length;
+  return (
+    <details className="mt-2 text-xs">
+      <summary className="cursor-pointer text-ink-2 select-none hover:text-ink">
+        Meldungen von MakeMKV ({messages.length}
+        {errors > 0 && <span className="text-critical">, davon {errors} Fehler</span>})
+      </summary>
+      <ol className="mt-1.5 max-h-64 space-y-0.5 overflow-y-auto rounded-lg bg-card p-2 font-mono text-[0.6875rem] ring-1 ring-line">
+        {messages.map((message, at) => (
+          <li key={at} className={clsx('break-words', message.error ? 'text-critical' : 'text-ink-2')}>
+            <span className="text-ink-3">{new Date(message.at).toLocaleTimeString('de-CH')}</span> {message.text}
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
 
@@ -504,11 +584,17 @@ function Rips({ rips }: { rips: DiscRip[] }) {
                     <div className="bg-brand h-full rounded-full transition-[width]" style={{ width: `${Math.max(rip.progress * 100, 1)}%` }} />
                   </div>
                   <p className="mt-1 text-xs text-ink-2 tabular-nums">
-                    {joinParts([`${Math.round(rip.progress * 100)} %`, rip.bytesPerSecond !== null && formatBitrate(rip.bytesPerSecond * 8), eta !== null && `noch etwa ${eta} min`])}
+                    {joinParts([
+                      `${Math.round(rip.progress * 100)} %`,
+                      rip.bytesPerSecond !== null && formatBitrate(rip.bytesPerSecond * 8),
+                      eta !== null && `noch etwa ${eta} min`,
+                      rip.step,
+                    ])}
                   </p>
                 </>
               )}
               {rip.error && <p className={clsx('mt-1 text-xs', rip.state === 'done' ? 'text-ink-2' : 'text-critical')}>{rip.error}</p>}
+              <Messages activity={rip} />
             </li>
           );
         })}

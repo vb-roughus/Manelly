@@ -4,7 +4,7 @@ import { lstat, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import type { DiscDrive, DiscInfo, DiscRead, DiscRip, DiscRipRequest, DiscSettings, DiscsStatus, DiscTitle } from '@manelly/shared';
 import { formatBytes } from './convert.js';
 import { AgentError } from './errors.js';
-import { listDrives, readDisc, ripTitle } from './makemkv.js';
+import { createActivity, listDrives, readDisc, ripTitle } from './makemkv.js';
 import { isValidSegment, pathApiFor, TEMP_FOLDER_PREFIX } from './paths.js';
 import { defaultPowershell, runPowershell } from './powershell.js';
 
@@ -89,11 +89,13 @@ interface Job {
   device: string;
   abort: AbortController;
   samples: Array<{ t: number; bytes: number }>;
+  /** Feeds MakeMKV's output into the rip's step and messages. */
+  take: (line: string) => void;
 }
 
 const active = (rip: DiscRip) => rip.state === 'queued' || rip.state === 'running';
 /** A copy for the answer; the job itself goes on changing. */
-const snapshot = (rip: DiscRip): DiscRip => ({ ...rip, titles: rip.titles.map((title) => ({ ...title })) });
+const snapshot = (rip: DiscRip): DiscRip => ({ ...rip, titles: rip.titles.map((title) => ({ ...title })), messages: [...(rip.messages ?? [])] });
 
 /**
  * Reads DVDs with MakeMKV and rips their titles into a new folder of the extraction folder, one rip after the other,
@@ -105,6 +107,7 @@ export function createDiscs(options: DiscsOptions) {
   const jobs: Job[] = [];
   const reads = new Map<number, DiscRead>();
   const busy = new Set<number>();
+  const readAborts = new Map<number, AbortController>();
   /** The disc the automatic mode already took, per drive, until the drive is empty again. */
   const handled = new Map<number, string>();
   let drives: { at: number; list: Array<Omit<DiscDrive, 'busy'>> } | null = null;
@@ -145,18 +148,27 @@ export function createDiscs(options: DiscsOptions) {
     return drive;
   }
 
+  /** Reads a disc's titles; what MakeMKV is at shows in `reads` meanwhile. */
   async function readNow(tool: string, drive: number): Promise<DiscInfo> {
     busy.add(drive);
-    reads.set(drive, { drive, state: 'reading', info: null, error: null });
+    const abort = new AbortController();
+    readAborts.set(drive, abort);
+    const read: DiscRead = { drive, state: 'reading', info: null, error: null, startedAt: new Date().toISOString() };
+    // Its step and messages, updated while MakeMKV works.
+    const { take } = createActivity(read);
+    reads.set(drive, read);
     try {
-      const info = await readDisc(tool, drive);
-      reads.set(drive, { drive, state: 'done', info, error: null });
-      return info;
+      read.info = await readDisc(tool, drive, { signal: abort.signal, onLine: take });
+      read.state = 'done';
+      return read.info;
     } catch (error) {
-      reads.set(drive, { drive, state: 'failed', info: null, error: (error as Error).message });
+      read.state = abort.signal.aborted ? 'canceled' : 'failed';
+      read.error = (error as Error).message;
+      log(`Disc in Laufwerk ${drive} lesen: ${read.error}`);
       throw error;
     } finally {
       busy.delete(drive);
+      readAborts.delete(drive);
     }
   }
 
@@ -211,7 +223,7 @@ export function createDiscs(options: DiscsOptions) {
           });
         }, SAMPLE_MS);
         try {
-          const said = await ripTitle(tool, view.drive, title.index, temp, (share) => (saved = share), job.abort.signal);
+          const said = await ripTitle(tool, view.drive, title.index, temp, (share) => (saved = share), { signal: job.abort.signal, onLine: job.take });
           const made = (await readdir(temp)).filter((name) => !before.has(name) && name.toLowerCase().endsWith('.mkv'));
           if (made.length === 0) throw new Error(`MakeMKV hat Titel ${title.index + 1} nicht gespeichert${said ? `: ${said}` : '.'}`);
           await rename(api.join(temp, made[0]!), destination);
@@ -303,7 +315,7 @@ export function createDiscs(options: DiscsOptions) {
       startedAt: null,
       finishedAt: null,
     };
-    jobs.unshift({ view, device: drive.device, abort: new AbortController(), samples: [] });
+    jobs.unshift({ view, device: drive.device, abort: new AbortController(), samples: [], take: createActivity(view).take });
     log(`Disc «${view.disc}»: ${view.titles.length} Titel nach ${folder}${auto ? ' (automatisch)' : ''}`);
     const answer = snapshot(view);
     void work();
@@ -358,7 +370,7 @@ export function createDiscs(options: DiscsOptions) {
       return {
         tool,
         drives: list.map((drive) => ({ ...drive, busy: busy.has(drive.index) })),
-        reads: [...reads.values()],
+        reads: [...reads.values()].map((read) => ({ ...read, messages: [...(read.messages ?? [])] })),
         rips: jobs.map((job) => snapshot(job.view)),
         settings: options.settings.get(),
         target: options.target(),
@@ -374,6 +386,15 @@ export function createDiscs(options: DiscsOptions) {
       if (drive.state !== 'inserted') throw new AgentError(409, 'Im Laufwerk liegt keine Disc.');
       void readNow(tool, index).catch(() => {});
       return reads.get(index)!;
+    },
+
+    /** Stops reading a disc, e.g. one that keeps MakeMKV busy for too long. */
+    cancelRead(index: number): DiscRead {
+      const read = reads.get(index);
+      const abort = readAborts.get(index);
+      if (!read || read.state !== 'reading' || !abort) throw new AgentError(409, 'Von diesem Laufwerk wird gerade nichts gelesen.');
+      abort.abort();
+      return { ...read, messages: [...(read.messages ?? [])] };
     },
 
     rip: (request: DiscRipRequest) => enqueue(request, false),

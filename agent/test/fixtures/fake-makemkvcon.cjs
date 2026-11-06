@@ -37,6 +37,25 @@ if (!state.disc) {
 const titles = DISCS[state.disc];
 const command = args.find((arg) => arg === 'info' || arg === 'mkv');
 if (command === 'info') {
+  out(`PRGT:5018,0,${q('Opening DVD disc')}`);
+  out(`PRGC:5018,0,${q('Opening DVD disc')}`);
+  out('MSG:3007,0,0,"Using direct disc access mode","x"');
+  out('MSG:1011,32,1,"Debug: tracing drive","x"');
+  if (state.readError) out(`MSG:2003,0,3,${q(state.readError)},"x"`);
+  if (state.readMs) {
+    out(`PRGC:5003,0,${q('Scanning contents')}`);
+    let step = 0;
+    const timer = setInterval(() => {
+      step++;
+      out(`PRGV:${step * 6553},${step * 6553},65536`);
+      if (step < 10) return;
+      clearInterval(timer);
+      describe();
+    }, Math.floor(state.readMs / 10));
+  } else describe();
+}
+
+function describe() {
   out(`CINFO:1,6206,${q('DVD disc')}`);
   out(`CINFO:2,0,${q(state.label)}`);
   out(`CINFO:32,0,${q(state.label)}`);
@@ -94,6 +113,6 @@ if (command === 'mkv') {
     out(`MSG:5036,0,1,${q('Copy complete. 1 titles saved.')},"x"`);
     process.exit(0);
   }, Math.max(1, Math.floor((state.ripMs ?? 50) / steps)));
-} else {
+} else if (command !== 'info') {
   process.exit(2);
 }

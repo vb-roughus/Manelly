@@ -22,7 +22,7 @@ import {
 import { useNow } from '../hooks/useNow';
 import { AUDIO_LANGUAGES } from '../lib/audioLanguages';
 import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, namesFromDisc, suggestSelection, type DiscKind } from '../lib/discs';
-import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
+import { channelLayoutLabel, formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 
 const button =
   'inline-flex items-center gap-1.5 rounded-lg bg-card px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-card-2 disabled:cursor-not-allowed disabled:opacity-50';
@@ -290,6 +290,17 @@ function DriveCard({
           .
         </p>
       )}
+      {info?.rippedBefore && !ripping && (
+        <p className="mt-3 flex items-start gap-2 rounded-lg bg-card-2/60 px-3 py-2 text-xs ring-1 ring-line ring-inset" role="status">
+          <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
+          <span>
+            Diese Disc wurde am{' '}
+            {new Date(info.rippedBefore.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })} schon gerippt, nach «
+            {info.rippedBefore.folder}». Der automatische Modus lässt sie deshalb aus – auch wenn ein Neustart die Lade wieder einzieht. Von Hand
+            lässt sie sich unten nochmals rippen.
+          </span>
+        </p>
+      )}
       {info && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} onStarted={onShowRips} />}
     </Card>
   );
@@ -526,7 +537,8 @@ function TitleRow({
   onToggle: () => void;
   onRename: (value: string) => void;
 }) {
-  const audio = title.audio.map((track) => [languageName(track.language, track.languageName), track.codec, track.channels].filter(Boolean).join(' ')).join(', ');
+  // «5.1(side)» shows as 5.1, as in the media.
+  const audio = title.audio.map((track) => [languageName(track.language, track.languageName), track.codec, channelLayoutLabel(track.channels)].filter(Boolean).join(' ')).join(', ');
   const subtitles = title.subtitles.map((track) => languageName(track.language, track.languageName)).join(', ');
   return (
     <tr className={clsx(checked && 'bg-accent/5')}>

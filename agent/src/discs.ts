@@ -113,6 +113,8 @@ interface Job {
   device: string;
   /** The disc's label as the drive names it, to know it again. */
   label: string;
+  /** discKey of the read it was ripped from; null without one. */
+  key: string | null;
   abort: AbortController;
   samples: Array<{ t: number; bytes: number }>;
   /** Feeds MakeMKV's output into the rip's step and messages. */
@@ -120,6 +122,24 @@ interface Job {
 }
 
 const active = (rip: DiscRip) => rip.state === 'queued' || rip.state === 'running';
+
+/** Discs ripped before, at most this many, the newest first. */
+const HISTORY_LIMIT = 500;
+
+/**
+ * What tells a disc from another: its name and the length, size and chapters of every title. A label alone is not
+ * enough – many discs are just «DVD_VIDEO» –, and the same disc reads the same each time.
+ */
+export function discKey(info: Pick<DiscInfo, 'name' | 'titles'>): string {
+  return [info.name, ...info.titles.map((title) => `${Math.round(title.durationSeconds)}/${title.bytes ?? '?'}/${title.chapters}`)].join('|');
+}
+
+interface RippedDisc {
+  key: string;
+  label: string;
+  folder: string;
+  at: string;
+}
 /** A copy for the answer; the job itself goes on changing. */
 const snapshot = (rip: DiscRip): DiscRip => ({ ...rip, titles: rip.titles.map((title) => ({ ...title })), messages: [...(rip.messages ?? [])] });
 
@@ -150,16 +170,38 @@ export function createDiscs(options: DiscsOptions) {
    * The disc in each drive that is ripped already, by its label, until the drive is empty: neither the automatic mode
    * nor the automatic reading takes it again – also not after a restart, e.g. when it was not ejected.
    */
-  const ripped = new Map<number, string>(loadRipped());
+  const stored = loadState();
+  const ripped = new Map<number, string>(stored.drives);
+  /**
+   * Every disc ripped, by discKey, the newest first – also once ejected: a server that restarts at night pulls the tray
+   * back in, and the automatic mode must not rip the same disc again.
+   */
+  const history: RippedDisc[] = stored.history;
 
-  function loadRipped(): Array<[number, string]> {
-    if (!options.stateFile) return [];
+  function loadState(): { drives: Array<[number, string]>; history: RippedDisc[] } {
+    const nothing = { drives: [], history: [] };
+    if (!options.stateFile) return nothing;
     try {
-      const stored = JSON.parse(readFileSync(options.stateFile, 'utf8')) as Record<string, unknown>;
-      return Object.entries(stored).flatMap(([drive, disc]) => (typeof disc === 'string' && /^\d+$/.test(drive) ? [[Number(drive), disc] as [number, string]] : []));
+      const raw = JSON.parse(readFileSync(options.stateFile, 'utf8')) as Record<string, unknown>;
+      // Agents before 0.39.0 kept only the drives, right at the top.
+      const drivesOf = (value: unknown) =>
+        Object.entries((value ?? {}) as Record<string, unknown>).flatMap(([drive, disc]) =>
+          typeof disc === 'string' && /^\d+$/.test(drive) ? [[Number(drive), disc] as [number, string]] : [],
+        );
+      const history = Array.isArray(raw.history)
+        ? (raw.history as RippedDisc[]).filter((entry) => typeof entry?.key === 'string' && typeof entry.folder === 'string' && typeof entry.at === 'string')
+        : [];
+      return { drives: drivesOf('drives' in raw ? raw.drives : raw), history: history.slice(0, HISTORY_LIMIT) };
     } catch {
-      return [];
+      return nothing;
     }
+  }
+
+  /** When and where this disc was ripped before, if it was. */
+  function rippedBefore(info: Pick<DiscInfo, 'name' | 'titles'>): { at: string; folder: string } | null {
+    const key = discKey(info);
+    const found = history.find((entry) => entry.key === key);
+    return found ? { at: found.at, folder: found.folder } : null;
   }
 
   /** One write after the other, each whole: a temporary file first, then renamed over the old one. */
@@ -167,7 +209,7 @@ export function createDiscs(options: DiscsOptions) {
   function saveRipped() {
     const file = options.stateFile;
     if (!file) return;
-    const content = JSON.stringify(Object.fromEntries(ripped));
+    const content = JSON.stringify({ drives: Object.fromEntries(ripped), history });
     saving = saving.then(() => writeFile(`${file}.tmp`, content).then(() => rename(`${file}.tmp`, file))).catch(() => {});
   }
 
@@ -224,7 +266,8 @@ export function createDiscs(options: DiscsOptions) {
     const { take } = createActivity(read);
     reads.set(drive, read);
     try {
-      read.info = await readDisc(tool, drive, { signal: abort.signal, onLine: take });
+      const info = await readDisc(tool, drive, { signal: abort.signal, onLine: take });
+      read.info = { ...info, rippedBefore: rippedBefore(info) };
       read.state = 'done';
       return read.info;
     } catch (error) {
@@ -317,8 +360,17 @@ export function createDiscs(options: DiscsOptions) {
       view.error = view.state === 'failed' ? (failed?.error ?? null) : view.state === 'done' ? afterwards : null;
       log(`Disc «${view.disc}» → ${view.folder}: ${done()} von ${view.titles.length} Titeln${view.state === 'done' ? '' : ` (${view.state === 'canceled' ? 'abgebrochen' : view.error})`}`);
       if (view.state === 'done') {
-        // Ripped: the disc is not taken again while it stays in the drive, also not after a restart.
+        // Ripped: the disc is not taken again while it stays in the drive, nor once it comes back, also after a restart.
         ripped.set(view.drive, job.label);
+        if (job.key) {
+          const before = history.findIndex((entry) => entry.key === job.key);
+          if (before >= 0) history.splice(before, 1);
+          history.unshift({ key: job.key, label: job.label, folder: view.folder, at: new Date().toISOString() });
+          history.splice(HISTORY_LIMIT);
+          // The titles shown for the drive now say so too.
+          const shown = reads.get(view.drive)?.info;
+          if (shown && discKey(shown) === job.key) shown.rippedBefore = { at: history[0]!.at, folder: view.folder };
+        }
         saveRipped();
       }
       if (view.state === 'done' && view.eject && job.device) {
@@ -398,7 +450,8 @@ export function createDiscs(options: DiscsOptions) {
       startedAt: null,
       finishedAt: null,
     };
-    jobs.unshift({ view, device: drive.device, label: drive.disc ?? '', abort: new AbortController(), samples: [], take: createActivity(view).take });
+    const read = reads.get(drive.index)?.info;
+    jobs.unshift({ view, device: drive.device, label: drive.disc ?? '', key: read ? discKey(read) : null, abort: new AbortController(), samples: [], take: createActivity(view).take });
     log(`Disc «${view.disc}»: ${view.titles.length} Titel nach ${folder}${auto ? ' (automatisch)' : ''}`);
     const answer = snapshot(view);
     void work();
@@ -457,6 +510,10 @@ export function createDiscs(options: DiscsOptions) {
       }
       try {
         const info = await readNow(tool, drive.index);
+        if (info.rippedBefore) {
+          log(`Disc «${key || info.name}» wurde schon gerippt (${info.rippedBefore.folder}) – der automatische Modus lässt sie aus.`);
+          continue;
+        }
         const main = mainTitle(info.titles);
         if (!main) continue;
         const folder = await freeFolder(ripTo, folderNameFrom(info.name) ?? folderNameFrom(drive.disc ?? '') ?? `Disc ${new Date().toISOString().slice(0, 10)}`);

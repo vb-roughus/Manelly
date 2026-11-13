@@ -1846,6 +1846,11 @@ export interface DiscInfo {
   /** Titles from 60 seconds on, in the disc's order. */
   titles: DiscTitle[];
   readAt: string;
+  /**
+   * The same disc was ripped before – known by its name and its titles, also after it was ejected and the server
+   * restarted. The automatic mode leaves it alone; by hand it can be ripped again. From agent 0.39.0.
+   */
+  rippedBefore?: { at: string; folder: string } | null;
 }
 
 /** Something MakeMKV reported while reading or ripping, e.g. a read error of a scratched disc. */

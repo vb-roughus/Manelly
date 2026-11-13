@@ -333,7 +333,10 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   Laufwerk bleibt, nimmt der Agent nicht nochmals – auch nach einem Neustart nicht (ab Agent 0.37.0)
 - **Automatisch rippen** (Reiter «Einstellungen»): Eine eingelegte DVD liest der Agent selbst, rippt den Hauptfilm in
   einen Ordner mit dem Namen der Disc und wirft sie aus – auch ohne dass Manelly offen ist; Disc nach Disc einlegen
-  genügt. Serien-DVDs besser von Hand
+  genügt. Serien-DVDs besser von Hand. Eine Disc, die schon gerippt wurde, lässt der automatische Modus aus (ab Agent
+  0.39.0): Der Agent merkt sich jede gerippte Disc an ihrem Namen und Länge, Grösse und Kapiteln ihrer Titel – auch
+  ausgeworfen und über Neustarts hinweg, etwa wenn ein nächtlicher Neustart des Servers die Lade wieder einzieht. Die
+  Laufwerkskarte sagt dann, wann und wohin sie gerippt wurde; von Hand lässt sie sich trotzdem nochmals rippen
 - **Tonspur nach dem Rippen** (ab Agent 0.38.0, Reiter «Einstellungen», ab Werk Deutsch und an erster Stelle): MakeMKV
   markiert die erste Tonspur als Standard – oft die englische –, und Jellyfin spielt dann Englisch. Nach jedem Titel
   macht der Agent die gewählte Sprache zum Standard und setzt sie auf Wunsch an die erste Stelle (siehe

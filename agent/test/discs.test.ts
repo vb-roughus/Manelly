@@ -382,7 +382,9 @@ describe('ripping discs', () => {
     // Not ejected: the disc stays in the drive.
     await first.rip({ drive: 0, folder: 'Findet Nemo', titles: [{ index: 0, fileName: 'Findet Nemo.mkv' }], eject: false });
     await first.idle();
-    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ 0: 'FINDET_NEMO' });
+    const stored = JSON.parse(await readFile(stateFile, 'utf8'));
+    expect(stored.drives).toEqual({ 0: 'FINDET_NEMO' });
+    expect(stored.history).toEqual([{ key: expect.stringMatching(/^FINDET_NEMO\|/), label: 'FINDET_NEMO', folder: 'Findet Nemo', at: expect.any(String) }]);
 
     // The new agent, in the automatic mode: it leaves the disc alone.
     settings = { auto: true, eject: true, read: true };
@@ -393,13 +395,53 @@ describe('ripping discs', () => {
     expect(status.rips).toEqual([]);
     expect(status.reads).toEqual([]);
 
-    // Once the drive was empty, the same disc counts as new again.
+    // Once the drive was empty, the drive forgets it – the list of ripped discs does not.
     await insert(null);
     await new Promise((resolve) => setTimeout(resolve, 3100));
     await second.tick();
     await second.idle();
-    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({});
+    const after = JSON.parse(await readFile(stateFile, 'utf8'));
+    expect(after.drives).toEqual({});
+    expect(after.history).toHaveLength(1);
   }, 15_000);
+
+  it('does not rip an ejected disc again that a restart pulled back in, and says when it was ripped', async () => {
+    const stateFile = path.join(root, 'discs.json');
+    settings = { auto: true, eject: true, read: true };
+    const before = service(FAKE, stateFile);
+    await before.tick();
+    await before.idle();
+    expect((await before.status()).rips.map((rip) => [rip.folder, rip.state])).toEqual([['Findet Nemo', 'done']]);
+    expect(ejected).toEqual(['/dev/sr0']);
+
+    // At night the server restarts and the drive pulls the tray back in, with the same disc.
+    await insert('movie');
+    const after = service(FAKE, stateFile);
+    await after.tick();
+    await after.idle();
+    const status = await after.status();
+    expect(status.rips).toEqual([]);
+    expect(status.reads[0]?.info?.rippedBefore).toEqual({ at: expect.any(String), folder: 'Findet Nemo' });
+    expect(await readdir(target)).toEqual(['Findet Nemo']);
+
+    // Another disc goes as before.
+    await insert('series');
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await after.tick();
+    await after.idle();
+    expect((await after.status()).rips.map((rip) => rip.folder)).toEqual(['Dark S1 D1']);
+  }, 15_000);
+
+  it('reads the list of ripped discs of an older agent', async () => {
+    const stateFile = path.join(root, 'discs.json');
+    await writeFile(stateFile, JSON.stringify({ 0: 'FINDET_NEMO' }));
+    settings = { auto: true, eject: true, read: true };
+    const discs = service(FAKE, stateFile);
+    await discs.tick();
+    await discs.idle();
+    // Still in the drive since then: left alone.
+    expect((await discs.status()).rips).toEqual([]);
+  });
 
   it('rips a new disc by itself in the automatic mode, once', async () => {
     const discs = service();
@@ -413,14 +455,21 @@ describe('ripping discs', () => {
     expect(rip?.titles.map((title) => [title.index, title.fileName])).toEqual([[0, 'Findet Nemo.mkv']]);
     expect(ejected).toEqual(['/dev/sr0']);
 
-    // The same disc again, after it was out: a second folder.
+    // The same disc again, after it was out: ripped already, so it stays as it is; by hand it could go again.
     await new Promise((resolve) => setTimeout(resolve, 3100));
     await discs.tick();
     await insert('movie');
     await new Promise((resolve) => setTimeout(resolve, 3100));
     await discs.tick();
     await discs.idle();
-    expect((await discs.status()).rips.map((entry) => entry.folder)).toEqual(['Findet Nemo (2)', 'Findet Nemo']);
-    expect(JSON.parse(await readFile(statePath, 'utf8')).disc).toBeNull();
+    expect((await discs.status()).rips.map((entry) => entry.folder)).toEqual(['Findet Nemo']);
+    expect(JSON.parse(await readFile(statePath, 'utf8')).disc).toBe('movie');
+    // Another disc with the same name gets a folder of its own.
+    await mkdir(path.join(target, 'Dark S1 D1'));
+    await insert('series');
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await discs.tick();
+    await discs.idle();
+    expect((await discs.status()).rips.map((entry) => entry.folder)).toEqual(['Dark S1 D1 (2)', 'Findet Nemo']);
   }, 15_000);
 });

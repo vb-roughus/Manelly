@@ -27,6 +27,8 @@ import type {
   ExtractedFolder,
   ExtractedRenamed,
   ExtractedRenameRequest,
+  AudioRequest,
+  AudioTask,
   ExtractedMove,
   ExtractedMoveTarget,
   ExtractedSamples,
@@ -793,6 +795,47 @@ export function useRenameExtracted() {
   return useMutation({
     mutationFn: (request: ExtractedRenameRequest) => sendJson<ExtractedRenamed>('POST', '/api/agent/jdownloader/extracted/rename', request),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] }),
+  });
+}
+
+/**
+ * From agent 0.38.0: the agent's audio task – setting the preferred audio track in many files, in the background.
+ * Polled while it runs; when it ends, the extraction folder is read again.
+ */
+export function useAudioTask(enabled: boolean) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ['audio'],
+    queryFn: ({ signal }) => fetchJson<AudioTask | null>('/api/agent/audio', signal),
+    refetchInterval: (q) => (q.state.data?.state === 'running' ? 1_500 : false),
+    enabled: useAgentLive(enabled),
+    retry: false,
+  });
+  const running = query.data?.state === 'running';
+  const previous = useRef(running);
+  useEffect(() => {
+    if (previous.current && !running) void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
+    previous.current = running;
+  }, [running, queryClient]);
+  return query;
+}
+
+/** The preferred audio track in entries of the extraction folder (files, or folders with all their MKV files). */
+export function useExtractedAudio() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: AudioRequest) => sendJson<AudioTask>('POST', '/api/agent/jdownloader/extracted/audio', request),
+    onSuccess: (task) => queryClient.setQueryData(['audio'], task),
+  });
+}
+
+/** The preferred audio track in every MKV file of a title in the media; Manelly finds the files in Jellyfin. */
+export function useMediaAudio() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...request }: { id: string; language?: string; first?: boolean }) =>
+      sendJson<AudioTask>('POST', `/api/agent/media/${encodeURIComponent(id)}/audio`, request),
+    onSuccess: (task) => queryClient.setQueryData(['audio'], task),
   });
 }
 

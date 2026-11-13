@@ -88,6 +88,14 @@ Filme und Serien durchsuchen und filtern:
 - Serien zeigen, in wie vielen Folgen die gesuchte Spur vorhanden ist; optional nur Serien, bei denen alle Folgen passen
 - Detailansicht mit allen Tonspuren und der Dateigrösse jeder Version bzw. den Tonspuren jeder Folge und Link zum Titel in Jellyfin;
   bei einer Serie scannt **«Diese Serie scannen»** nur ihren Ordner (siehe unten)
+- **«Deutsche Tonspur zuerst»** (mit Agent ab 0.38.0): Spielt Jellyfin einen Film auf Englisch, obwohl er eine deutsche
+  Tonspur hat, ist meist die englische als «Standard» markiert – z. B. bei gerippten DVDs, denn MakeMKV markiert die erste.
+  Der Knopf in der Detailansicht macht die deutsche Spur in den MKV-Dateien zum Standard (mkvpropedit, nur der Kopf der
+  Datei ändert sich) und setzt sie auf Wunsch an die erste Stelle (mkvmerge schreibt die Datei dafür neu, ohne etwas neu
+  zu kodieren – für Apps wie Infuse, die einfach die erste Spur nehmen). Untertitel in einer anderen Sprache verlieren
+  ihre Standard-Markierung, erzwungene bleiben. Bei einer Serie gilt das für alle Folgen. Der Agent arbeitet im
+  Hintergrund, Jellyfin erfährt von jeder geänderten Datei und liest sie neu ein. Bei einem Film erscheint der Knopf nur,
+  wenn es etwas zu ändern gibt. Sprache und «an die erste Stelle» stellst du unter Server → Discs → Einstellungen ein
 - **Treffer in eine Sammlung übernehmen:** alle Titel der aktuellen Suche zu einer bestehenden Jellyfin-Sammlung
   hinzufügen oder eine neue anlegen. Manelly zeigt vorher, wie viele schon drin sind, und fügt nur die fehlenden hinzu
 - Tonspur- und Video-Filter sind eingeklappt und zeigen dann eine Zusammenfassung, z. B. «4K · Dolby Vision · HEVC»
@@ -326,6 +334,11 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
 - **Automatisch rippen** (Reiter «Einstellungen»): Eine eingelegte DVD liest der Agent selbst, rippt den Hauptfilm in
   einen Ordner mit dem Namen der Disc und wirft sie aus – auch ohne dass Manelly offen ist; Disc nach Disc einlegen
   genügt. Serien-DVDs besser von Hand
+- **Tonspur nach dem Rippen** (ab Agent 0.38.0, Reiter «Einstellungen», ab Werk Deutsch und an erster Stelle): MakeMKV
+  markiert die erste Tonspur als Standard – oft die englische –, und Jellyfin spielt dann Englisch. Nach jedem Titel
+  macht der Agent die gewählte Sprache zum Standard und setzt sie auf Wunsch an die erste Stelle (siehe
+  [Medien](#medien)); braucht MKVToolNix, das für die Konvertierungen ohnehin installiert ist. Klappt es nicht, bleibt
+  der Rip und die Liste nennt den Grund
 - Kopien eigener Discs für den Eigengebrauch sind in der Schweiz erlaubt; die Entschlüsselung übernimmt MakeMKV.
   Blu-rays kann MakeMKV auch (mit Beta-Schlüssel oder Lizenz), UHD-Blu-rays nur mit einem «LibreDrive»-Laufwerk
 
@@ -369,6 +382,9 @@ liest nur diesen Ordner, jede Minute neu.
   erkennt. Eine Datei behält ihre Endung, und der Agent überschreibt nichts. Was gerade verschoben oder konvertiert
   wird, behält seinen Namen; eine Datei, die noch offen ist (abgespielt oder noch entpackt), lässt Windows nicht
   umbenennen.
+- **Tonspur** (ab Agent 0.38.0): macht in den angekreuzten MKV-Dateien – bei Ordnern in allen darin – eine Sprache zur
+  Standard-Tonspur und auf Wunsch zur ersten, wie in den [Medien](#medien) beschrieben. Der Dialog zeigt den Fortschritt
+  und für jede Datei, was geschah; schliesst du ihn, läuft es im Hintergrund weiter
 - **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
   Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
   die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird

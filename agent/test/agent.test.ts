@@ -2,8 +2,10 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile }
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
+  AudioTask,
   AgentNetworkList,
   AgentNetworkStatus,
   AgentResourceStatus,
@@ -25,6 +27,7 @@ import { createJDownloader, type JDownloader } from '../src/jdownloader.js';
 import { createJobQueue, type JobQueue } from '../src/jobs.js';
 import { createMover } from '../src/moves.js';
 import { createCopyLimiter } from '../src/copyLimit.js';
+import { createAudioFixer } from '../src/audio.js';
 import { createDiscs } from '../src/discs.js';
 import { createOriginals } from '../src/originals.js';
 import { createNetworkMonitor, type CounterSource, type NetworkMonitor } from '../src/network.js';
@@ -146,6 +149,8 @@ const fakeDrives = {
 };
 
 // Agents from 0.11.0 update while running; without an updater the runner updates after the exit.
+/** Stand-in for mkvmerge (and mkvpropedit next to it): MKV files are JSON with their tracks. */
+const FAKE_MKVMERGE = fileURLToPath(new URL('./fixtures/fake-mkvmerge.cjs', import.meta.url));
 let withUpdater = false;
 /** Holds a move in the extraction folder back until resolved. */
 let moveHold: Promise<void> = Promise.resolve();
@@ -200,6 +205,7 @@ async function start() {
     originals,
     // Without MakeMKV: the routes and settings; ripping itself is tested in discs.test.ts.
     discs: createDiscs({ tool: async () => null, settings: { get: () => settings.get().discs, set: settings.setDiscs }, target: () => settings.get().jdownloader.extractTo ?? null }),
+    audio: createAudioFixer({ tool: async () => FAKE_MKVMERGE }),
     mover: createMover({
       rename: async (from, to) => {
         await moveHold;
@@ -946,6 +952,32 @@ describe('JDownloader routes', () => {
     expect((await post('/api/jdownloader/extracted/rename', { path: 'Dune.nfo' })).status).toBe(400);
     expect((await post('/api/jdownloader/extracted/delete', { paths: ['Dune.nfo'] })).status).toBe(200);
 
+    // The preferred audio track in the MKV files of a folder; the other files stay as they are.
+    await mkdir(path.join(extracted, 'Serie'));
+    const tracks = (first: string, second: string) => ({
+      tracks: [
+        { id: 0, type: 'video', properties: { number: 1, language: 'und', default_track: true } },
+        { id: 1, type: 'audio', properties: { number: 2, language: first, default_track: true } },
+        { id: 2, type: 'audio', properties: { number: 3, language: second, default_track: false } },
+      ],
+    });
+    await writeFile(path.join(extracted, 'Serie', 'Folge 1.mkv'), JSON.stringify(tracks('eng', 'ger')));
+    expect(((await (await call('/api/status')).json()) as AgentStatus).audio).toBe(true);
+    expect((await post('/api/jdownloader/extracted/audio', { paths: ['Serie'], language: 'klingonisch' })).status).toBe(400);
+    const audioStarted = await post('/api/jdownloader/extracted/audio', { paths: ['Serie'] });
+    expect(audioStarted.status).toBe(202);
+    expect(await audioStarted.json()).toMatchObject({ state: 'running', total: 1, language: 'ger', first: true });
+    let task = (await (await call('/api/audio')).json()) as AudioTask;
+    for (let i = 0; i < 100 && task.state === 'running'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      task = (await (await call('/api/audio')).json()) as AudioTask;
+    }
+    expect(task.results).toEqual([{ path: 'Serie/Folge 1.mkv', changed: true, message: 'Die deutsche Tonspur steht jetzt zuerst und ist Standard.' }]);
+    expect(JSON.parse(await readFile(path.join(extracted, 'Serie', 'Folge 1.mkv'), 'utf8')).tracks.map((track: { properties: { language: string } }) => track.properties.language)).toEqual(['und', 'ger', 'eng']);
+    // Files of the libraries come with their full path.
+    expect((await post('/api/audio', { paths: ['Serie/Folge 1.mkv'] })).status).toBe(400);
+    await rm(path.join(extracted, 'Serie'), { recursive: true });
+
     expect((await post('/api/jdownloader/extracted/move', { ...move, target: path.join(root, 'gibts-nicht') })).status).toBe(404);
     expect((await post('/api/jdownloader/extracted/move', { ...move, label: '' })).status).toBe(400);
     expect((await post('/api/jdownloader/extracted/move', { ...move, paths: ['../filme'] })).status).toBe(400);
@@ -1047,7 +1079,7 @@ describe('JDownloader routes', () => {
 
   it('answers about discs, and keeps their settings', async () => {
     expect(((await (await call('/api/status')).json()) as AgentStatus).discs).toBe(true);
-    expect(await (await call('/api/discs')).json()).toEqual({ tool: null, drives: [], reads: [], rips: [], settings: { auto: false, eject: true, read: true }, target: null, error: null });
+    expect(await (await call('/api/discs')).json()).toEqual({ tool: null, drives: [], reads: [], rips: [], settings: { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true }, target: null, error: null });
     const refused = async (pathname: string, body: unknown, method = 'POST') => {
       const response = await call(pathname, { method, body: JSON.stringify(body) });
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
@@ -1058,12 +1090,16 @@ describe('JDownloader routes', () => {
     expect(await refused('/api/discs/rips/abc/cancel', {})).toEqual([404, 'Diesen Auftrag gibt es nicht (mehr).']);
     expect(await refused('/api/discs/settings', { auto: 'ja', eject: true }, 'PUT')).toEqual([400, 'Automatik, Auswerfen und Lesen erwartet (ja/nein).']);
     expect(await refused('/api/discs/settings', { auto: false, eject: true, read: 1 }, 'PUT')).toEqual([400, 'Automatik, Auswerfen und Lesen erwartet (ja/nein).']);
-    const saved = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: true, eject: false, read: false }) });
-    expect(await saved.json()).toEqual({ auto: true, eject: false, read: false });
-    expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({ auto: true, eject: false, read: false });
-    // From an older Manelly, without read: reading stays on.
+    expect(await refused('/api/discs/settings', { auto: false, eject: true, audioLanguage: 'klingonisch' }, 'PUT')).toEqual([
+      400,
+      'Eine bekannte Sprache für die Tonspur erwartet (ger, eng, fre, ita, spa) oder keine.',
+    ]);
+    const saved = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false }) });
+    expect(await saved.json()).toEqual({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false });
+    expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false });
+    // From an older Manelly, without read and the audio track: reading stays on, German first.
     const older = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: false, eject: true }) });
-    expect(await older.json()).toEqual({ auto: false, eject: true, read: true });
+    expect(await older.json()).toEqual({ auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true });
   });
 
   it('hands single links to the link grabber, with package name and password', async () => {

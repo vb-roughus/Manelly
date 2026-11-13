@@ -1544,6 +1544,8 @@ export interface AgentStatus {
   process?: AgentProcess;
   /** Reads DVDs into MKV files with MakeMKV; missing before agent 0.33.0. */
   discs?: boolean;
+  /** Sets the preferred audio track in MKV files (POST /api/audio); missing before agent 0.38.0. */
+  audio?: boolean;
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */
@@ -1914,6 +1916,45 @@ export interface DiscSettings {
   eject: boolean;
   /** A disc that comes in is read by itself, so its titles are ready; nothing is ripped. Missing before agent 0.35.0. */
   read?: boolean;
+  /**
+   * After each rip, the audio track in this language (ISO 639-2/B, e.g. ger) becomes the default; null leaves the file as
+   * MakeMKV wrote it. Missing before agent 0.38.0.
+   */
+  audioLanguage?: string | null;
+  /** That track also goes in front of the other audio tracks, for players that take the first one. */
+  audioFirst?: boolean;
+}
+
+/** One file of an audio task: what was done, or why not. */
+export interface AudioResult {
+  path: string;
+  changed: boolean;
+  message: string;
+  error?: boolean;
+}
+
+/** Setting the preferred audio track in many files, in the background on the agent (from 0.38.0). */
+export interface AudioTask {
+  id: string;
+  state: 'running' | 'done';
+  /** ISO 639-2/B, e.g. ger. */
+  language: string;
+  first: boolean;
+  total: number;
+  done: number;
+  /** The file under way. */
+  current: string | null;
+  results: AudioResult[];
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+/** Which files, and how; without language and first, the agent takes those of its disc settings. */
+export interface AudioRequest {
+  /** In the extraction folder: entries with "/" between the names (folders count with all their MKV files). */
+  paths: string[];
+  language?: string;
+  first?: boolean;
 }
 
 /** GET /api/discs on the agent (from 0.33.0). */

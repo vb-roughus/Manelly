@@ -20,9 +20,10 @@ async function insert(disc: 'movie' | 'series' | null, extra: Record<string, unk
   await writeFile(statePath, JSON.stringify({ disc, label: disc === 'series' ? 'DARK_S1_D1' : 'FINDET_NEMO', ripMs: 40, ...extra }));
 }
 
-function service(tool: string | null = FAKE, stateFile?: string) {
+function service(tool: string | null = FAKE, stateFile?: string, afterTitle?: (file: string) => Promise<unknown>) {
   return createDiscs({
     stateFile,
+    afterTitle,
     tool: async () => tool,
     settings: { get: () => settings, set: async (next) => void (settings = next) },
     target: () => target,
@@ -328,6 +329,31 @@ describe('ripping discs', () => {
     await discs.setSettings({ auto: false, eject: true, read: true });
     await discs.idle();
     expect((await discs.status()).reads[0]?.startedAt).toBe(read?.startedAt);
+  });
+
+  it('sets the audio tracks of each saved title, and keeps the rip when that fails', async () => {
+    const seen: string[] = [];
+    let fail = false;
+    const discs = service(FAKE, undefined, async (file) => {
+      seen.push(path.relative(target, file));
+      if (fail) throw new Error('mkvmerge fehlt auf dem Server – MKVToolNix installieren.');
+    });
+    await discs.status();
+    await discs.read(0);
+    for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    await discs.rip({ drive: 0, folder: 'Findet Nemo', titles: [{ index: 0, fileName: 'Findet Nemo.mkv' }], eject: false });
+    await discs.idle();
+    expect(seen).toEqual([path.join('Findet Nemo', 'Findet Nemo.mkv')]);
+    expect((await discs.status()).rips[0]).toMatchObject({ state: 'done', error: null });
+
+    fail = true;
+    await discs.rip({ drive: 0, folder: 'Nochmal', titles: [{ index: 0, fileName: 'Nochmal.mkv' }], eject: false });
+    await discs.idle();
+    expect((await discs.status()).rips[0]).toMatchObject({
+      state: 'done',
+      error: 'Gerippt, aber die Tonspuren blieben, wie sie waren: mkvmerge fehlt auf dem Server – MKVToolNix installieren.',
+    });
+    expect(await readdir(path.join(target, 'Nochmal'))).toEqual(['Nochmal.mkv']);
   });
 
   it('starts nothing new once held for a restart, and lets the rip under way finish with its eject', async () => {

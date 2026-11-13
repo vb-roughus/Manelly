@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AudioTrack, MediaDetail, MediaVersion, SeasonDetail } from '@manelly/shared';
-import { Check, CircleCheck, ExternalLink, FolderSearch, LoaderCircle, Star, WandSparkles, X } from 'lucide-react';
+import { AudioLines, Check, CircleCheck, ExternalLink, FolderSearch, LoaderCircle, Star, TriangleAlert, WandSparkles, X } from 'lucide-react';
 import clsx from 'clsx';
-import { useMediaDetail, useScanItem, useServerStatus } from '../../hooks/queries';
+import { useAgent, useAudioTask, useDiscs, useMediaAudio, useMediaDetail, useScanItem, useServerStatus } from '../../hooks/queries';
+import { audioLanguageAdjective, audioLanguageLabel, needsPreferredAudio } from '../../lib/audioLanguages';
 import { itemImageUrl } from '../../lib/api';
 import { channelLayoutLabel, channelsLabel, codecLabel, formatBytes, joinParts } from '../../lib/format';
 import { AUDIO_FORMAT_LABELS, AUDIO_FORMAT_SHORT, DYNAMIC_RANGE_LABELS, audioLanguageName, hasAudioCondition, type MediaFilters } from '../../lib/media';
@@ -112,6 +113,7 @@ function DetailContent({ detail, audioFilterActive }: { detail: MediaDetail; aud
                 </a>
               )}
               {summary.type === 'Series' && <ScanSeriesButton key={summary.id} id={summary.id} />}
+              <PreferredAudioButton key={`audio-${summary.id}`} detail={detail} />
             </div>
           </div>
         </div>
@@ -174,6 +176,67 @@ function ScanSeriesButton({ id }: { id: string }) {
 
 function isDolbyVisionProfile7(version: MediaVersion): boolean {
   return version.dvProfile === 7 || (version.videoRangeType ?? '').startsWith('DOVIWithEL');
+}
+
+/**
+ * The preferred audio track (e.g. German) as default – and first – in the title's MKV files: a movie's versions, or every
+ * episode of a series. Agent from 0.38.0; a movie only shows it when there is something to change.
+ */
+function PreferredAudioButton({ detail }: { detail: MediaDetail }) {
+  const status = useAgent().data?.status;
+  const supported = Boolean(status?.audio);
+  const settings = useDiscs(supported && Boolean(status?.discs)).data?.settings;
+  const start = useMediaAudio();
+  const task = useAudioTask(supported).data;
+  if (!supported) return null;
+  const language = settings?.audioLanguage ?? 'ger';
+  const first = settings?.audioFirst ?? true;
+  const series = detail.summary.type === 'Series';
+  const mkv = (version: MediaVersion) => /mkv|matroska/i.test(version.container ?? '');
+  const mine = start.data && task?.id === start.data.id ? task : (start.data ?? null);
+  if (!series && !mine && !detail.versions.some((version) => mkv(version) && needsPreferredAudio(version.audio, language, first))) return null;
+
+  const adjective = audioLanguageAdjective(language);
+  const label = first
+    ? `${adjective[0]!.toUpperCase()}${adjective.slice(1)} Tonspur zuerst${series ? ' – alle Folgen' : ''}`
+    : `${audioLanguageLabel(language)} als Standard-Tonspur${series ? ' – alle Folgen' : ''}`;
+  if (mine) {
+    const failed = mine.results.filter((result) => result.error);
+    const changed = mine.results.filter((result) => result.changed).length;
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-ink-2" role="status">
+        {mine.state === 'running' ? (
+          <>
+            <LoaderCircle className="size-3.5 animate-spin text-accent" aria-hidden /> Tonspuren: {mine.done} von {mine.total}
+          </>
+        ) : failed.length > 0 ? (
+          <span className="inline-flex items-center gap-1.5 text-critical" title={failed.map((result) => `${result.path}: ${result.message}`).join('\n')}>
+            <TriangleAlert className="size-3.5" aria-hidden /> {changed} geändert, {failed.length} nicht: {failed[0]!.message}
+          </span>
+        ) : (
+          <>
+            <CircleCheck className="size-3.5 text-good" aria-hidden />
+            {changed === 0 ? 'War schon so.' : `${changed} ${changed === 1 ? 'Datei' : 'Dateien'} geändert – Jellyfin liest sie neu ein.`}
+          </>
+        )}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={() => start.mutate({ id: detail.summary.id })}
+        disabled={start.isPending}
+        title={`Macht die ${adjective} Tonspur zum Standard${first ? ' und setzt sie an die erste Stelle' : ''} – einstellbar unter Server → Discs → Einstellungen.`}
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline disabled:opacity-60"
+      >
+        {start.isPending ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden /> : <AudioLines className="size-3.5" aria-hidden />}
+        {label}
+      </button>
+      {start.error && <span className="text-xs text-critical">{start.error.message}</span>}
+    </span>
+  );
 }
 
 function VersionTracks({ version, showName, onConvert }: { version: MediaVersion; showName: boolean; onConvert?: () => void }) {

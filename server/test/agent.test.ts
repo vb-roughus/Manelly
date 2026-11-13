@@ -37,9 +37,11 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
     restarts: unknown[];
     drives: Array<{ method: string; path: string; body: unknown }>;
     originals: string[];
+    audio: unknown[];
   } = {
     drives: [],
     originals: [],
+    audio: [],
     shutdowns: 0,
     restarts: [],
     jdownloader: [],
@@ -116,6 +118,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (url.pathname.endsWith('/samples')) return Response.json({ samples: [{ path: 'Dune/Sample/dune-sample.mkv', bytes: 2 }] });
         if (url.pathname.endsWith('/convert')) return Response.json({ id: 'j1', state: 'queued', source: `D:\\Entpackt\\${body.path}`, output: `D:\\Entpackt\\${body.path}` }, { status: 202 });
         if (url.pathname.endsWith('/rename')) return Response.json({ path: body.name });
+        if (url.pathname.endsWith('/audio')) return Response.json({ id: 'a2', state: 'running', language: body.language ?? 'ger', first: body.first ?? true, total: 3, done: 0, current: null, results: [], startedAt: '', finishedAt: null }, { status: 202 });
         return Response.json({ deleted: body.paths, problems: [] });
       }
       if (url.pathname === '/api/jdownloader/extracted') {
@@ -187,6 +190,11 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname === '/api/work/copy-limit' && init?.method === 'PUT') {
         return Response.json({ directory: agent.work, freeBytes: agent.work ? 900_000_000_000 : null, error: null, copyLimit: body });
       }
+      if (url.pathname === '/api/audio') {
+        if (init?.method !== 'POST') return Response.json(null);
+        sent.audio.push(body);
+        return Response.json({ id: 'a1', state: 'running', language: body.language ?? 'ger', first: body.first ?? true, total: body.paths.length, done: 0, current: null, results: [], startedAt: '', finishedAt: null }, { status: 202 });
+      }
       if (url.pathname === '/api/jobs' && init?.method === 'POST') {
         sent.jobs.push(body);
         const job = { id: `job${jobs.length + 1}`, title: body.title, source: body.source, mode: body.output.mode, output: 'D:\\Filme\\Pitch Black (2000)\\Pitch Black (2000) - DV P8.mkv', backup: null, state: 'queued' } as ConversionJob;
@@ -202,6 +210,15 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       const series = { Id: 'aa11', Name: 'The Expanse', Type: 'Series', ProductionYear: 2015, Path: 'D:\\Serien\\The Expanse' };
       const season = { Id: 'bb22', Name: 'Season 5', IndexNumber: 5, Type: 'Season', SeriesName: 'The Expanse', Path: 'D:\\Serien\\The Expanse\\Season 05' };
       const elsewhere = { Id: 'cc33', Name: 'Woanders', Type: 'Series', Path: 'E:\\UHD\\Woanders' };
+      // Episodes of a series, with their files; one of them also as MP4, which stays as it is.
+      if (parent === 'aa11' && type === 'Episode') {
+        return Response.json({
+          Items: [
+            { Id: 'e1', Type: 'Episode', MediaSources: [{ Path: 'D:\\Serien\\The Expanse\\Season 05\\S05E01.mkv' }] },
+            { Id: 'e2', Type: 'Episode', MediaSources: [{ Path: 'D:\\Serien\\The Expanse\\Season 05\\S05E02.mkv' }, { Path: 'D:\\Serien\\The Expanse\\Season 05\\S05E02.mp4' }] },
+          ],
+        });
+      }
       if (parent === 'f4' && type === 'Series') return Response.json({ Items: [series, { Id: 'dd44', Name: 'Ohne Ordner', Type: 'Series' }] });
       // Episodes right in the series folder make a season without a folder of its own.
       if (parent === 'aa11' && type === 'Season') return Response.json({ Items: [season, { Id: 'ee55', Name: 'Specials', Type: 'Season', Path: 'd:\\serien\\the expanse\\' }] });
@@ -557,6 +574,27 @@ describe('agent connection', () => {
     expect((await rename({ path: 'Dune' })).statusCode).toBe(400);
     expect((await rename({ path: '', name: 'x' })).statusCode).toBe(400);
     expect(world.sent.jdownloader).toEqual([{ method: 'POST', path: '/api/jdownloader/extracted/rename', body: { path: 'Dune', name: 'Dune (2021)' } }]);
+  });
+
+  it('sets the preferred audio track through the agent, with the files of a title from Jellyfin', async () => {
+    const { app, world } = await setup();
+    const extracted = await app.inject({ method: 'POST', url: '/api/agent/jdownloader/extracted/audio', payload: { paths: ['Serie'], first: false } });
+    expect(extracted.statusCode).toBe(202);
+    expect(world.sent.jdownloader.at(-1)).toEqual({ method: 'POST', path: '/api/jdownloader/extracted/audio', body: { paths: ['Serie'], first: false } });
+    expect((await app.inject({ method: 'POST', url: '/api/agent/jdownloader/extracted/audio', payload: { paths: ['Serie'], language: 'klingonisch' } })).statusCode).toBe(400);
+
+    // A movie: its file; a series: every episode's MKV file.
+    expect((await app.inject({ method: 'POST', url: '/api/agent/media/movie/audio', payload: {} })).statusCode).toBe(202);
+    const series = await app.inject({ method: 'POST', url: '/api/agent/media/aa11/audio', payload: { language: 'ger' } });
+    expect(series.json()).toMatchObject({ state: 'running', total: 2 });
+    expect(world.sent.audio).toEqual([
+      { paths: ['D:\\Filme\\Pitch Black (2000)\\Pitch Black (2000).mkv'] },
+      { paths: ['D:\\Serien\\The Expanse\\Season 05\\S05E01.mkv', 'D:\\Serien\\The Expanse\\Season 05\\S05E02.mkv'], language: 'ger' },
+    ]);
+    expect((await app.inject({ method: 'POST', url: '/api/agent/media/cc33/audio', payload: {} })).json().error.message).toBe(
+      'Dieser Titel hat keine MKV-Datei – nur dort lässt sich die Tonspur so festlegen.',
+    );
+    expect((await app.inject('/api/agent/audio')).json()).toBeNull();
   });
 
   it('reads and rips discs through the agent', async () => {

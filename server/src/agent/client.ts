@@ -27,6 +27,8 @@ import type {
   ExtractedMoveRequest,
   ExtractedRenamed,
   ExtractedRenameRequest,
+  AudioRequest,
+  AudioTask,
   ExtractedSamples,
   ExtractedSamplesDeleted,
   HardwareTestRequest,
@@ -117,6 +119,11 @@ export interface AgentClient {
   /** From agent 0.30.0: entries of the extraction folder, for good. */
   deleteExtracted(paths: string[]): Promise<ExtractedDeleted>;
   renameExtracted(request: ExtractedRenameRequest): Promise<ExtractedRenamed>;
+  /** From agent 0.38.0: the preferred audio track in files of the extraction folder, in the background. */
+  extractedAudio(request: AudioRequest): Promise<AudioTask>;
+  /** From agent 0.38.0: the same for files of the libraries, full paths from Jellyfin. */
+  libraryAudio(paths: string[], language?: string, first?: boolean): Promise<AudioTask>;
+  audioStatus(): Promise<AudioTask | null>;
   /** From agent 0.31.0: a file there with Dolby Vision profile 7 into profile 8.1, replacing it. */
   convertExtracted(request: ExtractedConvertRequest): Promise<ConversionJob>;
   /** No ids: all of them. */
@@ -226,6 +233,9 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     deleteExtractedSamples: (paths) => call('POST', '/api/jdownloader/extracted/samples/delete', { paths }, 60_000),
     deleteExtracted: (paths) => call('POST', '/api/jdownloader/extracted/delete', { paths }, 120_000),
     renameExtracted: (request) => call('POST', '/api/jdownloader/extracted/rename', request, 60_000),
+    extractedAudio: (request) => call('POST', '/api/jdownloader/extracted/audio', request, 60_000),
+    libraryAudio: (paths, language, first) => call('POST', '/api/audio', { paths, language, first }, 60_000),
+    audioStatus: () => call('GET', '/api/audio'),
     // The agent reads the file's header first.
     convertExtracted: (request) => call('POST', '/api/jdownloader/extracted/convert', request, 60_000),
     refreshJDownloaderAccounts: (ids) => call('POST', '/api/jdownloader/accounts/refresh', { ids }, 20_000),

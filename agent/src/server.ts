@@ -19,6 +19,7 @@ import type {
   ExtractedConvertRequest,
   ExtractedMoveRequest,
   ExtractedRenameRequest,
+  AudioRequest,
   HardwareTestRequest,
   JDownloaderAction,
   JDownloaderSettings,
@@ -41,6 +42,7 @@ import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import { createDolbyVisionProbe } from './dvProbe.js';
 import { deleteExtracted, deleteSamples, findSamples, listExtracted, renameExtracted, resolveExtracted, within } from './extracted.js';
+import { isAudioLanguage, mkvFiles, type AudioFixer } from './audio.js';
 import type { Discs } from './discs.js';
 import type { Mover } from './moves.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
@@ -97,6 +99,8 @@ export interface AgentServerOptions {
   mover?: Mover;
   /** DVDs into MKV files with MakeMKV; from 0.33.0. */
   discs?: Discs;
+  /** The preferred audio track in MKV files; from 0.38.0. */
+  audio?: AudioFixer;
   /** The user's network drives, whether the agent reaches them, and the logins Manelly hands over for them. */
   drives?: Pick<Drives, 'list' | 'setCredential' | 'removeCredential'>;
   /** Current tools; `refresh` looks for them again, e.g. after installing one. */
@@ -267,6 +271,7 @@ export function createAgentServer(options: AgentServerOptions) {
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
         discs: Boolean(options.discs),
+        audio: Boolean(options.audio),
         drives: (await options.drives?.list()) ?? [],
         work: await workStatus(),
         originals: Boolean(options.originals),
@@ -429,6 +434,52 @@ export function createAgentServer(options: AgentServerOptions) {
       await options.access?.prepare(directory);
       const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths);
       return send(response, 200, await deleteExtracted(directory, paths as string[], moving, convertingIn(directory)));
+    }
+    if (route === 'GET /api/audio' && options.audio) return send(response, 200, options.audio.status());
+    if ((route === 'POST /api/audio' || route === 'POST /api/jdownloader/extracted/audio') && options.audio) {
+      const { paths, language: asked, first: askedFirst } = await readJson<Partial<AudioRequest>>(request);
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 2000 || paths.some((path) => typeof path !== 'string')) {
+        throw new AgentError(400, 'Die Dateien erwartet.');
+      }
+      if ((asked !== undefined && !isAudioLanguage(asked)) || (askedFirst !== undefined && typeof askedFirst !== 'boolean')) {
+        throw new AgentError(400, 'Eine bekannte Sprache für die Tonspur erwartet (ger, eng, fre, ita, spa).');
+      }
+      // Without a choice, as for the rips; German when the rips leave the sound alone.
+      const discSettings = settings.get().discs;
+      const language = asked ?? discSettings.audioLanguage ?? 'ger';
+      const first = askedFirst ?? discSettings.audioFirst !== false;
+      const converting = queue.list().filter((job) => job.state === 'queued' || job.state === 'running');
+      const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running');
+      const files: Array<{ path: string; shown: string; busy: string | null }> = [];
+      if (route === 'POST /api/audio') {
+        // Files of the libraries, as Manelly names them from Jellyfin; nothing is searched.
+        for (const path of paths as string[]) {
+          const api = pathApiFor(path);
+          if (!api.isAbsolute(path) || !/\.mkv$/i.test(path)) throw new AgentError(400, `«${path}» ist keine MKV-Datei mit absolutem Pfad.`);
+          if (roots.length > 0 && !roots.some((root) => isWithin(path, root, api))) throw new AgentError(403, `${path} liegt ausserhalb der freigegebenen Ordner.`);
+          await options.access?.prepare(path);
+          const busy = converting.some((job) => job.source === path || job.output === path) ? 'Wird gerade konvertiert – danach nochmals.' : null;
+          files.push({ path, shown: path, busy });
+        }
+      } else {
+        const directory = requireExtractTo();
+        await options.access?.prepare(directory);
+        const api = pathApiFor(directory);
+        const busyPaths = [...convertingIn(directory)];
+        const movingPaths = moving.flatMap((move) => move.paths);
+        for (const path of new Set(paths as string[])) {
+          for (const file of await mkvFiles(resolveExtracted(directory, path))) {
+            const shown = api.relative(directory, file).split(api.sep).join('/');
+            const busy = busyPaths.some((other) => within(shown, other) || within(other, shown))
+              ? 'Wird gerade konvertiert – danach nochmals.'
+              : movingPaths.some((other) => within(shown, other))
+                ? 'Wird gerade verschoben.'
+                : null;
+            if (!files.some((entry) => entry.path === file)) files.push({ path: file, shown, busy });
+          }
+        }
+      }
+      return send(response, 202, options.audio.start(files, { language, first, library: route === 'POST /api/audio' }));
     }
     if (route === 'POST /api/jdownloader/extracted/rename') {
       const directory = requireExtractTo();

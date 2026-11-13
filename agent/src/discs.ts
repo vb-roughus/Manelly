@@ -103,6 +103,8 @@ export interface DiscsOptions {
   tickMs?: number;
   /** Where the agent keeps which disc of a drive is ripped already, over a restart. */
   stateFile?: string;
+  /** After each title: e.g. the preferred audio track first; a failure there does not fail the rip. */
+  afterTitle?: (file: string, signal: AbortSignal) => Promise<unknown>;
 }
 
 interface Job {
@@ -253,6 +255,8 @@ export function createDiscs(options: DiscsOptions) {
     view.startedAt = new Date().toISOString();
     const done = () => view.titles.filter((title) => title.state === 'done').length;
     let temp: string | null = null;
+    /** What went wrong after a title was saved, e.g. with its audio tracks; the rip itself is done. */
+    let afterwards: string | null = null;
     busy.add(view.drive);
     try {
       const tool = await requireTool();
@@ -291,6 +295,15 @@ export function createDiscs(options: DiscsOptions) {
           const made = (await readdir(temp)).filter((name) => !before.has(name) && name.toLowerCase().endsWith('.mkv'));
           if (made.length === 0) throw new Error(`MakeMKV hat Titel ${title.index + 1} nicht gespeichert${said ? `: ${said}` : '.'}`);
           await rename(api.join(temp, made[0]!), destination);
+          if (options.afterTitle) {
+            view.step = 'Passt die Tonspuren an';
+            try {
+              await options.afterTitle(destination, job.abort.signal);
+            } catch (error) {
+              if (job.abort.signal.aborted) throw error;
+              afterwards ??= `Gerippt, aber die Tonspuren blieben, wie sie waren: ${(error as Error).message}`;
+            }
+          }
           title.state = 'done';
         } catch (error) {
           Object.assign(title, { state: 'failed', error: job.abort.signal.aborted ? 'Abgebrochen.' : (error as Error).message });
@@ -301,7 +314,7 @@ export function createDiscs(options: DiscsOptions) {
       }
       const failed = view.titles.find((title) => title.state === 'failed');
       view.state = job.abort.signal.aborted ? 'canceled' : failed ? 'failed' : 'done';
-      view.error = view.state === 'failed' ? (failed?.error ?? null) : null;
+      view.error = view.state === 'failed' ? (failed?.error ?? null) : view.state === 'done' ? afterwards : null;
       log(`Disc «${view.disc}» → ${view.folder}: ${done()} von ${view.titles.length} Titeln${view.state === 'done' ? '' : ` (${view.state === 'canceled' ? 'abgebrochen' : view.error})`}`);
       if (view.state === 'done') {
         // Ripped: the disc is not taken again while it stays in the drive, also not after a restart.

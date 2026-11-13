@@ -28,6 +28,8 @@ import type {
   ExtractedMoveTarget,
   ExtractedRenamed,
   ExtractedRenameRequest,
+  AudioRequest,
+  AudioTask,
   ExtractedSamples,
   ExtractedSamplesDeleted,
   HistoryResponse,
@@ -53,11 +55,15 @@ import { createMoveScans } from '../agent/moveScans.js';
 import { resolveMoveTarget } from '../agent/moveTarget.js';
 import type { AgentConnection } from '../agent/connection.js';
 import { normalizeAgentUrl } from '../agent/connection.js';
+import { audioFilesOf, watchAudioTask } from '../agent/audio.js';
 import { conversionOptions, createConversionWatcher, requireAgent, startConversion } from '../agent/conversions.js';
 import type { JellyfinConnection } from '../connection.js';
 import { AppError, requireClient } from '../errors.js';
 import type { LibraryScanner } from '../media/scan.js';
 import type { MediaIndexStore } from '../media/store.js';
+
+/** The languages the agent knows for the preferred audio track, ISO 639-2/B. */
+const AUDIO_LANGUAGES = ['ger', 'eng', 'fre', 'ita', 'spa'];
 
 export async function agentRoutes(
   app: FastifyInstance,
@@ -542,6 +548,49 @@ export async function agentRoutes(
     },
   );
 
+  // The preferred audio track (agent from 0.38.0): in the extraction folder, or in all files of a title in the media.
+  const audioOptions = {
+    language: { type: 'string', enum: AUDIO_LANGUAGES },
+    first: { type: 'boolean' },
+  };
+  app.get('/audio', async (): Promise<AudioTask | null> => requireAgent(agent).audioStatus());
+  app.post<{ Body: AudioRequest }>(
+    '/jdownloader/extracted/audio',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['paths'],
+          properties: { paths: { type: 'array', minItems: 1, maxItems: 2000, items: { type: 'string', minLength: 1, maxLength: 2000 } }, ...audioOptions },
+        },
+      },
+    },
+    async (request, reply) => {
+      const task = await requireAgent(agent).extractedAudio(request.body);
+      request.log.info(`Tonspuren im Entpack-Ordner: ${task.total} Dateien (${task.language}${task.first ? ', zuerst' : ''})`);
+      return reply.status(202).send(task);
+    },
+  );
+  app.post<{ Params: { id: string }; Body: Omit<AudioRequest, 'paths'> }>(
+    '/media/:id/audio',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^[\\w-]{1,64}$' } } },
+        body: { type: 'object', additionalProperties: false, properties: audioOptions },
+      },
+    },
+    async (request, reply) => {
+      const client = requireAgent(agent);
+      const { name, files } = await audioFilesOf(requireClient(connection.client), request.params.id);
+      const task = await client.libraryAudio(files, request.body?.language, request.body?.first);
+      request.log.info(`Tonspuren von «${name}»: ${files.length} Dateien (${task.language}${task.first ? ', zuerst' : ''})`);
+      // Jellyfin hears from the agent about each changed file; Manelly's index reads them again afterwards.
+      watchAudioTask(() => agent.client, store);
+      return reply.status(202).send(task);
+    },
+  );
+
   // A new name for an entry there (agent from 0.36.0); the agent keeps to that folder and to the file's extension.
   app.post<{ Body: ExtractedRenameRequest }>(
     '/jdownloader/extracted/rename',
@@ -649,8 +698,14 @@ export async function agentRoutes(
           type: 'object',
           additionalProperties: false,
           required: ['auto', 'eject'],
-          // read: from agent 0.35.0.
-          properties: { auto: { type: 'boolean' }, eject: { type: 'boolean' }, read: { type: 'boolean' } },
+          // read: from agent 0.35.0; the audio track from 0.38.0.
+          properties: {
+            auto: { type: 'boolean' },
+            eject: { type: 'boolean' },
+            read: { type: 'boolean' },
+            audioLanguage: { type: ['string', 'null'], enum: [...AUDIO_LANGUAGES, null] },
+            audioFirst: { type: 'boolean' },
+          },
         },
       },
     },

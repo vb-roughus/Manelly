@@ -13,6 +13,7 @@ import {
   FolderOpen,
   FolderSearch,
   LoaderCircle,
+  AudioLines,
   Pencil,
   RefreshCw,
   ScanSearch,
@@ -30,6 +31,9 @@ import {
   useConvertExtracted,
   useDeleteExtracted,
   useDeleteSamples,
+  useAudioTask,
+  useDiscs,
+  useExtractedAudio,
   useExtracted,
   useExtractedMoves,
   useExtractedSamples,
@@ -42,6 +46,7 @@ import {
 import { useNow } from '../hooks/useNow';
 import { initialChoices, loadChoices, rememberedChoices, saveChoices } from '../lib/convertChoices';
 import { describeDolbyVision, dolbyVisionLabel, guessSeriesName, isExtractedFile, isFolderName, joinFolder, VIDEO } from '../lib/extracted';
+import { AUDIO_LANGUAGES, audioLanguageLabel } from '../lib/audioLanguages';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 import { range } from '../lib/packageSelection';
 import { describeSchedule, restricts } from '../lib/schedule';
@@ -154,6 +159,7 @@ export function ExtractedList({
   deletable,
   convertible,
   renamable,
+  audio = false,
 }: {
   onOpenSettings: () => void;
   actions: boolean;
@@ -164,13 +170,16 @@ export function ExtractedList({
   convertible: boolean;
   /** Agent from 0.36.0: folders and files can be renamed. */
   renamable: boolean;
+  /** Agent from 0.38.0: the preferred audio track in the ticked MKV files. */
+  audio?: boolean;
 }) {
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
   const now = useNow(60_000);
   const [selected, setSelected] = useState<Map<string, Ticked>>(new Map());
   const [anchor, setAnchor] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<'move' | 'samples' | 'delete' | null>(null);
+  const [dialog, setDialog] = useState<'move' | 'samples' | 'delete' | 'audio' | null>(null);
+  const audioTask = useAudioTask(audio);
   const [converting, setConverting] = useState<ExtractedEntry | null>(null);
   const [renaming, setRenaming] = useState<ExtractedEntry | null>(null);
   const jobs = useFolderConversions(root.data?.directory ?? null, convertible);
@@ -268,6 +277,15 @@ export function ExtractedList({
             <button type="button" onClick={() => setDialog('samples')} className={button}>
               <ScanSearch className="size-4" aria-hidden /> Check for Samples
             </button>
+            <button
+              type="button"
+              onClick={() => setDialog('audio')}
+              disabled={selected.size === 0 || !audio}
+              title={audio ? 'Die bevorzugte Tonspur (z. B. Deutsch) zum Standard machen' : 'Geht ab Agent 0.38.0 – unter Einstellungen → Updates «Alles aktualisieren».'}
+              className={button}
+            >
+              <AudioLines className="size-4" aria-hidden /> Tonspur
+            </button>
             {selected.size > 0 ? (
               <span className="text-xs text-ink-2">
                 {selected.size} ausgewählt · {size(selectedBytes)} ·{' '}
@@ -282,6 +300,13 @@ export function ExtractedList({
         )}
         {!actions && <p className="mt-3 text-xs text-ink-3">Verschieben in eine Mediathek und Samples löschen gehen ab Agent 0.27.0 – unter Server → Agent «Aktualisieren & neu starten».</p>}
 
+        {audioTask.data?.state === 'running' && dialog !== 'audio' && (
+          <p className="mt-3 flex items-center gap-2 rounded-xl bg-card-2/50 p-3 text-xs ring-1 ring-line" role="status">
+            <LoaderCircle className="size-3.5 shrink-0 animate-spin text-accent" aria-hidden />
+            Tonspuren werden angepasst – {audioTask.data.done} von {audioTask.data.total}
+            {audioTask.data.current && <span className="truncate text-ink-2"> · {audioTask.data.current}</span>}
+          </p>
+        )}
         {recentMoves.length > 0 && (
           <ul className="mt-3 space-y-2" aria-label="Verschieben">
             {recentMoves.map((move) => (
@@ -321,6 +346,15 @@ export function ExtractedList({
           }}
           onCancel={() => setDialog(null)}
         />
+      </Modal>
+      <Modal
+        open={dialog === 'audio'}
+        onClose={() => setDialog(null)}
+        icon={AudioLines}
+        title="Bevorzugte Tonspur"
+        description="In den angekreuzten MKV-Dateien – bei Ordnern in allen darin. Jellyfin spielt danach diese Sprache, Englisch bleibt wählbar."
+      >
+        {dialog === 'audio' && <AudioForm paths={[...selected.keys()]} onClose={() => setDialog(null)} />}
       </Modal>
       <Modal open={dialog === 'delete'} onClose={() => setDialog(null)} icon={Trash2} tone="critical" title="Im Entpack-Ordner löschen">
         <DeleteForm
@@ -911,6 +945,100 @@ function RenameForm({ entry, onDone, onCancel }: { entry: ExtractedEntry; onDone
         </button>
         <button type="submit" disabled={Boolean(problem) || name === entry.name || rename.isPending} className={primaryButton}>
           {rename.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Pencil className="size-4" aria-hidden />} Umbenennen
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** The preferred audio track in the ticked entries: what to do, then how far it is and what came of it. */
+function AudioForm({ paths, onClose }: { paths: string[]; onClose: () => void }) {
+  const id = useId();
+  // The choice for rips is the starting point; agents before 0.38.0 do not have it.
+  const settings = useDiscs(true).data?.settings;
+  const [language, setLanguage] = useState<string | null>(null);
+  const [first, setFirst] = useState<boolean | null>(null);
+  const chosenLanguage = language ?? settings?.audioLanguage ?? 'ger';
+  const chosenFirst = first ?? settings?.audioFirst ?? true;
+  const start = useExtractedAudio();
+  const task = useAudioTask(true).data;
+  const mine = start.data && task?.id === start.data.id ? task : (start.data ?? null);
+
+  if (mine) {
+    const running = mine.state === 'running';
+    const changed = mine.results.filter((result) => result.changed).length;
+    return (
+      <div className="space-y-4 text-sm">
+        <p className="flex items-center gap-2" role="status">
+          {running ? <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden /> : <CircleCheck className="size-4 text-good" aria-hidden />}
+          {running
+            ? `${mine.done} von ${mine.total} Dateien${mine.current ? ` – ${mine.current}` : ''}`
+            : `Fertig: ${changed} von ${mine.total} ${mine.total === 1 ? 'Datei' : 'Dateien'} geändert.`}
+        </p>
+        {mine.results.length > 0 && (
+          <ul className="max-h-64 space-y-1.5 overflow-y-auto text-xs">
+            {mine.results.map((result) => (
+              <li key={result.path} className="flex items-start gap-1.5">
+                {result.error ? (
+                  <CircleX className="mt-px size-3.5 shrink-0 text-critical" aria-hidden />
+                ) : result.changed ? (
+                  <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
+                ) : (
+                  <CircleCheck className="mt-px size-3.5 shrink-0 text-ink-3" aria-hidden />
+                )}
+                <span className="min-w-0">
+                  <span className="font-medium break-all">{result.path}</span>
+                  <span className={clsx('block', result.error ? 'text-critical' : 'text-ink-2')}>{result.message}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} className={button}>
+            {running ? 'Im Hintergrund weiterlaufen lassen' : 'Schliessen'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    start.mutate({ paths, language: chosenLanguage, first: chosenFirst });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4 text-sm">
+      <p className="text-ink-2">
+        {paths.length === 1 ? '1 Eintrag' : `${paths.length} Einträge`} angekreuzt. Der Agent macht die erste Tonspur in dieser Sprache zum Standard
+        und nimmt das Zeichen den anderen; Untertitel in einer anderen Sprache verlieren es auch, erzwungene bleiben.
+      </p>
+      <label htmlFor={`${id}-language`} className="block">
+        <span className="mb-1 block font-medium">Sprache</span>
+        <select id={`${id}-language`} value={chosenLanguage} onChange={(event) => setLanguage(event.target.value)} className={fieldClass}>
+          {AUDIO_LANGUAGES.map((entry) => (
+            <option key={entry.code} value={entry.code}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex items-start gap-2.5">
+        <input type="checkbox" checked={chosenFirst} onChange={(event) => setFirst(event.target.checked)} className="mt-0.5 size-4 accent-accent" />
+        <span>
+          <span className="font-medium">Auch an die erste Stelle setzen</span>
+          <span className="block text-ink-2">Für Apps wie Infuse, die die erste Tonspur nehmen. Der Agent schreibt die Datei dafür neu, ohne etwas neu zu kodieren.</span>
+        </span>
+      </label>
+      {start.error && <Message tone="critical">{start.error.message}</Message>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onClose} className={button}>
+          Abbrechen
+        </button>
+        <button type="submit" disabled={start.isPending} className={primaryButton}>
+          {start.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <AudioLines className="size-4" aria-hidden />}{' '}
+          {audioLanguageLabel(chosenLanguage)} zum Standard machen
         </button>
       </div>
     </form>

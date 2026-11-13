@@ -20,6 +20,7 @@ import {
   useSetDiscSettings,
 } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
+import { AUDIO_LANGUAGES } from '../lib/audioLanguages';
 import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, namesFromDisc, suggestSelection, type DiscKind } from '../lib/discs';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 
@@ -688,9 +689,9 @@ function Rips({ rips }: { rips: DiscRip[] }) {
 
 function AutoSettings({ settings }: { settings: DiscSettings }) {
   const save = useSetDiscSettings();
-  const { auto, eject, read } = settings;
-  // Agents before 0.35.0 do not know `read`; they get only what they know.
-  const change = (next: Partial<DiscSettings>) => save.mutate(read === undefined ? { auto, eject, ...next } : { auto, eject, read, ...next });
+  const { auto, eject, read, audioLanguage, audioFirst } = settings;
+  // Older agents leave out what they do not know (read before 0.35.0, the audio track before 0.38.0) and get only that.
+  const change = (next: Partial<DiscSettings>) => save.mutate({ ...settings, ...next });
   return (
     <Card>
       {read !== undefined && (
@@ -722,8 +723,52 @@ function AutoSettings({ settings }: { settings: DiscSettings }) {
           <span className="block text-ink-2">Vorgabe für «Danach auswerfen»; im automatischen Modus wirft der Agent immer aus.</span>
         </span>
       </label>
-      {read === undefined && (
-        <p className="mt-3 text-xs text-ink-3">Eingelegte Discs automatisch lesen geht ab Agent 0.35.0 – unter Einstellungen → Updates «Alles aktualisieren».</p>
+      {audioLanguage !== undefined ? (
+        <div className="mt-4 border-t border-line pt-4">
+          <label className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">Tonspur nach dem Rippen</span>
+            <select
+              value={audioLanguage ?? ''}
+              disabled={save.isPending}
+              onChange={(event) => change({ audioLanguage: event.target.value || null })}
+              className="rounded-lg border border-line bg-card px-2 py-1 text-sm text-ink outline-none focus:border-accent focus:ring-3 focus:ring-accent/20"
+            >
+              {AUDIO_LANGUAGES.map((language) => (
+                <option key={language.code} value={language.code}>
+                  {language.label} als Standard
+                </option>
+              ))}
+              <option value="">So lassen, wie MakeMKV sie setzt</option>
+            </select>
+          </label>
+          <p className="mt-1 text-ink-2">
+            MakeMKV markiert oft die englische Tonspur als Standard, und Jellyfin spielt dann Englisch. Nach jedem Titel macht der Agent die gewählte
+            Sprache zur Standard-Tonspur – nur der Kopf der Datei ändert sich, das dauert eine Sekunde.
+          </p>
+          {audioLanguage && (
+            <label className="mt-3 flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={audioFirst !== false}
+                disabled={save.isPending}
+                onChange={(event) => change({ audioFirst: event.target.checked })}
+                className="mt-0.5 size-4 accent-accent"
+              />
+              <span>
+                <span className="font-medium">Auch an die erste Stelle setzen</span>
+                <span className="block text-ink-2">
+                  Für Apps wie Infuse, die einfach die erste Tonspur nehmen. Dafür schreibt der Agent die Datei neu, ohne etwas neu zu kodieren – bei
+                  einer DVD etwa eine Minute.
+                </span>
+              </span>
+            </label>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-ink-3">
+          {read === undefined ? 'Eingelegte Discs automatisch lesen geht ab Agent 0.35.0, die' : 'Die'} deutsche Tonspur als Standard ab Agent 0.38.0 – unter
+          Einstellungen → Updates «Alles aktualisieren».
+        </p>
       )}
       {save.isError && <p className="mt-2 text-xs text-critical">{save.error.message}</p>}
     </Card>

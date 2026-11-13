@@ -50,6 +50,7 @@ export function ExtractedPage() {
         deletable={Boolean(jd.extractedDelete)}
         convertible={Boolean(jd.extractedConvert)}
         renamable={Boolean(jd.extractedRename)}
+        audio={Boolean(status.audio)}
       />
     );
   }

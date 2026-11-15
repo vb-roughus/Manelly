@@ -12,10 +12,12 @@ import type {
   ConversionJob,
   CopyLimit,
   ConversionRequest,
+  DiscIsoList,
   DiscRead,
   DiscRip,
   DiscRipRequest,
   DiscSettings,
+  DiscSourceRequest,
   DiscsStatus,
   ConversionSchedule,
   DownloadsRemoveRequest,
@@ -23,6 +25,8 @@ import type {
   ExtractedConvertRequest,
   ExtractedDeleted,
   ExtractedFolder,
+  ExtractedIsos,
+  ExtractedIsosMoved,
   ExtractedMove,
   ExtractedMoveRequest,
   ExtractedRenamed,
@@ -94,9 +98,12 @@ export interface AgentClient {
   /** From agent 0.33.0: DVDs into MKV files with MakeMKV. */
   /** `refresh` (agent from 0.34.1): asks the drives again right away. */
   discs(refresh?: boolean): Promise<DiscsStatus>;
-  readDisc(drive: number): Promise<DiscRead>;
+  /** An image in the ISO folder from agent 0.40.0. */
+  readDisc(source: DiscSourceRequest): Promise<DiscRead>;
   /** From agent 0.34.0. */
-  cancelDiscRead(drive: number): Promise<DiscRead>;
+  cancelDiscRead(source: DiscSourceRequest): Promise<DiscRead>;
+  /** From agent 0.40.0: the images in the ISO folder. */
+  discIsos(): Promise<DiscIsoList>;
   ejectDisc(drive: number): Promise<{ ejected: boolean }>;
   ripDisc(request: DiscRipRequest): Promise<DiscRip>;
   cancelDiscRip(id: string): Promise<DiscRip>;
@@ -119,6 +126,9 @@ export interface AgentClient {
   /** From agent 0.30.0: entries of the extraction folder, for good. */
   deleteExtracted(paths: string[]): Promise<ExtractedDeleted>;
   renameExtracted(request: ExtractedRenameRequest): Promise<ExtractedRenamed>;
+  /** From agent 0.40.0: the ISO images in the extraction folder, and moving them all into the ISO folder. */
+  extractedIsos(): Promise<ExtractedIsos>;
+  moveExtractedIsos(): Promise<ExtractedIsosMoved>;
   /** From agent 0.38.0: the preferred audio track in files of the extraction folder, in the background. */
   extractedAudio(request: AudioRequest): Promise<AudioTask>;
   /** From agent 0.38.0: the same for files of the libraries, full paths from Jellyfin. */
@@ -213,8 +223,9 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     addLinkGrabberLinks: (request) => call('POST', '/api/jdownloader/linkgrabber/links', request, 30_000),
     // Listing the drives starts MakeMKV, which may take a moment.
     discs: (refresh = false) => call('GET', refresh ? '/api/discs?refresh=1' : '/api/discs', undefined, 45_000),
-    readDisc: (drive) => call('POST', '/api/discs/read', { drive }, 45_000),
-    cancelDiscRead: (drive) => call('POST', '/api/discs/read/cancel', { drive }),
+    readDisc: (source) => call('POST', '/api/discs/read', source, 45_000),
+    cancelDiscRead: (source) => call('POST', '/api/discs/read/cancel', source),
+    discIsos: () => call('GET', '/api/discs/isos', undefined, 30_000),
     ejectDisc: (drive) => call('POST', '/api/discs/eject', { drive }, 60_000),
     ripDisc: (request) => call('POST', '/api/discs/rips', request, 60_000),
     cancelDiscRip: (id) => call('POST', `/api/discs/rips/${encodeURIComponent(id)}/cancel`),
@@ -234,6 +245,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     deleteExtracted: (paths) => call('POST', '/api/jdownloader/extracted/delete', { paths }, 120_000),
     renameExtracted: (request) => call('POST', '/api/jdownloader/extracted/rename', request, 60_000),
     extractedAudio: (request) => call('POST', '/api/jdownloader/extracted/audio', request, 60_000),
+    extractedIsos: () => call('GET', '/api/jdownloader/extracted/isos', undefined, 60_000),
+    moveExtractedIsos: () => call('POST', '/api/jdownloader/extracted/isos', {}, 60_000),
     libraryAudio: (paths, language, first) => call('POST', '/api/audio', { paths, language, first }, 60_000),
     audioStatus: () => call('GET', '/api/audio'),
     // The agent reads the file's header first.

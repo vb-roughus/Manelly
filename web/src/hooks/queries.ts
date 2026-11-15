@@ -11,10 +11,12 @@ import type {
   AgentStatus,
   ArchivedOriginals,
   ClickNLoadStatus,
+  DiscIsoList,
   DiscRead,
   DiscRip,
   DiscRipRequest,
   DiscSettings,
+  DiscSourceRequest,
   DiscsStatus,
   ConversionJob,
   ConversionOptions,
@@ -25,6 +27,8 @@ import type {
   ExtractedConvertRequest,
   ExtractedDeleted,
   ExtractedFolder,
+  ExtractedIsos,
+  ExtractedIsosMoved,
   ExtractedRenamed,
   ExtractedRenameRequest,
   AudioRequest,
@@ -1053,12 +1057,58 @@ function useDiscMutation<T, R>(send: (value: T) => Promise<R>) {
   return useMutation({ mutationFn: send, onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['discs'] }) });
 }
 
-export const useReadDisc = () => useDiscMutation((drive: number) => sendJson<DiscRead>('POST', '/api/agent/discs/read', { drive }));
-export const useCancelDiscRead = () => useDiscMutation((drive: number) => sendJson<DiscRead>('POST', '/api/agent/discs/read/cancel', { drive }));
+/** A drive by its number, or (agent from 0.40.0) an image in the ISO folder. */
+export const useReadDisc = () => useDiscMutation((source: DiscSourceRequest) => sendJson<DiscRead>('POST', '/api/agent/discs/read', source));
+export const useCancelDiscRead = () => useDiscMutation((source: DiscSourceRequest) => sendJson<DiscRead>('POST', '/api/agent/discs/read/cancel', source));
 export const useEjectDisc = () => useDiscMutation((drive: number) => sendJson<{ ejected: boolean }>('POST', '/api/agent/discs/eject', { drive }));
 export const useRipDisc = () => useDiscMutation((request: DiscRipRequest) => sendJson<DiscRip>('POST', '/api/agent/discs/rips', request));
 export const useCancelDiscRip = () => useDiscMutation((id: string) => sendJson<DiscRip>('POST', `/api/agent/discs/rips/${encodeURIComponent(id)}/cancel`));
-export const useSetDiscSettings = () => useDiscMutation((settings: DiscSettings) => sendJson<DiscSettings>('PUT', '/api/agent/discs/settings', settings));
+export function useSetDiscSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: DiscSettings) => sendJson<DiscSettings>('PUT', '/api/agent/discs/settings', settings),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['discs'] });
+      // Perhaps another ISO folder.
+      void queryClient.invalidateQueries({ queryKey: ['disc-isos'] });
+      void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted', { isos: true }] });
+    },
+  });
+}
+
+/** From agent 0.40.0: the images in the ISO folder – listed only while their tab is open. */
+export function useDiscIsos(enabled: boolean) {
+  return useQuery({
+    queryKey: ['disc-isos'],
+    queryFn: ({ signal }) => fetchJson<DiscIsoList>('/api/agent/discs/isos', signal),
+    refetchInterval: 60_000,
+    enabled: useAgentLive(enabled),
+    retry: false,
+  });
+}
+
+/** From agent 0.40.0: ISO images in the extraction folder, e.g. from a download; read again with the folder. */
+export function useExtractedIsos(enabled: boolean) {
+  return useQuery({
+    queryKey: ['jdownloader', 'extracted', { isos: true }],
+    queryFn: ({ signal }) => fetchJson<ExtractedIsos>('/api/agent/jdownloader/extracted/isos', signal),
+    enabled: useAgentLive(enabled),
+    retry: false,
+  });
+}
+
+/** All ISO images of the extraction folder into the ISO folder, as a move like those into a library. */
+export function useMoveExtractedIsos() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => sendJson<ExtractedIsosMoved>('POST', '/api/agent/jdownloader/extracted/isos', {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'moves'] });
+      void queryClient.invalidateQueries({ queryKey: ['jdownloader', 'extracted'] });
+      void queryClient.invalidateQueries({ queryKey: ['disc-isos'] });
+    },
+  });
+}
 
 /** Titles of the library whose name holds every word of `q`: to see whether a disc is in it already. */
 export function useLibraryMatches(q: string, type: 'Movie' | 'Series') {

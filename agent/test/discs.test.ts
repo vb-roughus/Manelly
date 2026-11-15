@@ -167,8 +167,8 @@ describe('ripping discs', () => {
     expect(status).toMatchObject({ tool: FAKE, target, settings, error: null, rips: [], reads: [] });
     expect(status.drives).toEqual([{ index: 0, state: 'inserted', name: 'DVD-RW Fake Drive', device: '/dev/sr0', disc: 'FINDET_NEMO', kind: 'dvd', busy: false }]);
 
-    expect(await discs.read(0)).toMatchObject({ drive: 0, state: 'reading' });
-    await expect(discs.read(0)).rejects.toThrow('Das Laufwerk ist gerade beschäftigt.');
+    expect(await discs.read({ drive: 0 })).toMatchObject({ drive: 0, state: 'reading' });
+    await expect(discs.read({ drive: 0 })).rejects.toThrow('Das Laufwerk ist gerade beschäftigt.');
     for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     const read = (await discs.status()).reads[0]!;
     expect(read.state).toBe('done');
@@ -198,8 +198,8 @@ describe('ripping discs', () => {
   it('shows how far reading is and what MakeMKV said, and stops reading when asked', async () => {
     await insert('movie', { readMs: 4000, readError: "Error 'Scsi error - MEDIUM ERROR' occurred while reading" });
     const discs = service();
-    expect(() => discs.cancelRead(0)).toThrow('Von diesem Laufwerk wird gerade nichts gelesen.');
-    await discs.read(0);
+    expect(() => discs.cancelRead({ drive: 0 })).toThrow('Von diesem Laufwerk wird gerade nichts gelesen.');
+    await discs.read({ drive: 0 });
     for (let i = 0; i < 100 && !(await discs.status()).reads[0]?.stepProgress; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     const reading = (await discs.status()).reads[0]!;
     expect(reading).toMatchObject({ state: 'reading', step: 'Opening DVD disc – Scanning contents', startedAt: expect.any(String) });
@@ -208,7 +208,7 @@ describe('ripping discs', () => {
       ['Using direct disc access mode', false],
       ["Error 'Scsi error - MEDIUM ERROR' occurred while reading", true],
     ]);
-    expect(discs.cancelRead(0).drive).toBe(0);
+    expect(discs.cancelRead({ drive: 0 }).drive).toBe(0);
     for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     expect((await discs.status()).reads[0]).toMatchObject({ state: 'canceled', error: 'Abgebrochen.' });
     expect((await discs.status()).drives[0]?.busy).toBe(false);
@@ -224,7 +224,7 @@ describe('ripping discs', () => {
   it('forgets the titles of a disc that was swapped by hand, and asks the drive again when told', async () => {
     const discs = service();
     await discs.status();
-    await discs.read(0);
+    await discs.read({ drive: 0 });
     for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     expect((await discs.status()).reads[0]?.state).toBe('done');
     // Another disc goes in, without Manelly: the cached list still shows the old one until asked again.
@@ -248,7 +248,7 @@ describe('ripping discs', () => {
     expect(await refused({ drive: 0, folder: 'Nemo', titles: [{ index: 0, fileName: 'x.mkv' }] })).toBe('«Nemo/x.mkv» gibt es im Entpack-Ordner schon.');
 
     // The size MakeMKV named when it read the disc must fit.
-    await discs.read(0);
+    await discs.read({ drive: 0 });
     for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     free = 500000;
     expect(await refused({ drive: 0, folder: 'Nemo', titles: [{ index: 0, fileName: 'y.mkv' }] })).toMatch(/^Zu wenig Platz im Entpack-Ordner: braucht etwa .+, frei sind .+\.$/);
@@ -322,7 +322,7 @@ describe('ripping discs', () => {
   it('leaves a disc read by hand as it is', async () => {
     const discs = service();
     await discs.status();
-    await discs.read(0);
+    await discs.read({ drive: 0 });
     for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     const read = (await discs.status()).reads[0];
     expect(read?.auto).toBeUndefined();
@@ -339,7 +339,7 @@ describe('ripping discs', () => {
       if (fail) throw new Error('mkvmerge fehlt auf dem Server – MKVToolNix installieren.');
     });
     await discs.status();
-    await discs.read(0);
+    await discs.read({ drive: 0 });
     for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     await discs.rip({ drive: 0, folder: 'Findet Nemo', titles: [{ index: 0, fileName: 'Findet Nemo.mkv' }], eject: false });
     await discs.idle();
@@ -359,12 +359,12 @@ describe('ripping discs', () => {
   it('starts nothing new once held for a restart, and lets the rip under way finish with its eject', async () => {
     const discs = service();
     await discs.status();
-    await discs.read(0);
+    await discs.read({ drive: 0 });
     for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     const rip = await discs.rip({ drive: 0, folder: 'Findet Nemo', titles: [{ index: 0, fileName: 'Findet Nemo.mkv' }], eject: true });
     expect(discs.active()?.id).toBe(rip.id);
     discs.hold();
-    await expect(discs.read(0)).rejects.toThrow('Der Agent startet gleich neu, um ein Update zu übernehmen – danach lesen.');
+    await expect(discs.read({ drive: 0 })).rejects.toThrow('Der Agent startet gleich neu, um ein Update zu übernehmen – danach lesen.');
     await expect(discs.rip({ drive: 0, folder: 'Nochmal', titles: [{ index: 0, fileName: 'Nochmal.mkv' }] })).rejects.toThrow(/danach rippen\.$/);
     await discs.idle();
     // Only now, after the eject, is it idle: the new agent does not find the disc in the drive.
@@ -377,7 +377,7 @@ describe('ripping discs', () => {
     const stateFile = path.join(root, 'discs.json');
     const first = service(FAKE, stateFile);
     await first.status();
-    await first.read(0);
+    await first.read({ drive: 0 });
     for (let i = 0; i < 100 && (await first.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     // Not ejected: the disc stays in the drive.
     await first.rip({ drive: 0, folder: 'Findet Nemo', titles: [{ index: 0, fileName: 'Findet Nemo.mkv' }], eject: false });
@@ -472,4 +472,111 @@ describe('ripping discs', () => {
     await discs.idle();
     expect((await discs.status()).rips.map((entry) => entry.folder)).toEqual(['Dark S1 D1 (2)', 'Findet Nemo']);
   }, 15_000);
+});
+
+describe('ripping ISO images', () => {
+  let isos: string;
+
+  /** An "image" for the fake: a JSON file describing its disc. */
+  async function image(name: string, disc: Record<string, unknown> = { disc: 'movie', label: 'DUNE_PART_TWO', type: 'Blu-ray disc' }) {
+    const file = path.join(isos, ...name.split('/'));
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify(disc));
+    return file;
+  }
+
+  beforeEach(async () => {
+    isos = path.join(root, 'isos');
+    await mkdir(isos);
+    settings = { auto: false, eject: true, isoFolder: isos };
+  });
+
+  const settle = async (discs: ReturnType<typeof service>) => {
+    for (let i = 0; i < 100 && (await discs.status()).reads.some((read) => read.state === 'reading'); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  };
+
+  it('lists the images of the ISO folder and of the folders right in it – nothing deeper, nothing hidden', async () => {
+    await image('Dune.iso');
+    await image('UHD/Alien.ISO');
+    await image('UHD/Tiefer/Zu tief.iso');
+    await image('.versteckt.iso');
+    await image('$RECYCLE.BIN/weg.iso');
+    await writeFile(path.join(isos, 'Liesmich.txt'), '');
+    const discs = service();
+    const list = await discs.isos();
+    expect(list).toMatchObject({ folder: isos, error: null });
+    expect(list.isos.map((iso) => iso.path)).toEqual(['Dune.iso', 'UHD/Alien.ISO']);
+    expect(list.isos[0]).toEqual({ path: 'Dune.iso', bytes: expect.any(Number), modifiedAt: expect.any(String) });
+
+    settings = { ...settings, isoFolder: null };
+    expect(await discs.isos()).toEqual({ folder: null, isos: [], error: null });
+    settings = { ...settings, isoFolder: path.join(root, 'weg') };
+    expect((await discs.isos()).error).toBe(`Den ISO-Ordner ${path.join(root, 'weg')} gibt es auf dem Server nicht (mehr).`);
+  });
+
+  it('reads an image and rips its titles, like a disc – without ejecting anything', async () => {
+    await image('UHD/Dune.iso');
+    const discs = service();
+    expect(await discs.read({ iso: 'UHD/Dune.iso' })).toMatchObject({ drive: null, iso: 'UHD/Dune.iso', state: 'reading' });
+    await expect(discs.read({ iso: 'UHD/Dune.iso' })).rejects.toThrow('Das Image wird gerade gelesen oder gerippt.');
+    await settle(discs);
+    const status = await discs.status();
+    // The drive is not touched by it.
+    expect(status.drives[0]).toMatchObject({ disc: 'FINDET_NEMO', busy: false });
+    const [read] = status.reads;
+    expect(read).toMatchObject({ drive: null, iso: 'UHD/Dune.iso', state: 'done', info: { drive: null, iso: 'UHD/Dune.iso', name: 'DUNE_PART_TWO', type: 'Blu-ray disc', rippedBefore: null } });
+    expect(read?.messages?.map((message) => message.text)).toEqual(['Using image file']);
+
+    const rip = await discs.rip({ iso: 'UHD/Dune.iso', folder: 'Dune Part Two (2024)', titles: [{ index: 0, fileName: 'Dune Part Two (2024).mkv' }], eject: true });
+    expect(rip).toMatchObject({ drive: null, iso: 'UHD/Dune.iso', disc: 'DUNE_PART_TWO', eject: false, state: 'queued' });
+    await expect(discs.rip({ iso: 'UHD/Dune.iso', folder: 'Nochmals', titles: [{ index: 0, fileName: 'x.mkv' }] })).rejects.toThrow('Von diesem Image wird schon gerippt.');
+    await discs.idle();
+    const after = await discs.status();
+    expect(after.rips[0]).toMatchObject({ state: 'done', error: null });
+    expect(await readdir(path.join(target, 'Dune Part Two (2024)'))).toEqual(['Dune Part Two (2024).mkv']);
+    expect(ejected).toEqual([]);
+    // The image is still there, and known as ripped now.
+    expect(await readdir(path.join(isos, 'UHD'))).toEqual(['Dune.iso']);
+    expect(after.reads[0]?.info?.rippedBefore).toEqual({ at: expect.any(String), folder: 'Dune Part Two (2024)' });
+  });
+
+  it('takes only images of the ISO folder', async () => {
+    await image('Dune.iso');
+    await writeFile(path.join(root, 'aussen.iso'), '{}');
+    const discs = service();
+    const refused = (iso: string) => discs.read({ iso }).then(() => 'read', (error: Error) => error.message);
+    expect(await refused('../aussen.iso')).toBe('Ein ISO-Image im ISO-Ordner erwartet.');
+    expect(await refused('Dune.mkv')).toBe('Ein ISO-Image im ISO-Ordner erwartet.');
+    expect(await refused('a/b/c.iso')).toBe('Ein ISO-Image im ISO-Ordner erwartet.');
+    expect(await refused('C:\\Windows\\x.iso')).toBe('Ein ISO-Image im ISO-Ordner erwartet.');
+    expect(await refused('Weg.iso')).toBe('«Weg.iso» gibt es im ISO-Ordner nicht (mehr).');
+    expect(await discs.rip({ iso: '../aussen.iso', folder: 'X', titles: [{ index: 0, fileName: 'x.mkv' }] }).catch((error: Error) => error.message)).toBe('Ein ISO-Image im ISO-Ordner erwartet.');
+    settings = { ...settings, isoFolder: null };
+    expect(await refused('Dune.iso')).toBe('Zuerst in den Disc-Einstellungen den ISO-Ordner festlegen.');
+  });
+
+  it('says what MakeMKV said about an image it cannot decrypt', async () => {
+    await image('Verschluesselt.iso', { disc: 'movie', label: 'LOCKED', encrypted: true });
+    await writeFile(path.join(isos, 'Kaputt.iso'), 'kein Image');
+    const discs = service();
+    await discs.read({ iso: 'Verschluesselt.iso' });
+    await discs.read({ iso: 'Kaputt.iso' });
+    await settle(discs);
+    const reads = (await discs.status()).reads;
+    expect(reads.find((read) => read.iso === 'Verschluesselt.iso')).toMatchObject({
+      state: 'failed',
+      error: "MakeMKV konnte das Image nicht lesen: Using image file This disc uses AACS 2.0 and its volume key is unknown, it can't be decrypted",
+    });
+    expect(reads.find((read) => read.iso === 'Kaputt.iso')).toMatchObject({ state: 'failed', error: 'MakeMKV ist fehlgeschlagen (Exit-Code 1): Failed to open disc' });
+  });
+
+  it('forgets what it read of the old ISO folder when another one is set', async () => {
+    await image('Dune.iso');
+    const discs = service();
+    await discs.read({ iso: 'Dune.iso' });
+    await settle(discs);
+    expect((await discs.status()).reads).toHaveLength(1);
+    await discs.setSettings({ ...settings, isoFolder: path.join(root, 'andere') });
+    expect((await discs.status()).reads).toEqual([]);
+  });
 });

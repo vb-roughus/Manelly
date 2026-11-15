@@ -306,8 +306,8 @@ für DVDs gratis, auch nach der Testzeit; einmal starten und die Lizenz bestäti
 unter `C:\Program Files (x86)\MakeMKV` von selbst, sonst in `agent.json` unter `tools.makemkv` eintragen. Meldet
 MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monaten), die neue Version darüber installieren.
 
-- Die Seite hat drei Reiter: **Laufwerk** (das Laufwerk und die eingelegte Disc), **Rips** (laufende und fertige; die
-  Zahl am Reiter zählt die laufenden) und **Einstellungen**. Sie schaut alle paar Sekunden nach, **«Aktualisieren»** fragt
+- Die Seite hat vier Reiter: **Laufwerk** (das Laufwerk und die eingelegte Disc), **ISO-Images** (ab Agent 0.40.0, siehe
+  unten), **Rips** (laufende und fertige; die Zahl am Reiter zählt die laufenden) und **Einstellungen**. Sie schaut alle paar Sekunden nach, **«Aktualisieren»** fragt
   das Laufwerk sofort neu ab, z. B. nach dem Einlegen einer Disc. Wird eine Disc von Hand gewechselt, verschwindet die
   Titelliste der alten. **«Disc lesen»** listet die Titel mit Länge, Kapiteln, Grösse,
   Bild sowie Ton- und Untertitelspuren (Titel unter einer Minute – Menüs, Trailer – lässt MakeMKV weg)
@@ -342,8 +342,18 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   macht der Agent die gewählte Sprache zum Standard und setzt sie auf Wunsch an die erste Stelle (siehe
   [Medien](#medien)); braucht MKVToolNix, das für die Konvertierungen ohnehin installiert ist. Klappt es nicht, bleibt
   der Rip und die Liste nennt den Grund
+- **ISO-Images** (ab Agent 0.40.0): Unter Einstellungen den **ISO-Ordner** auf dem Jellyfin-Server angeben, z. B.
+  `D:\ISOs` – der Agent prüft, dass es ihn gibt. Der Reiter «ISO-Images» listet die `.iso`-Dateien darin und in den
+  Ordnern direkt darin (tiefer schaut der Agent nicht, und nur, solange der Reiter offen ist), mit Grösse und Datum.
+  **«Einlesen»** liest ein Image wie eine Disc im Laufwerk; danach geht alles gleich: Titel wählen, Namen geben, Blick
+  in die Mediathek, «Rippen» in den Entpack-Ordner, Tonspur danach. Ausgeworfen wird nichts, und das Image bleibt
+  liegen. Auch ein Image merkt sich der Agent als gerippt. Ein **entschlüsseltes** Image liest MakeMKV immer; ein
+  verschlüsseltes (1:1-Kopie einer UHD-Blu-ray) nur, wenn MakeMKV den Schlüssel der Disc kennt, z. B. aus einer
+  Schlüsseldatei `KEYDB.cfg` in seinem Datenordner – sonst steht die Meldung von MakeMKV bei der Karte. Dolby Vision
+  Profil 7 einer UHD lässt sich danach unter Extracted in Profil 8.1 konvertieren
 - Kopien eigener Discs für den Eigengebrauch sind in der Schweiz erlaubt; die Entschlüsselung übernimmt MakeMKV.
   Blu-rays kann MakeMKV auch (mit Beta-Schlüssel oder Lizenz), UHD-Blu-rays nur mit einem «LibreDrive»-Laufwerk
+  oder als Image mit bekanntem Schlüssel
 
 ### Extracted (Entpack-Ordner, mit Agent)
 
@@ -388,6 +398,11 @@ liest nur diesen Ordner, jede Minute neu.
 - **Tonspur** (ab Agent 0.38.0): macht in den angekreuzten MKV-Dateien – bei Ordnern in allen darin – eine Sprache zur
   Standard-Tonspur und auf Wunsch zur ersten, wie in den [Medien](#medien) beschrieben. Der Dialog zeigt den Fortschritt
   und für jede Datei, was geschah; schliesst du ihn, läuft es im Hintergrund weiter
+- **ISO-Images** (ab Agent 0.40.0): Liegen im Entpack-Ordner ISO-Images – auf jeder Ebene, etwa aus einem Download –,
+  zeigt ein Hinweis, wie viele und wie gross. **«Alle in den ISO-Ordner»** verschiebt sie in den ISO-Ordner aus den
+  Disc-Einstellungen, von wo [Discs](#discs-dvds-in-mkv-mit-agent-ab-0330) sie rippt; der Rest des Downloads bleibt. Das
+  läuft wie Move to Library (auf derselben Platte sofort, sonst kopiert der Agent im Hintergrund). Ein Image, das eben
+  noch geschrieben wurde (JDownloader entpackt es vielleicht noch), bleibt liegen, bis es eine Minute ruht
 - **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
   Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
   die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird

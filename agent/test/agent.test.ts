@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,7 +14,10 @@ import type {
   ArchivedOriginals,
   ConversionJob,
   ConversionStep,
+  DiscIsoList,
   ExtractedFolder,
+  ExtractedIsos,
+  ExtractedIsosMoved,
   ExtractedMove,
   HistoryResponse,
   JDownloaderStatus,
@@ -1079,7 +1082,15 @@ describe('JDownloader routes', () => {
 
   it('answers about discs, and keeps their settings', async () => {
     expect(((await (await call('/api/status')).json()) as AgentStatus).discs).toBe(true);
-    expect(await (await call('/api/discs')).json()).toEqual({ tool: null, drives: [], reads: [], rips: [], settings: { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true }, target: null, error: null });
+    expect(await (await call('/api/discs')).json()).toEqual({
+      tool: null,
+      drives: [],
+      reads: [],
+      rips: [],
+      settings: { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, isoFolder: null },
+      target: null,
+      error: null,
+    });
     const refused = async (pathname: string, body: unknown, method = 'POST') => {
       const response = await call(pathname, { method, body: JSON.stringify(body) });
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
@@ -1095,11 +1106,98 @@ describe('JDownloader routes', () => {
       'Eine bekannte Sprache für die Tonspur erwartet (ger, eng, fre, ita, spa) oder keine.',
     ]);
     const saved = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false }) });
-    expect(await saved.json()).toEqual({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false });
-    expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false });
+    expect(await saved.json()).toEqual({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false, isoFolder: null });
+    expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({
+      auto: true,
+      eject: false,
+      read: false,
+      audioLanguage: null,
+      audioFirst: false,
+      isoFolder: null,
+    });
     // From an older Manelly, without read and the audio track: reading stays on, German first.
     const older = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: false, eject: true }) });
-    expect(await older.json()).toEqual({ auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true });
+    expect(await older.json()).toEqual({ auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, isoFolder: null });
+  });
+
+  it('keeps the ISO folder and lists its images', async () => {
+    expect(((await (await call('/api/status')).json()) as AgentStatus).discIsos).toBe(true);
+    const isos = path.join(root, 'isos');
+    const settings = { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true };
+    const refused = async (pathname: string, body: unknown, method = 'POST') => {
+      const response = await call(pathname, { method, body: JSON.stringify(body) });
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refused('/api/discs/settings', { ...settings, isoFolder: isos }, 'PUT')).toEqual([404, `Den Ordner ${isos} gibt es auf dem Server nicht – zuerst anlegen.`]);
+    expect(await refused('/api/discs/settings', { ...settings, isoFolder: 'ISOs' }, 'PUT')).toEqual([400, '«ISOs» ist kein absoluter Pfad, z. B. D:\\ISOs.']);
+    expect(await refused('/api/discs/settings', { ...settings, isoFolder: 5 }, 'PUT')).toEqual([400, 'Den ISO-Ordner als Pfad erwartet, oder keinen.']);
+    await mkdir(path.join(isos, 'UHD'), { recursive: true });
+    await writeFile(path.join(isos, 'UHD', 'Dune.iso'), 'image');
+    expect(await (await put('/api/discs/settings', { ...settings, isoFolder: ` ${isos} ` })).json()).toEqual({ ...settings, isoFolder: isos });
+    // Left out, from an older Manelly: it stays.
+    expect(((await (await put('/api/discs/settings', settings)).json()) as { isoFolder: string }).isoFolder).toBe(isos);
+
+    const list = (await (await call('/api/discs/isos')).json()) as DiscIsoList;
+    expect(list).toEqual({ folder: isos, isos: [{ path: 'UHD/Dune.iso', bytes: 5, modifiedAt: expect.any(String) }], error: null });
+    expect(await refused('/api/discs/read', { iso: 'UHD/Dune.iso' })).toEqual([409, 'MakeMKV fehlt auf dem Server – zuerst installieren (makemkv.com).']);
+    expect(await refused('/api/discs/read/cancel', { iso: 'UHD/Dune.iso' })).toEqual([409, 'Dieses Image wird gerade nicht gelesen.']);
+    expect(await refused('/api/discs/eject', { iso: 'UHD/Dune.iso' })).toEqual([400, 'Das Laufwerk (Nummer) erwartet.']);
+
+    // Empty: none.
+    expect(((await (await put('/api/discs/settings', { ...settings, isoFolder: '' })).json()) as { isoFolder: string | null }).isoFolder).toBeNull();
+    expect(await (await call('/api/discs/isos')).json()).toEqual({ folder: null, isos: [], error: null });
+  });
+
+  it('moves the ISO images of the extraction folder into the ISO folder, but not those still being written', async () => {
+    const extracted = path.join(root, 'entpackt');
+    const isos = path.join(root, 'isos');
+    await mkdir(path.join(extracted, 'Dune.2024.UHD.BluRay'), { recursive: true });
+    await mkdir(isos);
+    const old = path.join(extracted, 'Dune.2024.UHD.BluRay', 'Dune.iso');
+    await writeFile(old, 'dune image');
+    // Extracted ten minutes ago; the other one just now.
+    await utimes(old, new Date(Date.now() - 600_000), new Date(Date.now() - 600_000));
+    await writeFile(path.join(extracted, 'Alien.iso'), 'alien image');
+    await writeFile(path.join(extracted, 'Dune.2024.UHD.BluRay', 'Dune.nfo'), 'nfo');
+    const refused = async (body: unknown = {}) => {
+      const response = await post('/api/jdownloader/extracted/isos', body);
+      return [response.status, ((await response.json()) as { error: { message: string } }).error.message];
+    };
+    expect(await refused()).toEqual([409, 'In den JDownloader-Einstellungen ist kein Entpack-Ordner festgelegt.']);
+    expect(await (await call('/api/jdownloader/extracted/isos')).json()).toEqual({ isos: [], isoFolder: null });
+    await put('/api/jdownloader/settings', { enabled: true, url: 'http://127.0.0.1:3128', throttle: { mode: 'off', limitKBps: 1024 }, extractTo: extracted });
+
+    const found = (await (await call('/api/jdownloader/extracted/isos')).json()) as ExtractedIsos;
+    expect(found).toEqual({
+      isos: [
+        { path: 'Alien.iso', bytes: 11, modifiedAt: expect.any(String) },
+        { path: 'Dune.2024.UHD.BluRay/Dune.iso', bytes: 10, modifiedAt: expect.any(String) },
+      ],
+      isoFolder: null,
+    });
+    expect(await refused()).toEqual([409, 'Zuerst unter Discs → Einstellungen den ISO-Ordner festlegen.']);
+    await put('/api/discs/settings', { auto: false, eject: true, isoFolder: isos });
+
+    const moved = await post('/api/jdownloader/extracted/isos', {});
+    expect(moved.status).toBe(202);
+    const answer = (await moved.json()) as ExtractedIsosMoved;
+    expect(answer.move).toMatchObject({ paths: ['Dune.2024.UHD.BluRay/Dune.iso'], target: isos, label: 'ISOs' });
+    expect(answer.skipped).toEqual([{ path: 'Alien.iso', error: 'Wurde eben noch geschrieben – wird vielleicht noch entpackt. In einer Minute nochmals.' }]);
+    for (let i = 0; i < 50 && (((await (await call('/api/jdownloader/extracted/moves')).json()) as ExtractedMove[])[0]?.state ?? 'running') !== 'done'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(await readdir(isos)).toEqual(['Dune.iso']);
+    // The rest of the download stays in the extraction folder.
+    expect(await readdir(path.join(extracted, 'Dune.2024.UHD.BluRay'))).toEqual(['Dune.nfo']);
+
+    // Only the fresh one is left: nothing goes.
+    const again = await post('/api/jdownloader/extracted/isos', {});
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ move: null, skipped: [{ path: 'Alien.iso', error: expect.stringContaining('eben noch geschrieben') }] });
+    await rm(path.join(extracted, 'Alien.iso'));
+    expect(await refused()).toEqual([404, 'Im Entpack-Ordner liegen keine ISO-Images.']);
+    // The images list for the tab shows the moved one.
+    expect(((await (await call('/api/discs/isos')).json()) as DiscIsoList).isos.map((iso) => iso.path)).toEqual(['Dune.iso']);
   });
 
   it('hands single links to the link grabber, with package name and password', async () => {

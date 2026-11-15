@@ -1546,6 +1546,8 @@ export interface AgentStatus {
   discs?: boolean;
   /** Sets the preferred audio track in MKV files (POST /api/audio); missing before agent 0.38.0. */
   audio?: boolean;
+  /** Rips ISO images from the ISO folder and moves ISOs there from the extraction folder; missing before agent 0.40.0. */
+  discIsos?: boolean;
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */
@@ -1837,7 +1839,10 @@ export interface DiscTitle {
 }
 
 export interface DiscInfo {
-  drive: number;
+  /** null for an ISO image (from agent 0.40.0). */
+  drive: number | null;
+  /** The image's path in the ISO folder, with "/" between the names; only for an ISO image. */
+  iso?: string;
   /** The disc's title, as MakeMKV reads it; often the label. */
   name: string;
   label: string | null;
@@ -1872,7 +1877,10 @@ export interface DiscActivity {
 
 /** Reading a disc's titles takes a while; this is how far it is. */
 export interface DiscRead extends DiscActivity {
-  drive: number;
+  /** null for an ISO image (from agent 0.40.0). */
+  drive: number | null;
+  /** The image's path in the ISO folder; only for an ISO image. */
+  iso?: string;
   /** canceled: from agent 0.34.0. */
   state: 'reading' | 'done' | 'failed' | 'canceled';
   info: DiscInfo | null;
@@ -1894,7 +1902,10 @@ export interface DiscRipTitle {
 /** Ripping titles of a disc into a folder of the extraction folder, one after the other. */
 export interface DiscRip extends DiscActivity {
   id: string;
-  drive: number;
+  /** null for an ISO image (from agent 0.40.0). */
+  drive: number | null;
+  /** The image's path in the ISO folder; only for an ISO image. */
+  iso?: string;
   disc: string;
   /** The new folder, as a path in the extraction folder. */
   folder: string;
@@ -1928,7 +1939,31 @@ export interface DiscSettings {
   audioLanguage?: string | null;
   /** That track also goes in front of the other audio tracks, for players that take the first one. */
   audioFirst?: boolean;
+  /**
+   * The folder on the server with ISO images (e.g. of UHD Blu-rays) to rip; null without one. The agent lists only
+   * this folder and the folders right in it. Missing before agent 0.40.0.
+   */
+  isoFolder?: string | null;
 }
+
+/** An ISO image in the ISO folder. */
+export interface DiscIso {
+  /** In the ISO folder, with "/" between the names: "Dune.iso", "Dune (2021)/Dune.iso". */
+  path: string;
+  bytes: number;
+  modifiedAt: string;
+}
+
+/** GET /api/discs/isos on the agent (from 0.40.0): the images in the ISO folder, by name. */
+export interface DiscIsoList {
+  folder: string | null;
+  isos: DiscIso[];
+  /** E.g. the folder is gone. */
+  error: string | null;
+}
+
+/** POST /api/discs/read and /read/cancel: a drive by its number, or an image in the ISO folder (from agent 0.40.0). */
+export type DiscSourceRequest = { drive: number; iso?: undefined } | { iso: string; drive?: undefined };
 
 /** One file of an audio task: what was done, or why not. */
 export interface AudioResult {
@@ -1977,11 +2012,26 @@ export interface DiscsStatus {
   error: string | null;
 }
 
-/** POST /api/discs/rips on the agent. */
-export interface DiscRipRequest {
-  drive: number;
+/** POST /api/discs/rips on the agent: from a drive, or from an image in the ISO folder (from agent 0.40.0). */
+export type DiscRipRequest = DiscSourceRequest & {
   /** The new folder in the extraction folder. */
   folder: string;
   titles: Array<{ index: number; fileName: string }>;
+  /** Only for a drive. */
   eject?: boolean;
+};
+
+/** The ISO images in the extraction folder, e.g. from a download (GET /api/jdownloader/extracted/isos, agent 0.40.0). */
+export interface ExtractedIsos {
+  /** modifiedAt: last written – a moment ago while JDownloader still extracts it. */
+  isos: Array<{ path: string; bytes: number; modifiedAt: string }>;
+  /** Where they would go; null while no ISO folder is set. */
+  isoFolder: string | null;
+}
+
+/** POST /api/jdownloader/extracted/isos: all of them go into the ISO folder, those still being written stay. */
+export interface ExtractedIsosMoved {
+  /** The move under way, as under Extracted; null when nothing could go. */
+  move: ExtractedMove | null;
+  skipped: Array<{ path: string; error: string }>;
 }

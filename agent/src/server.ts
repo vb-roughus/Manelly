@@ -17,6 +17,8 @@ import type {
   DownloadsRemoveRequest,
   DriveCredentialRequest,
   ExtractedConvertRequest,
+  ExtractedIsos,
+  ExtractedIsosMoved,
   ExtractedMoveRequest,
   ExtractedRenameRequest,
   AudioRequest,
@@ -41,7 +43,7 @@ import { MAX_RANGE_MS, type Recorder } from './history.js';
 import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import { createDolbyVisionProbe } from './dvProbe.js';
-import { deleteExtracted, deleteSamples, findSamples, listExtracted, renameExtracted, resolveExtracted, within } from './extracted.js';
+import { deleteExtracted, deleteSamples, findIsos, findSamples, listExtracted, renameExtracted, resolveExtracted, within } from './extracted.js';
 import { isAudioLanguage, mkvFiles, type AudioFixer } from './audio.js';
 import type { Discs } from './discs.js';
 import type { Mover } from './moves.js';
@@ -74,6 +76,8 @@ const MAX_LINK_LENGTH = 4000;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const MAX_MONITORED = 16;
 const MAX_MOVED = 5000;
+/** An ISO in the extraction folder written to this recently may still be growing: JDownloader extracting it. */
+const FRESH_ISO_MS = 60_000;
 /** "\\nas", "\\192.168.1.20": a server, without share. */
 const SERVER = /^\\\\[^\\/\s]{1,253}$/;
 
@@ -215,6 +219,14 @@ export function createAgentServer(options: AgentServerOptions) {
     return directory;
   }
 
+  /** The images of the extraction folder that are not in the ISO folder already (it may lie inside). */
+  async function extractedIsos(directory: string, isoFolder: string | null): Promise<ExtractedIsos['isos']> {
+    const isos = await findIsos(directory);
+    if (!isoFolder) return isos;
+    const api = pathApiFor(directory);
+    return isos.filter((iso) => !isWithin(api.join(directory, ...iso.path.split('/')), isoFolder, pathApiFor(isoFolder)));
+  }
+
   /** JDownloader must be switched on in Manelly; its errors are reported as such. */
   async function jdownloaderCall<T>(action: () => Promise<T>): Promise<T> {
     if (!settings.get().jdownloader.enabled) throw new AgentError(409, 'JDownloader ist in Manelly nicht eingeschaltet.');
@@ -272,6 +284,7 @@ export function createAgentServer(options: AgentServerOptions) {
         process: await options.process(),
         discs: Boolean(options.discs),
         audio: Boolean(options.audio),
+        discIsos: Boolean(options.discs),
         drives: (await options.drives?.list()) ?? [],
         work: await workStatus(),
         originals: Boolean(options.originals),
@@ -414,6 +427,38 @@ export function createAgentServer(options: AgentServerOptions) {
       if (!isValidSegment(name)) throw new AgentError(400, `«${name}» ist kein gültiger Ordnername.`);
       const parent = await checkFolder(api.dirname(wanted), 'D:\\Serien');
       return send(response, 202, await options.mover.add(directory, paths, api.join(parent, name), label.trim(), true));
+    }
+    if (route === 'GET /api/jdownloader/extracted/isos') {
+      const directory = settings.get().jdownloader.extractTo ?? null;
+      const isoFolder = settings.get().discs.isoFolder ?? null;
+      if (directory) await options.access?.prepare(directory);
+      const answer: ExtractedIsos = { isos: directory ? await extractedIsos(directory, isoFolder) : [], isoFolder };
+      return send(response, 200, answer);
+    }
+    if (route === 'POST /api/jdownloader/extracted/isos' && options.mover) {
+      const directory = requireExtractTo();
+      const wanted = settings.get().discs.isoFolder;
+      if (!wanted) throw new AgentError(409, 'Zuerst unter Discs → Einstellungen den ISO-Ordner festlegen.');
+      await options.access?.prepare(directory);
+      const isoFolder = await checkFolder(wanted, 'D:\\ISOs');
+      const found = await extractedIsos(directory, isoFolder);
+      if (found.length === 0) throw new AgentError(404, 'Im Entpack-Ordner liegen keine ISO-Images.');
+      const moving = options.mover
+        .list()
+        .filter((move) => move.state === 'queued' || move.state === 'running')
+        .flatMap((move) => move.paths);
+      const skipped: ExtractedIsosMoved['skipped'] = [];
+      const paths: string[] = [];
+      for (const iso of found) {
+        if (moving.some((busy) => within(iso.path, busy))) skipped.push({ path: iso.path, error: 'Wird schon verschoben.' });
+        // JDownloader may still be extracting it: a copy now would be cut short.
+        else if (Date.now() - Date.parse(iso.modifiedAt) < FRESH_ISO_MS) skipped.push({ path: iso.path, error: 'Wurde eben noch geschrieben – wird vielleicht noch entpackt. In einer Minute nochmals.' });
+        else paths.push(iso.path);
+      }
+      // Not a library: Jellyfin need not hear about it.
+      const move = paths.length > 0 ? await options.mover.add(directory, paths, isoFolder, 'ISOs', false, false) : null;
+      const answer: ExtractedIsosMoved = { move, skipped };
+      return send(response, move ? 202 : 200, answer);
     }
     if (route === 'GET /api/jdownloader/extracted/samples') {
       const directory = requireExtractTo();
@@ -579,20 +624,33 @@ export function createAgentServer(options: AgentServerOptions) {
       const discs = options.discs;
       if (!discs) throw new AgentError(404, 'Discs kann dieser Agent nicht.');
       if (route === 'GET /api/discs') return send(response, 200, await discs.status(url.searchParams.get('refresh') === '1'));
+      if (route === 'GET /api/discs/isos') return send(response, 200, await discs.isos());
       if (route === 'POST /api/discs/read' || route === 'POST /api/discs/eject' || route === 'POST /api/discs/read/cancel') {
-        const { drive } = await readJson<{ drive?: unknown }>(request);
+        const { drive, iso } = await readJson<{ drive?: unknown; iso?: unknown }>(request);
+        // An image in the ISO folder, by its path there; the disc checks it.
+        if (typeof iso === 'string' && route !== 'POST /api/discs/eject') {
+          if (route === 'POST /api/discs/read/cancel') return send(response, 200, discs.cancelRead({ iso }));
+          return send(response, 202, await discs.read({ iso }));
+        }
         if (!Number.isInteger(drive) || (drive as number) < 0) throw new AgentError(400, 'Das Laufwerk (Nummer) erwartet.');
-        if (route === 'POST /api/discs/read/cancel') return send(response, 200, discs.cancelRead(drive as number));
+        if (route === 'POST /api/discs/read/cancel') return send(response, 200, discs.cancelRead({ drive: drive as number }));
         if (route === 'POST /api/discs/eject') {
           await discs.eject(drive as number);
           return send(response, 200, { ejected: true });
         }
-        return send(response, 202, await discs.read(drive as number));
+        return send(response, 202, await discs.read({ drive: drive as number }));
       }
       if (route === 'POST /api/discs/rips') return send(response, 202, await discs.rip(await readJson<DiscRipRequest>(request)));
       const cancel = url.pathname.match(/^\/api\/discs\/rips\/([\w-]+)\/cancel$/);
       if (cancel && request.method === 'POST') return send(response, 200, discs.cancel(cancel[1]!));
-      if (route === 'PUT /api/discs/settings') return send(response, 200, await discs.setSettings(parseDiscSettings(await readJson<DiscSettings>(request))));
+      if (route === 'PUT /api/discs/settings') {
+        const body = await readJson<Partial<DiscSettings>>(request);
+        const parsed = parseDiscSettings(body);
+        // Left out (an older Manelly): keep the ISO folder; empty: none. Only a folder that is there – images are read from it.
+        const isoFolder =
+          body.isoFolder === undefined ? (settings.get().discs.isoFolder ?? null) : parsed.isoFolder ? await checkFolder(parsed.isoFolder, 'D:\\ISOs', false) : null;
+        return send(response, 200, await discs.setSettings({ ...parsed, isoFolder }));
+      }
     }
     if (route === 'GET /api/originals') {
       const work = await workStatus();

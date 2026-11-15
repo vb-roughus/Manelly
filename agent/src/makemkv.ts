@@ -213,6 +213,21 @@ function lastMessages(lines: string[], count = 2): string {
     .join(' ');
 }
 
+/** Windows' crash statuses that come up, by their exit code. */
+const CRASHES: Record<number, string> = { 0xc0000005: 'Zugriffsverletzung', 0xc0000409: 'Pufferüberlauf', 0xc00000fd: 'Stapelüberlauf' };
+
+/**
+ * A crash, as Windows (a status from 0xC0000000 on, e.g. 3221225477 = 0xC0000005) or POSIX (a signal) reports it;
+ * null for an exit of its own.
+ */
+export function crashOf(code: number | null, signal: NodeJS.Signals | null): string | null {
+  if (code !== null && code >= 0xc0000000) {
+    const name = CRASHES[code];
+    return `Windows-Fehler 0x${code.toString(16).toUpperCase()}${name ? `, ${name}` : ''}`;
+  }
+  return signal === 'SIGSEGV' || signal === 'SIGBUS' || signal === 'SIGILL' || signal === 'SIGABRT' ? signal : null;
+}
+
 export interface RunOptions {
   onLine?: (line: string) => void;
   timeoutMs?: number;
@@ -262,6 +277,8 @@ export function runMakemkv(tool: string, args: string[], options: RunOptions = {
         const waited = seconds >= 60 ? `${Math.round(seconds / 60)} Minuten` : `${seconds} Sekunden`;
         return reject(new Error(`MakeMKV war nach ${waited} nicht fertig und wurde abgebrochen.${said ? ` Zuletzt: ${said}` : ''}`));
       }
+      const crash = crashOf(code, signal);
+      if (crash) return reject(new Error(`MakeMKV ist abgestürzt (${crash})${said ? `: ${said}` : '.'}`));
       reject(new Error(signal ? `MakeMKV wurde beendet (${signal}).${said ? ` Zuletzt: ${said}` : ''}` : `MakeMKV ist fehlgeschlagen (Exit-Code ${code})${said ? `: ${said}` : '.'}`));
     });
   });

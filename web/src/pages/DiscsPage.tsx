@@ -22,7 +22,7 @@ import {
 } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { AUDIO_LANGUAGES } from '../lib/audioLanguages';
-import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, namesFromDisc, suggestSelection, type DiscKind } from '../lib/discs';
+import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, makemkvAdvice, namesFromDisc, suggestSelection, type DiscKind, type MakemkvAdvice } from '../lib/discs';
 import { channelLayoutLabel, formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 
 const button =
@@ -319,13 +319,14 @@ function ReadOutcome({
   onShowRips: () => void;
 }) {
   const image = ejectByDefault === null;
+  const advice = read && (read.state === 'failed' || (info && info.titles.length === 0)) ? makemkvAdvice(read.error, read.messages) : null;
   return (
     <>
       {read?.state === 'reading' && <Reading read={read} />}
       {(read?.state === 'failed' || read?.state === 'canceled') && (
         <div className="mt-3">
           <p className={read.state === 'failed' ? 'text-critical' : 'text-ink-2'}>{read.state === 'canceled' ? 'Lesen abgebrochen.' : read.error}</p>
-          {read.state === 'failed' && image && <p className="mt-1 text-xs text-ink-2">{BLURAY_KEY_HINT}</p>}
+          {advice && <Advice advice={advice} image={image} />}
           <Messages activity={read} />
         </div>
       )}
@@ -333,7 +334,7 @@ function ReadOutcome({
       {info && info.titles.length === 0 && (
         <div className="mt-3">
           <p className="text-critical">MakeMKV hat {image ? 'im Image' : 'auf der Disc'} keine Titel gefunden.</p>
-          <p className="mt-1 text-xs text-ink-2">{BLURAY_KEY_HINT}</p>
+          {advice && <Advice advice={advice} image={image} />}
           {read && <Messages activity={read} open />}
         </div>
       )}
@@ -541,9 +542,16 @@ function Reading({ read }: { read: DiscRead }) {
   );
 }
 
-/** Blu-rays, also as images, need a key in MakeMKV; DVDs do not – the usual reason why a Blu-ray yields nothing. */
-const BLURAY_KEY_HINT =
-  'Für Blu-rays – auch als Image – braucht MakeMKV einen gültigen Beta-Schlüssel oder eine gekaufte Lizenz; DVDs gehen ohne. Steht in den Meldungen etwas von «evaluation period» oder «expired»: den aktuellen Beta-Schlüssel aus dem MakeMKV-Forum in MakeMKV unter Hilfe → Registrieren eintragen und nochmals lesen.';
+/** What helps, by what MakeMKV said (see makemkvAdvice). */
+function Advice({ advice, image }: { advice: MakemkvAdvice; image: boolean }) {
+  const what = image ? 'das Image' : 'die Disc';
+  const text: Record<MakemkvAdvice, string> = {
+    key: 'MakeMKV fehlt ein gültiger Schlüssel: Für Blu-rays – auch als Image – braucht es den aktuellen Beta-Schlüssel oder eine gekaufte Lizenz; DVDs gehen ohne. Den Beta-Schlüssel aus dem MakeMKV-Forum in MakeMKV unter Hilfe → Registrieren eintragen und nochmals lesen.',
+    version: 'Diese MakeMKV-Version ist abgelaufen: die neueste von makemkv.com über die alte installieren und nochmals lesen.',
+    crash: `MakeMKV ist dabei abgestürzt – das liegt an MakeMKV selbst, nicht an Manelly. Oft hilft eine andere Version von MakeMKV. Zur Probe ${what} in MakeMKV selbst öffnen: Stürzt es auch dort ab, bleibt nur eine andere Version.`,
+  };
+  return <p className="mt-1 text-xs text-ink-2">{text[advice]}</p>;
+}
 
 /** What MakeMKV reported, folded away unless `open`; errors count and show in red. */
 function Messages({ activity, open = false }: { activity: DiscActivity; open?: boolean }) {
@@ -877,6 +885,7 @@ function Rips({ rips }: { rips: DiscRip[] }) {
                 </>
               )}
               {rip.error && <p className={clsx('mt-1 text-xs', rip.state === 'done' ? 'text-ink-2' : 'text-critical')}>{rip.error}</p>}
+              {rip.state === 'failed' && <RipAdvice rip={rip} />}
               <Messages activity={rip} />
             </li>
           );
@@ -885,6 +894,11 @@ function Rips({ rips }: { rips: DiscRip[] }) {
       {cancel.isError && <p className="mt-2 text-xs text-critical">{cancel.error.message}</p>}
     </Card>
   );
+}
+
+function RipAdvice({ rip }: { rip: DiscRip }) {
+  const advice = makemkvAdvice(rip.error, rip.messages);
+  return advice ? <Advice advice={advice} image={rip.iso !== undefined} /> : null;
 }
 
 function AutoSettings({ settings }: { settings: DiscSettings }) {

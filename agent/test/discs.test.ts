@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DiscSettings } from '@manelly/shared';
 import { createDiscs, ejectDisc, ejectScript, folderNameFrom, mainTitle } from '../src/discs.js';
-import { createActivity, durationSeconds, parseDiscInfo, parseDrives, parseRobotLine, runMakemkv } from '../src/makemkv.js';
+import { crashOf, createActivity, durationSeconds, parseDiscInfo, parseDrives, parseRobotLine, runMakemkv } from '../src/makemkv.js';
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-makemkvcon.cjs', import.meta.url));
 
@@ -558,13 +558,24 @@ describe('ripping ISO images', () => {
   it('says what MakeMKV said about an image it cannot decrypt', async () => {
     await image('Verschluesselt.iso', { disc: 'movie', label: 'LOCKED', encrypted: true });
     await image('Blu-ray ohne Schluessel.iso', { disc: 'movie', label: 'STARSKY', expired: true });
+    await image('Absturz.iso', { disc: 'movie', label: 'CRASH', crash: true });
     await writeFile(path.join(isos, 'Kaputt.iso'), 'kein Image');
     const discs = service();
     await discs.read({ iso: 'Verschluesselt.iso' });
     await discs.read({ iso: 'Blu-ray ohne Schluessel.iso' });
+    await discs.read({ iso: 'Absturz.iso' });
     await discs.read({ iso: 'Kaputt.iso' });
     await settle(discs);
     const reads = (await discs.status()).reads;
+    expect(reads.find((read) => read.iso === 'Absturz.iso')).toMatchObject({
+      state: 'failed',
+      error: 'MakeMKV ist abgestürzt (SIGSEGV): Using image file AACS directory not present, assuming unencrypted disc',
+    });
+    // Windows reports a crash as exit code.
+    expect(crashOf(3221225477, null)).toBe('Windows-Fehler 0xC0000005, Zugriffsverletzung');
+    expect(crashOf(3221226505, null)).toBe('Windows-Fehler 0xC0000409, Pufferüberlauf');
+    expect(crashOf(1, null)).toBeNull();
+    expect(crashOf(null, 'SIGTERM')).toBeNull();
     // No titles is no read: nothing to rip, and MakeMKV says why.
     expect(reads.find((read) => read.iso === 'Blu-ray ohne Schluessel.iso')).toMatchObject({
       state: 'failed',

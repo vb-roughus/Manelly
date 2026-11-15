@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import type { DiscTitle } from '@manelly/shared';
-import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, nameFromDisc, namesFromDisc, suggestSelection } from './discs';
+import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, makemkvAdvice, nameFromDisc, namesFromDisc, suggestSelection } from './discs';
 
 const title = (index: number, minutes: number, bytes = minutes * 1e7): DiscTitle => ({ index, durationSeconds: Math.round(minutes * 60), chapters: 1, bytes, video: null, audio: [], subtitles: [] });
+
+describe('advice after MakeMKV failed', () => {
+  it('names a missing key, an old version and a crash – and nothing else', () => {
+    const expired = 'Evaluation period has expired. Please purchase an activation key if you\'ve found this application useful.';
+    expect(makemkvAdvice('MakeMKV fand im Image keine Titel: Using image file', [{ text: expired }])).toBe('key');
+    expect(makemkvAdvice('MakeMKV ist fehlgeschlagen (Exit-Code 1): This application version is too old.')).toBe('version');
+    // Agents before 0.40.2 give Windows' crash status as exit code; newer ones say so.
+    expect(makemkvAdvice('MakeMKV ist fehlgeschlagen (Exit-Code 3221225477): AACS directory not present, assuming unencrypted disc')).toBe('crash');
+    expect(makemkvAdvice('MakeMKV ist abgestürzt (Windows-Fehler 0xC0000005, Zugriffsverletzung): AACS directory not present')).toBe('crash');
+    // The warning about decryption software alone says nothing about a key.
+    expect(makemkvAdvice('MakeMKV ist fehlgeschlagen (Exit-Code 1): Failed to open disc', [{ text: 'It appears that you have on-the-fly decryption software enabled.' }])).toBeNull();
+    expect(makemkvAdvice(null)).toBeNull();
+  });
+});
 
 describe('discs', () => {
   it('takes the main film of a film disc', () => {

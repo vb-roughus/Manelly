@@ -52,6 +52,12 @@ if (command === 'info') {
   out(`MSG:3007,0,0,${q(image ? 'Using image file' : 'Using direct disc access mode')},"x"`);
   out('MSG:1011,32,1,"Debug: tracing drive","x"');
   if (disc.readError) out(`MSG:2003,0,3,${q(disc.readError)},"x"`);
+  if (disc.crash) {
+    // As makemkvcon 1.18.3 on a decrypted Blu-ray image: a few messages, then it crashes.
+    out('MSG:3307,0,0,"AACS directory not present, assuming unencrypted disc","x"');
+    process.kill(process.pid, 'SIGSEGV');
+    return;
+  }
   if (disc.expired) {
     // Blu-rays without a valid key: MakeMKV says so and lists nothing, but ends well.
     out('MSG:5095,0,0,"Evaluation period has expired. Please purchase an activation key if you\'ve found this application useful. You may still use all DVD-related functionality without restrictions.","x"');

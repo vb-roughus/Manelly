@@ -291,6 +291,7 @@ export function createAgentServer(options: AgentServerOptions) {
         discs: Boolean(options.discs),
         audio: Boolean(options.audio),
         discIsos: Boolean(options.discs),
+        discIsoDelete: Boolean(options.discs),
         drives: (await options.drives?.list()) ?? [],
         work: await workStatus(),
         originals: Boolean(options.originals),
@@ -705,6 +706,10 @@ export function createAgentServer(options: AgentServerOptions) {
       if (!discs) throw new AgentError(404, 'Discs kann dieser Agent nicht.');
       if (route === 'GET /api/discs') return send(response, 200, await discs.status(url.searchParams.get('refresh') === '1'));
       if (route === 'GET /api/discs/isos') return send(response, 200, await discs.isos());
+      if (route === 'POST /api/discs/isos/delete') {
+        const { path } = await readJson<{ path?: unknown }>(request);
+        return send(response, 200, await discs.deleteIso(path));
+      }
       if (route === 'POST /api/discs/read' || route === 'POST /api/discs/eject' || route === 'POST /api/discs/read/cancel') {
         const { drive, iso } = await readJson<{ drive?: unknown; iso?: unknown }>(request);
         // An image in the ISO folder, by its path there; the disc checks it.

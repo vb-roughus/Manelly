@@ -716,6 +716,15 @@ export async function agentRoutes(
   });
   // The ISO folder is listed only while somebody looks at its tab.
   app.get('/discs/isos', async (): Promise<DiscIsoList> => requireAgent(agent).discIsos());
+  app.post<{ Body: { path: string } }>(
+    '/discs/isos/delete',
+    { schema: { body: { type: 'object', additionalProperties: false, required: ['path'], properties: { path: iso } } } },
+    async (request): Promise<{ deleted: string }> => {
+      const result = await requireAgent(agent).deleteDiscIso(request.body.path);
+      request.log.info(`Image «${result.deleted}» im ISO-Ordner gelöscht`);
+      return result;
+    },
+  );
 
   app.post<{ Body: DiscRipRequest }>(
     '/discs/rips',

@@ -106,6 +106,8 @@ export interface AgentClient {
   cancelDiscRead(source: DiscSourceRequest): Promise<DiscRead>;
   /** From agent 0.40.0: the images in the ISO folder. */
   discIsos(): Promise<DiscIsoList>;
+  /** From agent 0.42.0: deletes an image there for good. */
+  deleteDiscIso(path: string): Promise<{ deleted: string }>;
   ejectDisc(drive: number): Promise<{ ejected: boolean }>;
   ripDisc(request: DiscRipRequest): Promise<DiscRip>;
   cancelDiscRip(id: string): Promise<DiscRip>;
@@ -231,6 +233,7 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     readDisc: (source) => call('POST', '/api/discs/read', source, 45_000),
     cancelDiscRead: (source) => call('POST', '/api/discs/read/cancel', source),
     discIsos: () => call('GET', '/api/discs/isos', undefined, 30_000),
+    deleteDiscIso: (path) => call('POST', '/api/discs/isos/delete', { path }, 60_000),
     ejectDisc: (drive) => call('POST', '/api/discs/eject', { drive }, 60_000),
     ripDisc: (request) => call('POST', '/api/discs/rips', request, 60_000),
     cancelDiscRip: (id) => call('POST', `/api/discs/rips/${encodeURIComponent(id)}/cancel`),

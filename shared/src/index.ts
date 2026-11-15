@@ -1550,6 +1550,8 @@ export interface AgentStatus {
   audio?: boolean;
   /** Rips ISO images from the ISO folder and moves ISOs there from the extraction folder; missing before agent 0.40.0. */
   discIsos?: boolean;
+  /** Deletes ISO images in the ISO folder (POST /api/discs/isos/delete); missing before agent 0.42.0. */
+  discIsoDelete?: boolean;
 }
 
 /** POST /api/check on the agent: sizes for the conversion dialog, without starting anything. */
@@ -1968,6 +1970,8 @@ export interface DiscIso {
   path: string;
   bytes: number;
   modifiedAt: string;
+  /** Ripped from this image before: when and into which folder (agent from 0.42.0). */
+  rippedBefore?: { at: string; folder: string } | null;
 }
 
 /** GET /api/discs/isos on the agent (from 0.40.0): the images in the ISO folder, by name. */

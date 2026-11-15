@@ -547,7 +547,7 @@ describe('ripping ISO images', () => {
     const list = await discs.isos();
     expect(list).toMatchObject({ folder: isos, error: null });
     expect(list.isos.map((iso) => iso.path)).toEqual(['Dune.iso', 'UHD/Alien.ISO']);
-    expect(list.isos[0]).toEqual({ path: 'Dune.iso', bytes: expect.any(Number), modifiedAt: expect.any(String) });
+    expect(list.isos[0]).toEqual({ path: 'Dune.iso', bytes: expect.any(Number), modifiedAt: expect.any(String), rippedBefore: null });
 
     settings = { ...settings, isoFolder: null };
     expect(await discs.isos()).toEqual({ folder: null, isos: [], error: null });
@@ -579,6 +579,27 @@ describe('ripping ISO images', () => {
     // The image is still there, and known as ripped now.
     expect(await readdir(path.join(isos, 'UHD'))).toEqual(['Dune.iso']);
     expect(after.reads[0]?.info?.rippedBefore).toEqual({ at: expect.any(String), folder: 'Dune Part Two (2024)' });
+    // The list of the ISO folder knows it as ripped too, without reading it.
+    expect((await discs.isos()).isos.map((entry) => [entry.path, entry.rippedBefore?.folder ?? null])).toEqual([['UHD/Dune.iso', 'Dune Part Two (2024)']]);
+  });
+
+  it('deletes an image – not while it is read – and a folder it leaves empty', async () => {
+    await image('UHD/Dune.iso', { disc: 'movie', label: 'DUNE', readMs: 400 });
+    await image('Alien.iso');
+    const discs = service();
+    await discs.read({ iso: 'UHD/Dune.iso' });
+    await expect(discs.deleteIso('UHD/Dune.iso')).rejects.toThrow('Das Image wird gerade gelesen oder gerippt – erst danach löschen.');
+    await settle(discs);
+    expect((await discs.status()).reads).toHaveLength(1);
+    expect(await discs.deleteIso('UHD/Dune.iso')).toEqual({ deleted: 'UHD/Dune.iso' });
+    expect(await readdir(isos)).toEqual(['Alien.iso']);
+    // What was read of it goes with it.
+    expect((await discs.status()).reads).toEqual([]);
+    await expect(discs.deleteIso('UHD/Dune.iso')).rejects.toThrow('«UHD/Dune.iso» gibt es im ISO-Ordner nicht (mehr).');
+    await expect(discs.deleteIso('../disc.json')).rejects.toThrow('Ein ISO-Image im ISO-Ordner erwartet.');
+    expect(await discs.deleteIso('Alien.iso')).toEqual({ deleted: 'Alien.iso' });
+    // The ISO folder itself stays.
+    expect(await readdir(isos)).toEqual([]);
   });
 
   it('takes only images of the ISO folder', async () => {

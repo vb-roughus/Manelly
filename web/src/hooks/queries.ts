@@ -1109,6 +1109,18 @@ export function useDiscIsos(enabled: boolean) {
   });
 }
 
+/** From agent 0.42.0: an image of the ISO folder, deleted for good. */
+export function useDeleteDiscIso() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => sendJson<{ deleted: string }>('POST', '/api/agent/discs/isos/delete', { path }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['disc-isos'] });
+      void queryClient.invalidateQueries({ queryKey: ['discs'] });
+    },
+  });
+}
+
 /** From agent 0.40.0: ISO images in the extraction folder, e.g. from a download; read again with the folder. */
 export function useExtractedIsos(enabled: boolean) {
   return useQuery({

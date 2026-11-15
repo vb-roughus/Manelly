@@ -48,6 +48,46 @@ function Test-PortInUse([int]$Port) {
   return [bool]($listeners | Where-Object { $_.Port -eq $Port })
 }
 
+# The port Manelly runs on: as asked, else PORT from the environment or from .env, else 3000.
+function Get-ManellyPort([string]$Root, [int]$Port = 0) {
+  if (-not $Port -and $env:PORT) { $Port = [int]$env:PORT }
+  $envFile = Join-Path $Root '.env'
+  if (-not $Port -and (Test-Path $envFile)) {
+    $line = Get-Content $envFile | Where-Object { $_ -match '^PORT=\d+\s*$' } | Select-Object -Last 1
+    if ($line) { $Port = [int]($line -replace '^PORT=(\d+)\s*$', '$1') }
+  }
+  if (-not $Port) { $Port = 3000 }
+  return $Port
+}
+
+# Whether Manelly itself answers at this address – not just anything on the port.
+function Test-ManellyRunning([string]$Url) {
+  try {
+    $answer = Invoke-WebRequest "$Url/api/health" -UseBasicParsing -TimeoutSec 2
+    return $answer.Content -match '"status"\s*:\s*"ok"'
+  } catch {
+    return $false
+  }
+}
+
+# Ends a Manelly started in the background (desktop icon): its starter, which would start it again, and then the
+# server. Only processes that really are that starter and its children; true when one ran.
+function Stop-BackgroundManelly([string]$Root) {
+  $pidFile = Join-Path $Root 'data\manelly.pid'
+  if (-not (Test-Path $pidFile)) { return $false }
+  $starterId = 0
+  [void][int]::TryParse((Get-Content $pidFile -Raw).Trim(), [ref]$starterId)
+  Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+  if (-not $starterId) { return $false }
+  # A PID file left over from before a restart may name another program by now.
+  $starter = Get-CimInstance Win32_Process -Filter "ProcessId = $starterId" -ErrorAction SilentlyContinue
+  if (-not $starter -or -not $starter.CommandLine -or $starter.CommandLine.IndexOf('start-windows.ps1', [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $false }
+  $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $starterId" -ErrorAction SilentlyContinue)
+  Stop-Process -Id $starterId -Force -ErrorAction SilentlyContinue
+  foreach ($child in $children) { Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue }
+  return $true
+}
+
 # The build tools (Vite) need Node.js 22.12 or newer.
 function Get-NodeVersion {
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) { return $null }

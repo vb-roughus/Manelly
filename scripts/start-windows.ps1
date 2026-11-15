@@ -7,9 +7,14 @@
 # scripts are blocked. Stop Manelly with Ctrl+C. Restarting and updating from
 # Server → Allgemein in Manelly keep this script running: it starts Manelly again.
 #
+# With -Background (the desktop icon of install-windows.ps1 starts it so, hidden):
+# no window, the server's output goes to data\manelly.log, an existing build is
+# used as it is, and the browser is left to the icon. data\manelly.pid names this
+# script's process, so «Manelly beenden» can end it.
+#
 # Written for the Windows PowerShell 5.1 that ships with Windows. Keep this file
 # saved as UTF-8 with BOM, otherwise Windows PowerShell garbles the umlauts.
-param([int]$Port = 0)
+param([int]$Port = 0, [switch]$Background)
 
 $ErrorActionPreference = 'Stop'
 # Invoke-WebRequest would otherwise draw a progress bar for every health check.
@@ -22,38 +27,60 @@ Set-Location $root
 Assert-Windows
 
 # --- Port --------------------------------------------------------------------
-if (-not $Port -and $env:PORT) { $Port = [int]$env:PORT }
-if (-not $Port -and (Test-Path .env)) {
-  $line = Get-Content .env | Where-Object { $_ -match '^PORT=\d+\s*$' } | Select-Object -Last 1
-  if ($line) { $Port = [int]($line -replace '^PORT=(\d+)\s*$', '$1') }
-}
-if (-not $Port) { $Port = 3000 }
+$Port = Get-ManellyPort $root $Port
 $env:PORT = "$Port"
 $url = "http://localhost:$Port"
 
 if (Test-PortInUse $Port) {
+  # In the background nobody reads it; the desktop icon looked before.
+  if ($Background) { exit 1 }
   Stop-WithError "Port $Port ist schon belegt – läuft Manelly bereits? Dann öffne $url. Sonst starte mit: .\scripts\start-windows.ps1 -Port 3001"
 }
 
 # --- Node.js, dependencies and build -------------------------------------------
-Initialize-Node
-$npm = Get-Npm
-Install-Dependencies $npm
+$built = (Test-Path 'server\dist\index.js') -and (Test-Path 'web\dist\index.html')
+if ($Background -and $built -and (Test-Node)) {
+  # Installed and built by install-windows.ps1, updated by Manelly itself: starting is enough.
+} else {
+  # Nobody could answer winget in the background: the installer sets Node.js up.
+  if ($Background -and -not (Test-Node)) { exit 1 }
+  Initialize-Node
+  $npm = Get-Npm
+  Install-Dependencies $npm
 
-Write-Info 'Baue Manelly …'
-Invoke-Native { & $npm run build --silent }
-if ($LASTEXITCODE -ne 0) { Stop-WithError 'Der Build ist fehlgeschlagen (siehe oben).' }
+  Write-Info 'Baue Manelly …'
+  Invoke-Native { & $npm run build --silent }
+  if ($LASTEXITCODE -ne 0) { Stop-WithError 'Der Build ist fehlgeschlagen (siehe oben).' }
+}
 
 # --- Start -------------------------------------------------------------------
 # Manelly asks for a restart with exit code 75 (RESTART_EXIT in server/src/manelly.ts), also after
 # it updated itself; any other end, e.g. Ctrl+C, ends this script too.
 $env:MANELLY_SUPERVISED = '1'
-Write-Info "Starte Manelly auf $url – beenden mit Ctrl+C."
 $nodeArgs = @('server/dist/index.js')
 if (Test-Path .env) { $nodeArgs = @('--env-file=.env') + $nodeArgs }
-$opened = $false
+$data = Join-Path $root 'data'
+if ($Background) {
+  New-Item -ItemType Directory -Force -Path $data | Out-Null
+  Set-Content -Path (Join-Path $data 'manelly.pid') -Value $PID -Encoding ASCII
+} else {
+  Write-Info "Starte Manelly auf $url – beenden mit Ctrl+C."
+}
+# The desktop icon opens the browser itself.
+$opened = [bool]$Background
 while ($true) {
-  $server = Start-Process -FilePath node -ArgumentList $nodeArgs -WorkingDirectory $root -NoNewWindow -PassThru
+  if ($Background) {
+    # The last start's output stays readable next to the current one.
+    $log = Join-Path $data 'manelly.log'
+    $errorLog = Join-Path $data 'manelly-error.log'
+    foreach ($file in @($log, $errorLog)) {
+      if (Test-Path $file) { Move-Item $file "$file.1" -Force -ErrorAction SilentlyContinue }
+    }
+    # Shares this script's hidden console: no window of its own.
+    $server = Start-Process -FilePath node -ArgumentList $nodeArgs -WorkingDirectory $root -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $errorLog -PassThru
+  } else {
+    $server = Start-Process -FilePath node -ArgumentList $nodeArgs -WorkingDirectory $root -NoNewWindow -PassThru
+  }
   # Reading the handle now keeps ExitCode available after the process ended.
   $null = $server.Handle
 
@@ -80,6 +107,9 @@ while ($true) {
   }
 
   $server.WaitForExit()
-  if ($server.ExitCode -ne 75) { exit $server.ExitCode }
+  if ($server.ExitCode -ne 75) {
+    if ($Background) { Remove-Item (Join-Path $data 'manelly.pid') -Force -ErrorAction SilentlyContinue }
+    exit $server.ExitCode
+  }
   Write-Info 'Starte Manelly neu …'
 }

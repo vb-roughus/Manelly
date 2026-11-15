@@ -512,9 +512,33 @@ Update: in Manelly unter **Einstellungen → Updates** «Aktualisieren & neu sta
 [Manelly aktualisieren](#manelly-aktualisieren)), oder von Hand `git pull` und das Skript erneut starten. Die
 Einstellungen liegen in `data\` und bleiben erhalten.
 
+## Als Programm installieren (Windows)
+
+Statt im Konsolenfenster läuft Manelly auf Windows auch als Programm mit einem Symbol auf dem Desktop. Im Manelly-Ordner
+(aus `git clone`) `scripts\install-windows.cmd` doppelklicken. Der Installer
+
+- richtet Node.js und Git mit `winget` ein (Git braucht Manelly für seine Updates),
+- kopiert Manelly nach `%LOCALAPPDATA%\Programs\Manelly` (ohne Administratorrechte; ist Manelly schon aus diesem Ordner
+  gelaufen, kommen seine Einstellungen aus `data\` mit), installiert die Abhängigkeiten und baut es,
+- legt das Symbol **«Manelly»** auf den Desktop und ins Startmenü, dazu **«Manelly beenden»**,
+- trägt Manelly unter **Einstellungen → Apps** ein, wo es sich wie jedes Programm deinstallieren lässt, und startet es.
+
+**Das Symbol** öffnet <http://localhost:3000> im Browser. Läuft Manelly noch nicht, startet das Symbol es zuerst – unsichtbar
+im Hintergrund, ohne Konsolenfenster – und öffnet den Browser, sobald es antwortet. Ein zweiter Klick öffnet nur noch
+den Browser. Was Manelly im Hintergrund meldet, steht in `data\manelly.log` (und `manelly-error.log`; der vorherige
+Start in `….log.1`). Neu starten und aktualisieren unter Einstellungen → Updates geht wie gewohnt. **«Manelly beenden»**
+im Startmenü beendet es.
+
+- Anderer Port: `scripts\install-windows.cmd -Port 3001` (steht danach als `PORT=3001` in der `.env` des Programmordners).
+- `-InPlace` lässt den heruntergeladenen Ordner selbst den Programmordner sein, statt ihn zu kopieren.
+- Den Installer nochmals ausführen aktualisiert die Installation aus diesem Ordner; ihre Einstellungen bleiben.
+- **Deinstallieren** (Einstellungen → Apps → Manelly, oder `-Uninstall`) entfernt Symbol, Startmenü, den Eintrag und das
+  Programm; die Einstellungen in `data\` bleiben, falls Manelly zurückkommt. Mit `-InPlace` bleibt der Ordner ganz.
+
 ## Manelly aktualisieren
 
-Läuft Manelly über `scripts/start-mac.sh` oder `scripts\start-windows.cmd`, aktualisiert es sich unter
+Läuft Manelly über `scripts/start-mac.sh`, `scripts\start-windows.cmd` oder das Desktop-Symbol unter Windows
+([Als Programm installieren](#als-programm-installieren-windows)), aktualisiert es sich unter
 **Einstellungen → Updates** (unten links im Menü) selbst. **«Alles aktualisieren»** zuoberst aktualisiert Manelly und
 den Agent gleichzeitig; jeder für sich geht mit seinem eigenen «Aktualisieren & neu starten»:
 

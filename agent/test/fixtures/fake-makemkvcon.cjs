@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Stand-in for makemkvcon in robot mode: one DVD drive, its disc described in the JSON file FAKE_MAKEMKV names.
+// Stand-in for makemkvcon in robot mode: one DVD drive, its disc described in the JSON file FAKE_MAKEMKV names. An
+// "image" (iso:…) is a JSON file describing its disc the same way.
 const fs = require('node:fs');
 const path = require('node:path');
 const statePath = process.env.FAKE_MAKEMKV;
@@ -30,19 +31,32 @@ if (args.includes('disc:9999')) {
   out('DRV:1,256,999,0,"","",""');
   process.exit(0);
 }
-if (!state.disc) {
+const image = args.find((arg) => arg.startsWith('iso:'));
+let disc = state;
+if (image) {
+  try {
+    disc = { ripMs: state.ripMs, ...JSON.parse(fs.readFileSync(image.slice(4), 'utf8')) };
+  } catch {
+    disc = { disc: null };
+  }
+}
+if (!disc.disc) {
   out('MSG:5010,0,0,"Failed to open disc","Failed to open disc"');
   process.exit(1);
 }
-const titles = DISCS[state.disc];
+const titles = DISCS[disc.disc];
 const command = args.find((arg) => arg === 'info' || arg === 'mkv');
 if (command === 'info') {
   out(`PRGT:5018,0,${q('Opening DVD disc')}`);
   out(`PRGC:5018,0,${q('Opening DVD disc')}`);
-  out('MSG:3007,0,0,"Using direct disc access mode","x"');
+  out(`MSG:3007,0,0,${q(image ? 'Using image file' : 'Using direct disc access mode')},"x"`);
   out('MSG:1011,32,1,"Debug: tracing drive","x"');
-  if (state.readError) out(`MSG:2003,0,3,${q(state.readError)},"x"`);
-  if (state.readMs) {
+  if (disc.readError) out(`MSG:2003,0,3,${q(disc.readError)},"x"`);
+  if (disc.encrypted) {
+    out('MSG:5021,0,1,"This disc uses AACS 2.0 and its volume key is unknown, it can\'t be decrypted","x"');
+    process.exit(0);
+  }
+  if (disc.readMs) {
     out(`PRGC:5003,0,${q('Scanning contents')}`);
     let step = 0;
     const timer = setInterval(() => {
@@ -51,17 +65,17 @@ if (command === 'info') {
       if (step < 10) return;
       clearInterval(timer);
       describe();
-    }, Math.floor(state.readMs / 10));
+    }, Math.floor(disc.readMs / 10));
   } else describe();
 }
 
 function describe() {
-  out(`CINFO:1,6206,${q('DVD disc')}`);
-  out(`CINFO:2,0,${q(state.label)}`);
-  out(`CINFO:32,0,${q(state.label)}`);
+  out(`CINFO:1,6206,${q(disc.type ?? 'DVD disc')}`);
+  out(`CINFO:2,0,${q(disc.label)}`);
+  out(`CINFO:32,0,${q(disc.label)}`);
   out(`TCOUNT:${titles.length}`);
   titles.forEach((title, index) => {
-    out(`TINFO:${index},2,0,${q(state.label)}`);
+    out(`TINFO:${index},2,0,${q(disc.label)}`);
     out(`TINFO:${index},8,0,${q(title.chapters)}`);
     out(`TINFO:${index},9,0,${q(title.duration)}`);
     out(`TINFO:${index},11,0,${q(title.bytes)}`);
@@ -94,15 +108,15 @@ if (command === 'mkv') {
   out(`PRGT:5018,0,${q('Opening DVD disc')}`);
   out('PRGV:0,65536,65536');
   out(`PRGT:5017,0,${q('Saving to MKV file')}`);
-  if (state.fail) {
+  if (disc.fail) {
     out(`MSG:5003,0,2,${q(`Failed to save title ${title} to file ${directory}`)},"x"`);
     process.exit(1);
   }
-  if (state.noFile) {
+  if (disc.noFile) {
     out(`MSG:5037,0,2,${q('Copy complete. 0 titles saved, 1 failed.')},"x"`);
     process.exit(0);
   }
-  const file = path.join(directory, `${state.label}_t0${title}.mkv`);
+  const file = path.join(directory, `${disc.label}_t0${title}.mkv`);
   let step = 0;
   const timer = setInterval(() => {
     step++;
@@ -112,7 +126,7 @@ if (command === 'mkv') {
     clearInterval(timer);
     out(`MSG:5036,0,1,${q('Copy complete. 1 titles saved.')},"x"`);
     process.exit(0);
-  }, Math.max(1, Math.floor((state.ripMs ?? 50) / steps)));
+  }, Math.max(1, Math.floor((disc.ripMs ?? 50) / steps)));
 } else if (command !== 'info') {
   process.exit(2);
 }

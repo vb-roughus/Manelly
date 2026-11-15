@@ -51,6 +51,7 @@ export function ExtractedPage() {
         convertible={Boolean(jd.extractedConvert)}
         renamable={Boolean(jd.extractedRename)}
         audio={Boolean(status.audio)}
+        isos={Boolean(status.discIsos)}
       />
     );
   }

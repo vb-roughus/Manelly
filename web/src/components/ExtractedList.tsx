@@ -5,6 +5,7 @@ import {
   ChevronDown,
   CircleCheck,
   CircleX,
+  DiscAlbum,
   File,
   FileText,
   Film,
@@ -35,11 +36,13 @@ import {
   useDiscs,
   useExtractedAudio,
   useExtracted,
+  useExtractedIsos,
   useExtractedMoves,
   useExtractedSamples,
   useLibrarySeries,
   useMediaLibraries,
   useMoveExtracted,
+  useMoveExtractedIsos,
   useRenameExtracted,
   useSeriesSeasons,
 } from '../hooks/queries';
@@ -74,6 +77,7 @@ const dangerButton =
 
 function iconFor(entry: ExtractedEntry, open: boolean): LucideIcon {
   if (entry.kind === 'directory') return open ? FolderOpen : Folder;
+  if (/\.iso$/i.test(entry.name)) return DiscAlbum;
   return VIDEO.test(entry.name) ? Film : TEXT.test(entry.name) ? FileText : File;
 }
 
@@ -160,6 +164,7 @@ export function ExtractedList({
   convertible,
   renamable,
   audio = false,
+  isos = false,
 }: {
   onOpenSettings: () => void;
   actions: boolean;
@@ -172,6 +177,8 @@ export function ExtractedList({
   renamable: boolean;
   /** Agent from 0.38.0: the preferred audio track in the ticked MKV files. */
   audio?: boolean;
+  /** Agent from 0.40.0: ISO images found here go into the ISO folder, from where Discs rips them. */
+  isos?: boolean;
 }) {
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
@@ -306,6 +313,9 @@ export function ExtractedList({
             Tonspuren werden angepasst – {audioTask.data.done} von {audioTask.data.total}
             {audioTask.data.current && <span className="truncate text-ink-2"> · {audioTask.data.current}</span>}
           </p>
+        )}
+        {isos && actions && !error && (
+          <IsoNotice moving={(moves.data ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths)} />
         )}
         {recentMoves.length > 0 && (
           <ul className="mt-3 space-y-2" aria-label="Verschieben">
@@ -600,6 +610,66 @@ function MoveRow({ move, now }: { move: ExtractedMove; now: number }) {
       ))}
       {move.scan && <MoveScanLine scan={move.scan} />}
     </li>
+  );
+}
+
+/**
+ * ISO images in the extraction folder, e.g. from a download, on any level: they belong in the ISO folder, from where
+ * Discs rips them. Those being moved already are not counted.
+ */
+function IsoNotice({ moving }: { moving: string[] }) {
+  const found = useExtractedIsos(true);
+  const move = useMoveExtractedIsos();
+  const isos = (found.data?.isos ?? []).filter((iso) => !moving.some((busy) => isInFolder(iso.path, busy)));
+  if (isos.length === 0) return null;
+  const { isoFolder } = found.data!;
+  const total = isos.reduce((sum, iso) => sum + iso.bytes, 0);
+  const shown = isos.slice(0, 3).map((iso) => lastName(iso.path));
+  return (
+    <div className="mt-3 rounded-xl bg-accent/6 p-3 text-xs ring-1 ring-accent/20" role="status">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex min-w-0 items-start gap-2">
+          <DiscAlbum className="mt-px size-4 shrink-0 text-accent" aria-hidden />
+          <span className="min-w-0">
+            <span className="font-medium text-ink">{isos.length === 1 ? '1 ISO-Image' : `${isos.length} ISO-Images`} im Entpack-Ordner</span>
+            <span className="text-ink-2"> · {size(total)}</span>
+            <span className="block break-words text-ink-2">
+              {shown.join(', ')}
+              {isos.length > shown.length && ' …'}
+            </span>
+          </span>
+        </p>
+        {isoFolder ? (
+          <button type="button" onClick={() => move.mutate()} disabled={move.isPending} className={button}>
+            {move.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <FolderInput className="size-4" aria-hidden />}{' '}
+            {isos.length === 1 ? 'In den ISO-Ordner' : 'Alle in den ISO-Ordner'}
+          </button>
+        ) : (
+          <Link to="/server/discs?tab=settings" className="font-medium text-accent hover:underline">
+            ISO-Ordner festlegen
+          </Link>
+        )}
+      </div>
+      <p className="mt-1.5 text-ink-2">
+        {isoFolder ? (
+          <>
+            Nach <span className="font-mono break-all">{isoFolder}</span> – dort rippt sie{' '}
+            <Link to="/server/discs?tab=isos" className="font-medium text-accent hover:underline">
+              Discs → ISO-Images
+            </Link>{' '}
+            in MKV-Dateien.
+          </>
+        ) : (
+          'Discs rippt ISO-Images aus dem ISO-Ordner in MKV-Dateien – den zuerst unter Discs → Einstellungen festlegen.'
+        )}
+      </p>
+      {move.data?.skipped.map((skipped) => (
+        <p key={skipped.path} className="mt-1 text-warning">
+          {lastName(skipped.path)} bleibt: {skipped.error}
+        </p>
+      ))}
+      {move.isError && <p className="mt-1 text-critical">{move.error.message}</p>}
+    </div>
   );
 }
 

@@ -56,18 +56,19 @@ export interface AgentSettings {
 const SETTINGS_FILE = 'settings.json';
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const DEFAULT_SCHEDULE: ConversionSchedule = { window: null, idleOnly: false };
-export const DEFAULT_DISC_SETTINGS: DiscSettings = { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true };
+export const DEFAULT_DISC_SETTINGS: DiscSettings = { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, isoFolder: null };
 
 /** Reading a disc that comes in is on unless switched off – also for settings saved before 0.35.0. */
 export function parseDiscSettings(input: unknown): DiscSettings {
-  const { auto, eject, read = true, audioLanguage = 'ger', audioFirst = true } = (input ?? {}) as Partial<DiscSettings>;
+  const { auto, eject, read = true, audioLanguage = 'ger', audioFirst = true, isoFolder = null } = (input ?? {}) as Partial<DiscSettings>;
   if (typeof auto !== 'boolean' || typeof eject !== 'boolean' || typeof read !== 'boolean') {
     throw new AgentError(400, 'Automatik, Auswerfen und Lesen erwartet (ja/nein).');
   }
   if ((audioLanguage !== null && !isAudioLanguage(audioLanguage)) || typeof audioFirst !== 'boolean') {
     throw new AgentError(400, 'Eine bekannte Sprache für die Tonspur erwartet (ger, eng, fre, ita, spa) oder keine.');
   }
-  return { auto, eject, read, audioLanguage, audioFirst };
+  if (isoFolder !== null && (typeof isoFolder !== 'string' || isoFolder.length > 400)) throw new AgentError(400, 'Den ISO-Ordner als Pfad erwartet, oder keinen.');
+  return { auto, eject, read, audioLanguage, audioFirst, isoFolder: isoFolder?.trim() || null };
 }
 
 export function parseSchedule(input: unknown): ConversionSchedule {

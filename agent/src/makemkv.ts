@@ -9,6 +9,12 @@ const READ_TIMEOUT_MS = 30 * 60_000;
 /** Messages kept for the details. */
 const KEEP_MESSAGES = 60;
 
+/** What MakeMKV opens: the disc in a drive, by MakeMKV's number, or an image file (.iso) by its full path. */
+export type DiscSource = { drive: number } | { iso: string };
+
+/** "disc:0" or "iso:D:\ISOs\Dune.iso" – one argument, so a path with spaces needs no quotes. */
+export const sourceArgument = (source: DiscSource) => ('iso' in source ? `iso:${source.iso}` : `disc:${source.drive}`);
+
 /** One line of makemkvcon's robot mode (-r), e.g. `TINFO:0,9,0,"1:58:32"`, split into its kind and fields. */
 export function parseRobotLine(line: string): { kind: string; fields: string[] } | null {
   const match = /^([A-Z]+):(.*)$/.exec(line.trim());
@@ -96,8 +102,11 @@ const VIDEO = '6201';
 const AUDIO = '6202';
 const SUBTITLES = '6203';
 
-/** The disc and its titles from the output of `makemkvcon -r info disc:N`. */
-export function parseDiscInfo(drive: number, lines: string[], now = new Date()): DiscInfo {
+/**
+ * The disc and its titles from the output of `makemkvcon -r info disc:N` (or iso:…); `fallback` names a disc that does
+ * not name itself.
+ */
+export function parseDiscInfo(drive: number | null, lines: string[], now = new Date(), fallback = drive === null ? 'Disc' : `Disc ${drive}`): DiscInfo {
   const disc = new Map<number, string>();
   const titles = new Map<number, Map<number, string>>();
   const streams = new Map<number, Map<number, { type: string; values: Map<number, string> }>>();
@@ -145,7 +154,7 @@ export function parseDiscInfo(drive: number, lines: string[], now = new Date()):
     .filter((title) => title.durationSeconds >= MIN_TITLE_SECONDS)
     .sort((a, b) => a.index - b.index);
   const label = disc.get(VOLUME)?.trim() || null;
-  return { drive, name: disc.get(NAME)?.trim() || label || `Disc ${drive}`, label, type: disc.get(TYPE)?.trim() || null, titles: list, readAt: now.toISOString() };
+  return { drive, name: disc.get(NAME)?.trim() || label || fallback, label, type: disc.get(TYPE)?.trim() || null, titles: list, readAt: now.toISOString() };
 }
 
 /** MakeMKV's first message, "MakeMKV v1.17.7 … started". */
@@ -263,15 +272,21 @@ export async function listDrives(tool: string): Promise<Array<Omit<DiscDrive, 'b
   return parseDrives(await runMakemkv(tool, ['-r', '--cache=1', 'info', 'disc:9999'], { timeoutMs: LIST_TIMEOUT_MS }));
 }
 
-/** Reads the titles of the disc in a drive – for a DVD usually some seconds to a minute; `onLine` sees the progress. */
-export async function readDisc(tool: string, drive: number, options: { signal?: AbortSignal; onLine?: (line: string) => void } = {}): Promise<DiscInfo> {
-  const lines = await runMakemkv(tool, ['-r', '--progress=-same', `--minlength=${MIN_TITLE_SECONDS}`, 'info', `disc:${drive}`], {
+/** "D:\ISOs\Dune.iso" → "Dune". */
+const imageName = (file: string) => file.split(/[\\/]/).pop()!.replace(/\.iso$/i, '');
+
+/**
+ * Reads the titles of a disc – for a DVD in a drive usually some seconds to a minute; `onLine` sees the progress. An
+ * image without a name of its own is named after its file.
+ */
+export async function readDisc(tool: string, source: DiscSource, options: { signal?: AbortSignal; onLine?: (line: string) => void } = {}): Promise<DiscInfo> {
+  const lines = await runMakemkv(tool, ['-r', '--progress=-same', `--minlength=${MIN_TITLE_SECONDS}`, 'info', sourceArgument(source)], {
     timeoutMs: READ_TIMEOUT_MS,
     ...options,
   });
-  const info = parseDiscInfo(drive, lines);
+  const info = 'iso' in source ? parseDiscInfo(null, lines, new Date(), imageName(source.iso)) : parseDiscInfo(source.drive, lines);
   if (!lines.some((line) => line.startsWith('TCOUNT:') || line.startsWith('TINFO:'))) {
-    throw new Error(`MakeMKV konnte die Disc nicht lesen${lastMessages(lines) ? `: ${lastMessages(lines)}` : '.'}`);
+    throw new Error(`MakeMKV konnte ${'iso' in source ? 'das Image' : 'die Disc'} nicht lesen${lastMessages(lines) ? `: ${lastMessages(lines)}` : '.'}`);
   }
   return info;
 }
@@ -282,14 +297,14 @@ export async function readDisc(tool: string, drive: number, options: { signal?: 
  */
 export async function ripTitle(
   tool: string,
-  drive: number,
+  source: DiscSource,
   title: number,
   directory: string,
   onProgress: (share: number) => void,
   options: { signal?: AbortSignal; onLine?: (line: string) => void } = {},
 ): Promise<string> {
   let saving = false;
-  const lines = await runMakemkv(tool, ['-r', '--progress=-same', `--minlength=${MIN_TITLE_SECONDS}`, 'mkv', `disc:${drive}`, String(title), directory], {
+  const lines = await runMakemkv(tool, ['-r', '--progress=-same', `--minlength=${MIN_TITLE_SECONDS}`, 'mkv', sourceArgument(source), String(title), directory], {
     signal: options.signal,
     onLine: (line) => {
       options.onLine?.(line);

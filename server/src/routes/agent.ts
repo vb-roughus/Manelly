@@ -13,10 +13,12 @@ import type {
   CopyLimit,
   ConversionOptions,
   ConversionSchedule,
+  DiscIsoList,
   DiscRead,
   DiscRip,
   DiscRipRequest,
   DiscSettings,
+  DiscSourceRequest,
   DiscsStatus,
   DownloadsRemoveRequest,
   DriveCredentialRequest,
@@ -24,6 +26,8 @@ import type {
   ExtractedDeleted,
   ExtractedDeleteRequest,
   ExtractedFolder,
+  ExtractedIsos,
+  ExtractedIsosMoved,
   ExtractedMove,
   ExtractedMoveTarget,
   ExtractedRenamed,
@@ -507,6 +511,14 @@ export async function agentRoutes(
 
   app.get('/jdownloader/extracted/samples', async (): Promise<ExtractedSamples> => requireAgent(agent).extractedSamples());
 
+  // ISO images that came with a download: all of them go into the ISO folder of the disc settings, for ripping there.
+  app.get('/jdownloader/extracted/isos', async (): Promise<ExtractedIsos> => requireAgent(agent).extractedIsos());
+  app.post('/jdownloader/extracted/isos', async (request, reply): Promise<ExtractedIsosMoved> => {
+    const answer = await requireAgent(agent).moveExtractedIsos();
+    if (answer.move) request.log.info(`ISO-Images in den ISO-Ordner: ${answer.move.paths.join(', ')}`);
+    return reply.status(answer.move ? 202 : 200).send(answer);
+  });
+
   app.post<{ Body: { paths: string[] } }>(
     '/jdownloader/extracted/samples/delete',
     {
@@ -638,17 +650,24 @@ export async function agentRoutes(
     async (request): Promise<DiscsStatus> => requireAgent(agent).discs(request.query.refresh === '1'),
   );
 
-  const driveBody = {
-    body: { type: 'object', additionalProperties: false, required: ['drive'], properties: { drive: { type: 'integer', minimum: 0, maximum: 99 } } },
-  };
-  app.post<{ Body: { drive: number } }>('/discs/read', { schema: driveBody }, async (request, reply): Promise<DiscRead> => {
-    return reply.status(202).send(await requireAgent(agent).readDisc(request.body.drive));
+  const drive = { type: 'integer', minimum: 0, maximum: 99 };
+  /** An image's path in the ISO folder; the agent checks it. */
+  const iso = { type: 'string', minLength: 1, maxLength: 1000 };
+  /** A drive or an image, not both. */
+  const eitherSource = [{ required: ['drive'] }, { required: ['iso'] }];
+  const driveBody = { body: { type: 'object', additionalProperties: false, required: ['drive'], properties: { drive } } };
+  const sourceBody = { body: { type: 'object', additionalProperties: false, properties: { drive, iso }, oneOf: eitherSource } };
+  const sourceName = (source: DiscSourceRequest) => (source.iso !== undefined ? `Image «${source.iso}»` : `Disc in Laufwerk ${source.drive}`);
+  app.post<{ Body: DiscSourceRequest }>('/discs/read', { schema: sourceBody }, async (request, reply): Promise<DiscRead> => {
+    return reply.status(202).send(await requireAgent(agent).readDisc(request.body));
   });
   app.post<{ Body: { drive: number } }>('/discs/eject', { schema: driveBody }, async (request) => requireAgent(agent).ejectDisc(request.body.drive));
-  app.post<{ Body: { drive: number } }>('/discs/read/cancel', { schema: driveBody }, async (request): Promise<DiscRead> => {
-    request.log.info(`Disc in Laufwerk ${request.body.drive}: Lesen abgebrochen`);
-    return requireAgent(agent).cancelDiscRead(request.body.drive);
+  app.post<{ Body: DiscSourceRequest }>('/discs/read/cancel', { schema: sourceBody }, async (request): Promise<DiscRead> => {
+    request.log.info(`${sourceName(request.body)}: Lesen abgebrochen`);
+    return requireAgent(agent).cancelDiscRead(request.body);
   });
+  // The ISO folder is listed only while somebody looks at its tab.
+  app.get('/discs/isos', async (): Promise<DiscIsoList> => requireAgent(agent).discIsos());
 
   app.post<{ Body: DiscRipRequest }>(
     '/discs/rips',
@@ -657,9 +676,11 @@ export async function agentRoutes(
         body: {
           type: 'object',
           additionalProperties: false,
-          required: ['drive', 'folder', 'titles'],
+          required: ['folder', 'titles'],
+          oneOf: eitherSource,
           properties: {
-            drive: { type: 'integer', minimum: 0, maximum: 99 },
+            drive,
+            iso,
             folder: { type: 'string', minLength: 1, maxLength: 200 },
             titles: {
               type: 'array',
@@ -679,7 +700,7 @@ export async function agentRoutes(
     },
     async (request, reply): Promise<DiscRip> => {
       const rip = await requireAgent(agent).ripDisc(request.body);
-      request.log.info(`Disc «${rip.disc}» wird gerippt: ${rip.titles.length} Titel nach ${rip.folder}`);
+      request.log.info(`${rip.iso !== undefined ? 'Image' : 'Disc'} «${rip.disc}» wird gerippt: ${rip.titles.length} Titel nach ${rip.folder}`);
       return reply.status(202).send(rip);
     },
   );
@@ -698,13 +719,14 @@ export async function agentRoutes(
           type: 'object',
           additionalProperties: false,
           required: ['auto', 'eject'],
-          // read: from agent 0.35.0; the audio track from 0.38.0.
+          // read: from agent 0.35.0; the audio track from 0.38.0; the ISO folder from 0.40.0 (empty: none).
           properties: {
             auto: { type: 'boolean' },
             eject: { type: 'boolean' },
             read: { type: 'boolean' },
             audioLanguage: { type: ['string', 'null'], enum: [...AUDIO_LANGUAGES, null] },
             audioFirst: { type: 'boolean' },
+            isoFolder: { type: ['string', 'null'], maxLength: 400 },
           },
         },
       },
@@ -712,7 +734,7 @@ export async function agentRoutes(
     async (request): Promise<DiscSettings> => {
       const settings = await requireAgent(agent).setDiscSettings(request.body);
       request.log.info(
-        `Discs: automatisch ${settings.auto ? 'ein' : 'aus'}, auswerfen ${settings.eject ? 'ein' : 'aus'}${settings.read === undefined ? '' : `, lesen ${settings.read ? 'ein' : 'aus'}`}`,
+        `Discs: automatisch ${settings.auto ? 'ein' : 'aus'}, auswerfen ${settings.eject ? 'ein' : 'aus'}${settings.read === undefined ? '' : `, lesen ${settings.read ? 'ein' : 'aus'}`}${settings.isoFolder ? `, ISO-Ordner ${settings.isoFolder}` : ''}`,
       );
       return settings;
     },

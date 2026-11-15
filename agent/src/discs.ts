@@ -2,11 +2,11 @@ import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { lstat, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import type { DiscDrive, DiscInfo, DiscRead, DiscRip, DiscRipRequest, DiscSettings, DiscsStatus, DiscTitle } from '@manelly/shared';
+import type { DiscDrive, DiscInfo, DiscIso, DiscIsoList, DiscRead, DiscRip, DiscRipRequest, DiscSettings, DiscSourceRequest, DiscsStatus, DiscTitle } from '@manelly/shared';
 import { formatBytes } from './convert.js';
 import { AgentError } from './errors.js';
-import { createActivity, listDrives, readDisc, ripTitle } from './makemkv.js';
-import { isValidSegment, pathApiFor, TEMP_FOLDER_PREFIX } from './paths.js';
+import { createActivity, listDrives, readDisc, ripTitle, type DiscSource } from './makemkv.js';
+import { isValidSegment, isWithin, pathApiFor, TEMP_FOLDER_PREFIX } from './paths.js';
 import { defaultPowershell, scriptArgs, scriptError } from './powershell.js';
 
 /** Finished rips shown at most. */
@@ -31,6 +31,23 @@ export function folderNameFrom(name: string): string | null {
 export function mainTitle(titles: DiscTitle[]): DiscTitle | null {
   return [...titles].sort((a, b) => b.durationSeconds - a.durationSeconds || (b.bytes ?? 0) - (a.bytes ?? 0))[0] ?? null;
 }
+
+/**
+ * What a read or a rip is of: the disc in a drive, by MakeMKV's number, or an image in the ISO folder – by its path
+ * there ("Dune.iso", "Dune (2021)/Dune.iso") and its full path.
+ */
+type IsoSource = { drive?: undefined; iso: string; full: string };
+type Source = { drive: number; iso?: undefined; full?: undefined } | IsoSource;
+/** Reads, rips and what is busy go by this: "drive:0", "iso:Dune.iso". */
+const keyOf = (source: { drive?: number; iso?: string }) => (source.iso !== undefined ? `iso:${source.iso}` : `drive:${source.drive}`);
+const driveKey = (drive: number) => `drive:${drive}`;
+const opened = (source: Source): DiscSource => (source.iso !== undefined ? { iso: source.full } : { drive: source.drive });
+/** "Dune (2021)/Dune.iso" → "Dune". */
+const imageName = (iso: string) => iso.split('/').pop()!.replace(/\.iso$/i, '');
+/** Images listed at most. */
+const MAX_ISOS = 500;
+/** Reads of images kept, besides those under way; the oldest go first. */
+const KEEP_ISO_READS = 10;
 
 /**
  * The PowerShell script that ejects the disc in drive `letter` through the drive itself, as Explorer does it – also
@@ -109,12 +126,13 @@ export interface DiscsOptions {
 
 interface Job {
   view: DiscRip;
-  /** The drive's device, for ejecting. */
+  source: Source;
+  /** The drive's device, for ejecting; empty for an image. */
   device: string;
-  /** The disc's label as the drive names it, to know it again. */
+  /** The disc's label as the drive names it, to know it again; an image's path. */
   label: string;
   /** discKey of the read it was ripped from; null without one. */
-  key: string | null;
+  fingerprint: string | null;
   abort: AbortController;
   samples: Array<{ t: number; bytes: number }>;
   /** Feeds MakeMKV's output into the rip's step and messages. */
@@ -145,15 +163,19 @@ const snapshot = (rip: DiscRip): DiscRip => ({ ...rip, titles: rip.titles.map((t
 
 /**
  * Reads DVDs with MakeMKV and rips their titles into a new folder of the extraction folder, one rip after the other,
- * without changing the picture or sound. Only the drives MakeMKV names are touched.
+ * without changing the picture or sound. Only the drives MakeMKV names are touched – and the images in the ISO folder
+ * Manelly names, which are read and ripped the same way.
  */
 export function createDiscs(options: DiscsOptions) {
   const { log = () => {} } = options;
   const eject = options.eject ?? ((device: string) => ejectDisc(device));
   const jobs: Job[] = [];
-  const reads = new Map<number, DiscRead>();
-  const busy = new Set<number>();
-  const readAborts = new Map<number, AbortController>();
+  /** By keyOf, as `busy` and `readAborts`. */
+  const reads = new Map<string, DiscRead>();
+  const busy = new Set<string>();
+  const readAborts = new Map<string, AbortController>();
+  /** makemkvcon is at work in a drive: the drive list is not asked for meanwhile. */
+  const drivesBusy = () => [...busy].some((key) => key.startsWith('drive:'));
   /** The disc each read is of, by its label: a read of a disc no longer in the drive goes. */
   const readOf = new Map<number, string | null>();
   /** The disc the automatic mode or the automatic reading already took, per drive, until the drive is empty again. */
@@ -238,7 +260,7 @@ export function createDiscs(options: DiscsOptions) {
 
   /** The drives; while one is busy, the last list – makemkvcon is at work there. */
   async function currentDrives(tool: string): Promise<Array<Omit<DiscDrive, 'busy'>>> {
-    if (drives && (busy.size > 0 || Date.now() - drives.at < DRIVES_FRESH_MS)) return drives.list;
+    if (drives && (drivesBusy() || Date.now() - drives.at < DRIVES_FRESH_MS)) return drives.list;
     try {
       drives = { at: Date.now(), list: await listDrives(tool) };
       driveError = null;
@@ -255,29 +277,97 @@ export function createDiscs(options: DiscsOptions) {
     return drive;
   }
 
+  /** The ISO folder from the settings; without one, no image can be read. */
+  function isoFolder(): string {
+    const folder = options.settings.get().isoFolder;
+    if (!folder) throw new AgentError(409, 'Zuerst in den Disc-Einstellungen den ISO-Ordner festlegen.');
+    return folder;
+  }
+
+  /** An image in the ISO folder or a folder right in it, as listed: only .iso files, nothing outside the folder. */
+  async function resolveIso(path: unknown): Promise<IsoSource> {
+    const folder = isoFolder();
+    const names = typeof path === 'string' && path.length <= 1000 ? path.split('/') : [];
+    if (names.length === 0 || names.length > 2 || !names.every(isValidSegment) || !/\.iso$/i.test(names.at(-1)!)) {
+      throw new AgentError(400, 'Ein ISO-Image im ISO-Ordner erwartet.');
+    }
+    await options.prepare?.(folder);
+    const api = pathApiFor(folder);
+    const full = api.join(folder, ...names);
+    if (!isWithin(full, folder, api)) throw new AgentError(400, 'Ein ISO-Image im ISO-Ordner erwartet.');
+    if (!(await stat(full).then((info) => info.isFile(), () => false))) throw new AgentError(404, `«${names.join('/')}» gibt es im ISO-Ordner nicht (mehr).`);
+    return { iso: names.join('/'), full };
+  }
+
+  /** The images in the ISO folder and in the folders right in it – nothing deeper, and nothing else is searched. */
+  async function listIsos(): Promise<DiscIsoList> {
+    const folder = options.settings.get().isoFolder ?? null;
+    if (!folder) return { folder: null, isos: [], error: null };
+    await options.prepare?.(folder);
+    const api = pathApiFor(folder);
+    let top;
+    try {
+      top = await readdir(folder, { withFileTypes: true });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? 'Fehler';
+      const reason = code === 'ENOENT' ? `Den ISO-Ordner ${folder} gibt es auf dem Server nicht (mehr).` : `Den ISO-Ordner ${folder} kann der Agent nicht lesen (${code}).`;
+      return { folder, isos: [], error: reason };
+    }
+    const isos: DiscIso[] = [];
+    // Hidden, scratch and system folders ($RECYCLE.BIN) are left out.
+    const skipped = (name: string) => name.startsWith('.') || name.startsWith('$');
+    const image = (entry: { name: string; isFile(): boolean }) => entry.isFile() && !skipped(entry.name) && /\.iso$/i.test(entry.name);
+    async function add(names: string[]) {
+      const info = await stat(api.join(folder!, ...names)).catch(() => null);
+      if (info?.isFile()) isos.push({ path: names.join('/'), bytes: info.size, modifiedAt: info.mtime.toISOString() });
+    }
+    for (const entry of top) {
+      if (isos.length >= MAX_ISOS) break;
+      if (image(entry)) await add([entry.name]);
+      else if (entry.isDirectory() && !skipped(entry.name)) {
+        for (const inner of await readdir(api.join(folder, entry.name), { withFileTypes: true }).catch(() => [])) {
+          if (image(inner) && isos.length < MAX_ISOS) await add([entry.name, inner.name]);
+        }
+      }
+    }
+    isos.sort((a, b) => a.path.localeCompare(b.path, 'de', { numeric: true, sensitivity: 'base' }));
+    return { folder, isos, error: null };
+  }
+
+  /** Reads of images beyond the last few go, except those under way. */
+  function forgetOldIsoReads() {
+    const done = [...reads.entries()].filter(([, read]) => read.drive === null && read.state !== 'reading').map(([key]) => key);
+    for (const key of done.slice(0, Math.max(0, done.length - KEEP_ISO_READS))) reads.delete(key);
+  }
+
   /** Reads a disc's titles; what MakeMKV is at shows in `reads` meanwhile. `auto`: nobody asked, the disc came in. */
-  async function readNow(tool: string, drive: number, auto = false): Promise<DiscInfo> {
-    readOf.set(drive, drives?.list.find((candidate) => candidate.index === drive)?.disc ?? null);
-    busy.add(drive);
+  async function readNow(tool: string, source: Source, auto = false): Promise<DiscInfo> {
+    const key = keyOf(source);
+    if (source.drive !== undefined) readOf.set(source.drive, drives?.list.find((candidate) => candidate.index === source.drive)?.disc ?? null);
+    busy.add(key);
     const abort = new AbortController();
-    readAborts.set(drive, abort);
-    const read: DiscRead = { drive, state: 'reading', info: null, error: null, startedAt: new Date().toISOString(), ...(auto ? { auto } : {}) };
+    readAborts.set(key, abort);
+    const iso = source.iso !== undefined ? { iso: source.iso } : {};
+    const read: DiscRead = { drive: source.drive ?? null, ...iso, state: 'reading', info: null, error: null, startedAt: new Date().toISOString(), ...(auto ? { auto } : {}) };
     // Its step and messages, updated while MakeMKV works.
     const { take } = createActivity(read);
-    reads.set(drive, read);
+    // The newest last.
+    reads.delete(key);
+    reads.set(key, read);
+    if (source.iso !== undefined) forgetOldIsoReads();
     try {
-      const info = await readDisc(tool, drive, { signal: abort.signal, onLine: take });
-      read.info = { ...info, rippedBefore: rippedBefore(info) };
+      const info = await readDisc(tool, opened(source), { signal: abort.signal, onLine: take });
+      read.info = { ...info, ...iso, rippedBefore: rippedBefore(info) };
       read.state = 'done';
       return read.info;
     } catch (error) {
       read.state = abort.signal.aborted ? 'canceled' : 'failed';
       read.error = (error as Error).message;
-      log(`Disc in Laufwerk ${drive} lesen: ${read.error}`);
+      log(`${source.iso !== undefined ? `Image «${source.iso}»` : `Disc in Laufwerk ${source.drive}`} lesen: ${read.error}`);
       throw error;
     } finally {
-      busy.delete(drive);
-      readAborts.delete(drive);
+      busy.delete(key);
+      readAborts.delete(key);
     }
   }
 
@@ -300,7 +390,8 @@ export function createDiscs(options: DiscsOptions) {
     let temp: string | null = null;
     /** What went wrong after a title was saved, e.g. with its audio tracks; the rip itself is done. */
     let afterwards: string | null = null;
-    busy.add(view.drive);
+    const key = keyOf(job.source);
+    busy.add(key);
     try {
       const tool = await requireTool();
       const target = requireTarget();
@@ -334,7 +425,7 @@ export function createDiscs(options: DiscsOptions) {
           });
         }, SAMPLE_MS);
         try {
-          const said = await ripTitle(tool, view.drive, title.index, temp, (share) => (saved = share), { signal: job.abort.signal, onLine: job.take });
+          const said = await ripTitle(tool, opened(job.source), title.index, temp, (share) => (saved = share), { signal: job.abort.signal, onLine: job.take });
           const made = (await readdir(temp)).filter((name) => !before.has(name) && name.toLowerCase().endsWith('.mkv'));
           if (made.length === 0) throw new Error(`MakeMKV hat Titel ${title.index + 1} nicht gespeichert${said ? `: ${said}` : '.'}`);
           await rename(api.join(temp, made[0]!), destination);
@@ -361,15 +452,15 @@ export function createDiscs(options: DiscsOptions) {
       log(`Disc «${view.disc}» → ${view.folder}: ${done()} von ${view.titles.length} Titeln${view.state === 'done' ? '' : ` (${view.state === 'canceled' ? 'abgebrochen' : view.error})`}`);
       if (view.state === 'done') {
         // Ripped: the disc is not taken again while it stays in the drive, nor once it comes back, also after a restart.
-        ripped.set(view.drive, job.label);
-        if (job.key) {
-          const before = history.findIndex((entry) => entry.key === job.key);
+        if (job.source.drive !== undefined) ripped.set(job.source.drive, job.label);
+        if (job.fingerprint) {
+          const before = history.findIndex((entry) => entry.key === job.fingerprint);
           if (before >= 0) history.splice(before, 1);
-          history.unshift({ key: job.key, label: job.label, folder: view.folder, at: new Date().toISOString() });
+          history.unshift({ key: job.fingerprint, label: job.label, folder: view.folder, at: new Date().toISOString() });
           history.splice(HISTORY_LIMIT);
-          // The titles shown for the drive now say so too.
-          const shown = reads.get(view.drive)?.info;
-          if (shown && discKey(shown) === job.key) shown.rippedBefore = { at: history[0]!.at, folder: view.folder };
+          // The titles shown for the drive or image now say so too.
+          const shown = reads.get(key)?.info;
+          if (shown && discKey(shown) === job.fingerprint) shown.rippedBefore = { at: history[0]!.at, folder: view.folder };
         }
         saveRipped();
       }
@@ -383,7 +474,7 @@ export function createDiscs(options: DiscsOptions) {
       view.error = (error as Error).message;
     } finally {
       if (temp) await rm(temp, { recursive: true, force: true }).catch(() => {});
-      busy.delete(view.drive);
+      busy.delete(key);
       view.bytesPerSecond = null;
       view.finishedAt = new Date().toISOString();
       // The drive's state changed: read it again next time.
@@ -417,17 +508,35 @@ export function createDiscs(options: DiscsOptions) {
       if (names.has(title.fileName.toLowerCase())) throw new AgentError(400, `«${title.fileName}» kommt zweimal vor.`);
       names.add(title.fileName.toLowerCase());
     }
-    const drive = (await currentDrives(tool)).find((candidate) => candidate.index === request.drive);
-    if (!drive) throw new AgentError(404, `Laufwerk ${request.drive} gibt es nicht.`);
-    if (drive.state !== 'inserted') throw new AgentError(409, 'Im Laufwerk liegt keine Disc.');
-    if (jobs.some((job) => active(job.view) && job.view.drive === drive.index)) throw new AgentError(409, 'Von dieser Disc wird schon gerippt.');
+    let source: Source;
+    let device = '';
+    let label: string;
+    let fallback: string;
+    if (request.iso !== undefined) {
+      source = await resolveIso(request.iso);
+      label = source.iso;
+      fallback = imageName(source.iso);
+    } else {
+      const drive = (await currentDrives(tool)).find((candidate) => candidate.index === request.drive);
+      if (!drive) throw new AgentError(404, `Laufwerk ${request.drive} gibt es nicht.`);
+      if (drive.state !== 'inserted') throw new AgentError(409, 'Im Laufwerk liegt keine Disc.');
+      source = { drive: drive.index };
+      device = drive.device;
+      label = drive.disc ?? '';
+      fallback = drive.disc ?? `Disc ${drive.index}`;
+    }
+    const key = keyOf(source);
+    if (jobs.some((job) => active(job.view) && keyOf(job.source) === key)) {
+      throw new AgentError(409, source.iso !== undefined ? 'Von diesem Image wird schon gerippt.' : 'Von dieser Disc wird schon gerippt.');
+    }
     await options.prepare?.(target);
     const api = pathApiFor(target);
     for (const title of request.titles) {
       if (await exists(api.join(target, folder, title.fileName))) throw new AgentError(409, `«${folder}/${title.fileName}» gibt es im Entpack-Ordner schon.`);
     }
     // The sizes MakeMKV named when it read the disc.
-    const known = reads.get(drive.index)?.info?.titles ?? [];
+    const read = reads.get(key)?.info;
+    const known = read?.titles ?? [];
     const bytes = request.titles.map((title) => known.find((candidate) => candidate.index === title.index)?.bytes ?? null);
     const needed = bytes.reduce<number>((sum, value) => sum + (value ?? 0), 0);
     const free = (await options.freeBytes?.(target)) ?? null;
@@ -436,22 +545,23 @@ export function createDiscs(options: DiscsOptions) {
     }
     const view: DiscRip = {
       id: randomUUID(),
-      drive: drive.index,
-      disc: reads.get(drive.index)?.info?.name ?? drive.disc ?? `Disc ${drive.index}`,
+      drive: source.drive ?? null,
+      ...(source.iso !== undefined ? { iso: source.iso } : {}),
+      disc: read?.name ?? fallback,
       folder,
       titles: request.titles.map((title, at) => ({ index: title.index, fileName: title.fileName, bytes: bytes[at] ?? null, state: 'waiting', error: null })),
       state: 'queued',
       progress: 0,
       bytesPerSecond: null,
       error: null,
-      eject: request.eject ?? options.settings.get().eject,
+      // An image has nothing to eject.
+      eject: source.iso === undefined && (request.eject ?? options.settings.get().eject),
       auto,
       createdAt: new Date().toISOString(),
       startedAt: null,
       finishedAt: null,
     };
-    const read = reads.get(drive.index)?.info;
-    jobs.unshift({ view, device: drive.device, label: drive.disc ?? '', key: read ? discKey(read) : null, abort: new AbortController(), samples: [], take: createActivity(view).take });
+    jobs.unshift({ view, source, device, label, fingerprint: read ? discKey(read) : null, abort: new AbortController(), samples: [], take: createActivity(view).take });
     log(`Disc «${view.disc}»: ${view.titles.length} Titel nach ${folder}${auto ? ' (automatisch)' : ''}`);
     const answer = snapshot(view);
     void work();
@@ -498,18 +608,18 @@ export function createDiscs(options: DiscsOptions) {
         continue;
       }
       const key = drive.disc ?? '';
-      if (busy.has(drive.index) || handled.get(drive.index) === key) continue;
+      if (busy.has(driveKey(drive.index)) || handled.get(drive.index) === key) continue;
       handled.set(drive.index, key);
       if (ripped.get(drive.index) === key) continue;
       if (!ripTo) {
         // Read by hand already: nothing more to do.
-        if (reads.has(drive.index) && readOf.get(drive.index) === drive.disc) continue;
+        if (reads.has(driveKey(drive.index)) && readOf.get(drive.index) === drive.disc) continue;
         log(`Disc «${key || 'ohne Namen'}» in Laufwerk ${drive.index} eingelegt – wird gelesen.`);
-        await readNow(tool, drive.index, true).catch(() => {});
+        await readNow(tool, { drive: drive.index }, true).catch(() => {});
         continue;
       }
       try {
-        const info = await readNow(tool, drive.index);
+        const info = await readNow(tool, { drive: drive.index });
         if (info.rippedBefore) {
           log(`Disc «${key || info.name}» wurde schon gerippt (${info.rippedBefore.folder}) – der automatische Modus lässt sie aus.`);
           continue;
@@ -528,19 +638,22 @@ export function createDiscs(options: DiscsOptions) {
     /** `refresh` asks the drives again right away, e.g. after a new disc went in. */
     async status(refresh = false): Promise<DiscsStatus> {
       const tool = await options.tool();
-      if (refresh && busy.size === 0) drives = null;
+      if (refresh && !drivesBusy()) drives = null;
       const list = tool ? await currentDrives(tool) : [];
       forgetEmpty(list);
       // While Manelly looks, a disc that came in is noticed within seconds rather than at the next tick.
       if (tool && watching(options.settings.get())) void tick();
       // Titles read from a disc that was taken out or swapped by hand are no longer what is in the drive.
-      for (const [index, read] of reads) {
+      // Images stay until another ISO folder is set.
+      for (const [key, read] of reads) {
+        const index = read.drive;
+        if (index === null) continue;
         const drive = list.find((candidate) => candidate.index === index);
-        if (read.state !== 'reading' && (!drive || drive.state !== 'inserted' || drive.disc !== readOf.get(index))) reads.delete(index);
+        if (read.state !== 'reading' && (!drive || drive.state !== 'inserted' || drive.disc !== readOf.get(index))) reads.delete(key);
       }
       return {
         tool,
-        drives: list.map((drive) => ({ ...drive, busy: busy.has(drive.index) })),
+        drives: list.map((drive) => ({ ...drive, busy: busy.has(driveKey(drive.index)) })),
         reads: [...reads.values()].map((read) => ({ ...read, messages: [...(read.messages ?? [])] })),
         rips: jobs.map((job) => snapshot(job.view)),
         settings: options.settings.get(),
@@ -549,25 +662,38 @@ export function createDiscs(options: DiscsOptions) {
       };
     },
 
-    /** Starts reading the titles of the disc in a drive; GET /api/discs tells when it is done. */
-    async read(index: number): Promise<DiscRead> {
+    /** Starts reading the titles of the disc in a drive, or of an image; GET /api/discs tells when it is done. */
+    async read(target: DiscSourceRequest): Promise<DiscRead> {
       refuseWhileHeld('lesen');
       const tool = await requireTool();
-      const drive = await findDrive(index);
-      if (busy.has(index)) throw new AgentError(409, 'Das Laufwerk ist gerade beschäftigt.');
-      if (drive.state !== 'inserted') throw new AgentError(409, 'Im Laufwerk liegt keine Disc.');
-      void readNow(tool, index).catch(() => {});
-      return reads.get(index)!;
+      let source: Source;
+      if (target.iso !== undefined) {
+        source = await resolveIso(target.iso);
+        if (busy.has(keyOf(source))) throw new AgentError(409, 'Das Image wird gerade gelesen oder gerippt.');
+      } else {
+        const drive = await findDrive(target.drive);
+        if (busy.has(driveKey(drive.index))) throw new AgentError(409, 'Das Laufwerk ist gerade beschäftigt.');
+        if (drive.state !== 'inserted') throw new AgentError(409, 'Im Laufwerk liegt keine Disc.');
+        source = { drive: drive.index };
+      }
+      void readNow(tool, source).catch(() => {});
+      return reads.get(keyOf(source))!;
     },
 
-    /** Stops reading a disc, e.g. one that keeps MakeMKV busy for too long. */
-    cancelRead(index: number): DiscRead {
-      const read = reads.get(index);
-      const abort = readAborts.get(index);
-      if (!read || read.state !== 'reading' || !abort) throw new AgentError(409, 'Von diesem Laufwerk wird gerade nichts gelesen.');
+    /** Stops reading a disc or an image, e.g. one that keeps MakeMKV busy for too long. */
+    cancelRead(target: DiscSourceRequest): DiscRead {
+      const key = keyOf(target);
+      const read = reads.get(key);
+      const abort = readAborts.get(key);
+      if (!read || read.state !== 'reading' || !abort) {
+        throw new AgentError(409, target.iso !== undefined ? 'Dieses Image wird gerade nicht gelesen.' : 'Von diesem Laufwerk wird gerade nichts gelesen.');
+      }
       abort.abort();
       return { ...read, messages: [...(read.messages ?? [])] };
     },
+
+    /** The images in the ISO folder; only when Manelly asks, e.g. while its tab is open. */
+    isos: listIsos,
 
     rip: (request: DiscRipRequest) => enqueue(request, false),
 
@@ -584,14 +710,23 @@ export function createDiscs(options: DiscsOptions) {
 
     async eject(index: number): Promise<void> {
       const drive = await findDrive(index);
-      if (busy.has(index)) throw new AgentError(409, 'Das Laufwerk ist gerade beschäftigt.');
+      if (busy.has(driveKey(index))) throw new AgentError(409, 'Das Laufwerk ist gerade beschäftigt.');
       await eject(drive.device);
-      reads.delete(index);
+      reads.delete(driveKey(index));
       drives = null;
     },
 
     async setSettings(settings: DiscSettings): Promise<DiscSettings> {
+      const before = options.settings.get().isoFolder ?? null;
       await options.settings.set(settings);
+      if ((settings.isoFolder ?? null) !== before) {
+        // What was read from images of the old folder says nothing about those of the new one.
+        for (const [key, read] of reads) {
+          if (read.drive !== null) continue;
+          readAborts.get(key)?.abort();
+          reads.delete(key);
+        }
+      }
       if (watching(settings)) void tick();
       return settings;
     },

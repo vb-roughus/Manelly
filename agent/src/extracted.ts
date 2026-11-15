@@ -1,5 +1,5 @@
 import { lstat, readdir, rename, rm, rmdir, unlink } from 'node:fs/promises';
-import type { ExtractedDeleted, ExtractedEntry, ExtractedFolder, ExtractedRenamed, ExtractedSamples, ExtractedSamplesDeleted } from '@manelly/shared';
+import type { ExtractedDeleted, ExtractedEntry, ExtractedFolder, ExtractedIsos, ExtractedRenamed, ExtractedSamples, ExtractedSamplesDeleted } from '@manelly/shared';
 import type { DolbyVisionProbe } from './dvProbe.js';
 import { AgentError } from './errors.js';
 import { isValidSegment, isWithin, pathApiFor, SOURCE_EXTENSIONS, TEMP_FOLDER_PREFIX, type PathApi } from './paths.js';
@@ -141,6 +141,33 @@ export async function findSamples(directory: string): Promise<ExtractedSamples> 
   }
   samples.sort((a, b) => a.path.localeCompare(b.path, 'de', { numeric: true, sensitivity: 'base' }));
   return { samples };
+}
+
+/**
+ * Every ISO image on all levels of the extraction folder, e.g. from a download, for the ISO folder; links are not
+ * followed, scratch folders are left out.
+ */
+export async function findIsos(directory: string): Promise<ExtractedIsos['isos']> {
+  const api = pathApiFor(directory);
+  const isos: ExtractedIsos['isos'] = [];
+  const pending: Array<{ full: string; names: string[] }> = [{ full: directory, names: [] }];
+  let seen = 0;
+  while (pending.length > 0 && seen < MAX_FILES) {
+    const { full, names } = pending.pop()!;
+    for (const entry of await readdir(full, { withFileTypes: true }).catch(() => [])) {
+      if (entry.name.startsWith(TEMP_FOLDER_PREFIX)) continue;
+      const path = api.join(full, entry.name);
+      if (entry.isDirectory()) {
+        pending.push({ full: path, names: [...names, entry.name] });
+      } else if (entry.isFile()) {
+        seen++;
+        const info = /\.iso$/i.test(entry.name) ? await lstat(path).catch(() => null) : null;
+        if (info) isos.push({ path: [...names, entry.name].join('/'), bytes: info.size, modifiedAt: info.mtime.toISOString() });
+      }
+    }
+  }
+  isos.sort((a, b) => a.path.localeCompare(b.path, 'de', { numeric: true, sensitivity: 'base' }));
+  return isos;
 }
 
 /** Deletes the given samples – only files with "sample" in the name – and a sample folder they leave empty. */

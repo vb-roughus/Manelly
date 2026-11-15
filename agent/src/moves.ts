@@ -28,6 +28,8 @@ interface Job {
   sources: Source[];
   /** The target is a new folder, created right before the first entry moves. */
   create: boolean;
+  /** Jellyfin hears about the new paths – not for a folder outside the libraries. */
+  notify: boolean;
   copying: boolean;
   samples: Array<{ t: number; bytes: number }>;
 }
@@ -142,7 +144,7 @@ export function createMover(options: MoverOptions = {}) {
         options.log?.(`«${source.path}» nicht verschoben: ${message}`);
       }
     }
-    if (created.length > 0) await options.notify?.(created.map((path) => ({ Path: path, UpdateType: 'Created' as const }))).catch(() => {});
+    if (created.length > 0 && job.notify) await options.notify?.(created.map((path) => ({ Path: path, UpdateType: 'Created' as const }))).catch(() => {});
     job.view.state = created.length === 0 ? 'failed' : 'done';
     job.view.finishedAt = new Date().toISOString();
   }
@@ -171,9 +173,9 @@ export function createMover(options: MoverOptions = {}) {
     /**
      * Queues moving `paths` of the extraction folder `directory` into `target`, a folder the server checked – with
      * `create`, a new one in a folder the server checked, created when the move starts. A folder and something in it
-     * count once; nothing can move into itself.
+     * count once; nothing can move into itself. `notify`: tell Jellyfin, as for a library.
      */
-    async add(directory: string, paths: string[], target: string, label: string, create = false): Promise<ExtractedMove> {
+    async add(directory: string, paths: string[], target: string, label: string, create = false, notify = true): Promise<ExtractedMove> {
       const fulls = paths.map((path) => ({ path, full: resolveExtracted(directory, path) }));
       const outer = fulls.filter((entry) => !fulls.some((other) => other !== entry && other.full !== entry.full && isWithin(entry.full, other.full, pathApiFor(other.full))));
       const unique = outer.filter((entry, index) => outer.findIndex((other) => other.full === entry.full) === index);
@@ -201,6 +203,7 @@ export function createMover(options: MoverOptions = {}) {
         },
         sources,
         create,
+        notify,
         copying: false,
         samples: [],
       };

@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { DiscActivity, DiscDrive, DiscInfo, DiscRead, DiscRip, DiscSettings, DiscsStatus, DiscTitle } from '@manelly/shared';
-import { CircleCheck, CircleX, Disc3, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
+import type { DiscActivity, DiscDrive, DiscInfo, DiscIso, DiscRead, DiscRip, DiscSettings, DiscSourceRequest, DiscsStatus, DiscTitle } from '@manelly/shared';
+import { CircleCheck, CircleX, Disc3, DiscAlbum, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Code, Message } from '../components/ConnectionForm';
@@ -12,6 +12,7 @@ import {
   useAgentSettings,
   useCancelDiscRead,
   useCancelDiscRip,
+  useDiscIsos,
   useDiscs,
   useEjectDisc,
   useLibraryMatches,
@@ -35,12 +36,17 @@ function Card({ children }: { children: ReactNode }) {
   return <div className="rounded-2xl border border-line bg-card p-4 text-sm shadow-sm shadow-black/5 sm:p-5">{children}</div>;
 }
 
-type Tab = 'drives' | 'rips' | 'settings';
+type Tab = 'drives' | 'isos' | 'rips' | 'settings';
 const TABS: Array<TabEntry<Tab>> = [
   { id: 'drives', label: 'Laufwerk', icon: Disc3 },
+  { id: 'isos', label: 'ISO-Images', short: 'ISOs', icon: DiscAlbum },
   { id: 'rips', label: 'Rips', icon: HardDriveDownload },
   { id: 'settings', label: 'Einstellungen', icon: Settings2 },
 ];
+
+const active = (rip: DiscRip) => rip.state === 'queued' || rip.state === 'running';
+/** The drive or image a read, its titles or a rip are of. */
+const sourceOf = (of: { drive: number | null; iso?: string }): DiscSourceRequest => (of.iso !== undefined ? { iso: of.iso } : { drive: of.drive ?? 0 });
 
 /** DVDs from the drive of the Jellyfin server into MKV files, with MakeMKV on the agent. */
 export function DiscsPage() {
@@ -84,9 +90,13 @@ export function DiscsPage() {
     content = <Setup hostname={status.hostname} />;
   } else {
     const { drives, reads, rips, settings, target, error } = discs.data;
-    const active = (rip: DiscRip) => rip.state === 'queued' || rip.state === 'running';
-    const counts: Record<Tab, number | null> = { drives: null, rips: rips.filter(active).length, settings: null };
-    const tabs = TABS.map((entry) => ({ ...entry, label: entry.id === 'drives' && drives.length > 1 ? 'Laufwerke' : entry.label, count: counts[entry.id] }));
+    const counts: Record<Tab, number | null> = { drives: null, isos: null, rips: rips.filter(active).length, settings: null };
+    // ISO images from agent 0.40.0.
+    const tabs = TABS.filter((entry) => entry.id !== 'isos' || status.discIsos).map((entry) => ({
+      ...entry,
+      label: entry.id === 'drives' && drives.length > 1 ? 'Laufwerke' : entry.label,
+      count: counts[entry.id],
+    }));
     content = (
       <div className="space-y-4">
         {!target && (
@@ -116,6 +126,15 @@ export function DiscsPage() {
                   />
                 ))}
               </div>
+            ) : tab === 'isos' && status.discIsos ? (
+              <IsoImages
+                folder={settings.isoFolder ?? null}
+                reads={reads.filter((read) => read.iso !== undefined)}
+                rips={rips}
+                canRip={Boolean(target)}
+                onShowRips={() => selectTab('rips')}
+                onShowSettings={() => selectTab('settings')}
+              />
             ) : tab === 'rips' ? (
               rips.length > 0 ? (
                 <Rips rips={rips} />
@@ -144,7 +163,8 @@ export function DiscsPage() {
           {discs.data?.tool && <RefreshDrives />}
         </div>
         <p className="mt-1 text-sm text-ink-2">
-          DVDs aus dem Laufwerk des Jellyfin-Servers ohne Qualitätsverlust in MKV-Dateien überführen – mit allen Ton- und Untertitelspuren und Kapiteln.
+          DVDs und Blu-rays aus dem Laufwerk des Jellyfin-Servers – oder ISO-Images aus dem ISO-Ordner – ohne Qualitätsverlust in MKV-Dateien
+          überführen, mit allen Ton- und Untertitelspuren und Kapiteln.
           Die Dateien landen im Entpack-Ordner und erscheinen unter{' '}
           <Link to="/server/extracted" className="font-medium text-accent hover:underline">
             Server → Extracted
@@ -260,7 +280,7 @@ function DriveCard({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => readDisc.mutate(drive.index)}
+            onClick={() => readDisc.mutate({ drive: drive.index })}
             disabled={!inserted || drive.busy || readDisc.isPending}
             className={button}
             title="Die Titel der Disc mit MakeMKV lesen"
@@ -274,6 +294,33 @@ function DriveCard({
       </div>
       {readDisc.isError && <p className="mt-3 text-critical">{readDisc.error.message}</p>}
       {eject.isError && <p className="mt-3 text-critical">{eject.error.message}</p>}
+      <ReadOutcome read={read} info={info} ripping={ripping} ejectByDefault={ejectByDefault} canRip={canRip} onShowRips={onShowRips} />
+    </Card>
+  );
+}
+
+/**
+ * What came of reading a disc or an image: how far it is, why it failed, whether it was ripped before – and the
+ * titles to rip. `ejectByDefault` null: an image, nothing to eject.
+ */
+function ReadOutcome({
+  read,
+  info,
+  ripping,
+  ejectByDefault,
+  canRip,
+  onShowRips,
+}: {
+  read: DiscRead | null;
+  info: DiscInfo | null;
+  ripping: boolean;
+  ejectByDefault: boolean | null;
+  canRip: boolean;
+  onShowRips: () => void;
+}) {
+  const image = ejectByDefault === null;
+  return (
+    <>
       {read?.state === 'reading' && <Reading read={read} />}
       {(read?.state === 'failed' || read?.state === 'canceled') && (
         <div className="mt-3">
@@ -283,7 +330,7 @@ function DriveCard({
       )}
       {ripping && (
         <p className="mt-3 text-ink-2">
-          Von dieser Disc wird gerade gerippt – den Fortschritt zeigt der Tab{' '}
+          Von {image ? 'diesem Image' : 'dieser Disc'} wird gerade gerippt – den Fortschritt zeigt der Tab{' '}
           <button type="button" onClick={onShowRips} className="font-medium text-accent hover:underline">
             «Rips»
           </button>
@@ -294,14 +341,134 @@ function DriveCard({
         <p className="mt-3 flex items-start gap-2 rounded-lg bg-card-2/60 px-3 py-2 text-xs ring-1 ring-line ring-inset" role="status">
           <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
           <span>
-            Diese Disc wurde am{' '}
+            {image ? 'Dieses Image' : 'Diese Disc'} wurde am{' '}
             {new Date(info.rippedBefore.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })} schon gerippt, nach «
-            {info.rippedBefore.folder}». Der automatische Modus lässt sie deshalb aus – auch wenn ein Neustart die Lade wieder einzieht. Von Hand
-            lässt sie sich unten nochmals rippen.
+            {info.rippedBefore.folder}».{' '}
+            {image
+              ? 'Unten lässt es sich nochmals rippen.'
+              : 'Der automatische Modus lässt sie deshalb aus – auch wenn ein Neustart die Lade wieder einzieht. Von Hand lässt sie sich unten nochmals rippen.'}
           </span>
         </p>
       )}
       {info && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} onStarted={onShowRips} />}
+    </>
+  );
+}
+
+/** The images in the ISO folder; each one is read and ripped like a disc in a drive. */
+function IsoImages({
+  folder,
+  reads,
+  rips,
+  canRip,
+  onShowRips,
+  onShowSettings,
+}: {
+  folder: string | null;
+  reads: DiscRead[];
+  rips: DiscRip[];
+  canRip: boolean;
+  onShowRips: () => void;
+  onShowSettings: () => void;
+}) {
+  const list = useDiscIsos(Boolean(folder));
+  if (!folder) {
+    return (
+      <Card>
+        <p className="font-medium">Noch kein ISO-Ordner festgelegt</p>
+        <p className="mt-1 text-ink-2">
+          Im Tab «Einstellungen» den Ordner auf dem Jellyfin-Server angeben, in dem die ISO-Images liegen, z. B. von UHD-Blu-rays. Hier stehen sie
+          dann, und jedes lässt sich einlesen und rippen wie eine Disc im Laufwerk.
+        </p>
+        <button type="button" onClick={onShowSettings} className={clsx(button, 'mt-4')}>
+          <Settings2 className="size-4" aria-hidden /> Einstellungen öffnen
+        </button>
+      </Card>
+    );
+  }
+  if (list.error) return <Message tone="critical">{list.error.message}</Message>;
+  if (!list.data) return <div aria-busy className="h-32 animate-pulse rounded-2xl bg-card-2" />;
+  const { isos, error } = list.data;
+  const total = isos.reduce((sum, iso) => sum + iso.bytes, 0);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3 px-1">
+        <p className="min-w-0 text-xs text-ink-2">
+          <span className="font-mono break-all">{list.data.folder}</span>
+          {!error && <span className="text-ink-3"> · {joinParts([isos.length === 1 ? '1 Image' : `${isos.length} Images`, total > 0 && formatBytes(total)])}</span>}
+        </p>
+        <button
+          type="button"
+          onClick={() => void list.refetch()}
+          disabled={list.isFetching}
+          aria-label="ISO-Ordner neu lesen"
+          title="ISO-Ordner neu lesen"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 ring-1 ring-line transition hover:bg-card-2 hover:text-ink disabled:opacity-60"
+        >
+          <RefreshCw className={clsx('size-4', list.isFetching && 'animate-spin')} aria-hidden />
+        </button>
+      </div>
+      {error && <Message tone="critical">{error}</Message>}
+      {!error && isos.length === 0 && (
+        <Card>
+          <p className="text-ink-2">Im ISO-Ordner liegt kein ISO-Image. Manelly schaut nur in diesen Ordner und in die Ordner direkt darin.</p>
+        </Card>
+      )}
+      {isos.map((iso) => (
+        <IsoCard
+          key={iso.path}
+          iso={iso}
+          read={reads.find((read) => read.iso === iso.path) ?? null}
+          ripping={rips.some((rip) => rip.iso === iso.path && active(rip))}
+          canRip={canRip}
+          onShowRips={onShowRips}
+        />
+      ))}
+      {isos.length > 0 && (
+        <p className="px-1 text-xs text-ink-3">
+          Ein verschlüsseltes UHD-Image liest MakeMKV nur, wenn es den Schlüssel der Disc kennt, z. B. aus einer Schlüsseldatei KEYDB.cfg in seinem
+          Datenordner – sonst steht hier, was MakeMKV meldet. Entschlüsselte Images gehen immer.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function IsoCard({ iso, read, ripping, canRip, onShowRips }: { iso: DiscIso; read: DiscRead | null; ripping: boolean; canRip: boolean; onShowRips: () => void }) {
+  const readDisc = useReadDisc();
+  const names = iso.path.split('/');
+  const info = read?.state === 'done' ? read.info : null;
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">
+            <DiscAlbum className={clsx('size-5', (read?.state === 'reading' || ripping) && 'animate-spin [animation-duration:3s]')} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="font-medium break-words">{names.at(-1)}</p>
+            <p className="text-xs text-ink-2">
+              {joinParts([
+                names.length > 1 && `in «${names[0]}»`,
+                formatBytes(iso.bytes),
+                info?.type,
+                `vom ${new Date(iso.modifiedAt).toLocaleDateString('de-CH', { dateStyle: 'medium' })}`,
+              ])}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => readDisc.mutate({ iso: iso.path })}
+          disabled={read?.state === 'reading' || ripping || readDisc.isPending}
+          className={button}
+          title="Die Titel des Images mit MakeMKV lesen"
+        >
+          <ScanSearch className="size-4" aria-hidden /> {info ? 'Neu lesen' : 'Einlesen'}
+        </button>
+      </div>
+      {readDisc.isError && <p className="mt-3 text-critical">{readDisc.error.message}</p>}
+      <ReadOutcome read={read} info={info} ripping={ripping} ejectByDefault={null} canRip={canRip} onShowRips={onShowRips} />
     </Card>
   );
 }
@@ -322,6 +489,7 @@ function Reading({ read }: { read: DiscRead }) {
   }, []);
   // Agents before 0.34.0 tell neither the step nor take a cancel.
   const detailed = read.messages !== undefined;
+  const image = read.iso !== undefined;
   const slow = read.startedAt !== undefined && now - Date.parse(read.startedAt) > 3 * 60_000;
   return (
     <div className="mt-3 rounded-xl bg-card-2/50 p-3 ring-1 ring-line" role="status">
@@ -329,7 +497,7 @@ function Reading({ read }: { read: DiscRead }) {
         <p className="flex min-w-0 items-start gap-2 text-ink-2">
           <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-accent" aria-hidden />
           <span className="min-w-0">
-            <span className="text-ink">{read.auto ? 'Disc eingelegt – MakeMKV liest sie' : 'MakeMKV liest die Disc'}</span>
+            <span className="text-ink">{image ? 'MakeMKV liest das Image' : read.auto ? 'Disc eingelegt – MakeMKV liest sie' : 'MakeMKV liest die Disc'}</span>
             {read.startedAt && <span className="tabular-nums"> · seit {elapsed(read.startedAt, now)}</span>}
             <span className="block text-xs">
               {joinParts([
@@ -340,7 +508,7 @@ function Reading({ read }: { read: DiscRead }) {
           </span>
         </p>
         {detailed && (
-          <button type="button" onClick={() => cancel.mutate(read.drive)} disabled={cancel.isPending} className={button}>
+          <button type="button" onClick={() => cancel.mutate(sourceOf(read))} disabled={cancel.isPending} className={button}>
             Abbrechen
           </button>
         )}
@@ -352,8 +520,10 @@ function Reading({ read }: { read: DiscRead }) {
       )}
       {slow && (
         <p className="mt-2 text-xs text-ink-2">
-          Das dauert ungewöhnlich lange. Oft ist die Disc zerkratzt oder hat einen Kopierschutz mit vielen Schein-Titeln – die Meldungen unten zeigen
-          Lesefehler. Nach 30 Minuten gibt der Agent auf.
+          {image
+            ? 'Das dauert ungewöhnlich lange. Blu-rays mit einem Kopierschutz aus vielen Schein-Titeln halten MakeMKV lange auf – die Meldungen unten zeigen, was es tut.'
+            : 'Das dauert ungewöhnlich lange. Oft ist die Disc zerkratzt oder hat einen Kopierschutz mit vielen Schein-Titeln – die Meldungen unten zeigen Lesefehler.'}{' '}
+          Nach 30 Minuten gibt der Agent auf.
         </p>
       )}
       <Messages activity={read} />
@@ -387,7 +557,7 @@ function Messages({ activity }: { activity: DiscActivity }) {
 const two = (value: number) => String(value).padStart(2, '0');
 
 /** Which titles to rip, and under which names. */
-function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; ejectByDefault: boolean; canRip: boolean; onStarted: () => void }) {
+function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; ejectByDefault: boolean | null; canRip: boolean; onStarted: () => void }) {
   const id = useId();
   const rip = useRipDisc();
   const [suggested] = useState(() => suggestSelection(info.titles));
@@ -398,7 +568,7 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
   const [season, setSeason] = useState(names.season ?? 1);
   const [firstEpisode, setFirstEpisode] = useState(1);
   const [custom, setCustom] = useState<Map<number, string>>(new Map());
-  const [eject, setEject] = useState(ejectByDefault);
+  const [eject, setEject] = useState(ejectByDefault ?? false);
 
   const derived = fileNamesFor(kind, name, [...selected], season, firstEpisode);
   const fileName = (index: number) => custom.get(index) ?? derived.get(index) ?? '';
@@ -429,7 +599,9 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
     event.preventDefault();
     if (problem) return;
     // The progress shows in the tab «Rips».
-    rip.mutate({ drive: info.drive, folder, titles: chosen.map((title) => ({ index: title.index, fileName: fileName(title.index) })), eject }, { onSuccess: onStarted });
+    const titles = chosen.map((title) => ({ index: title.index, fileName: fileName(title.index) }));
+    // An image has nothing to eject.
+    rip.mutate({ ...sourceOf(info), folder, titles, ...(ejectByDefault === null ? {} : { eject }) }, { onSuccess: onStarted });
   }
 
   return (
@@ -508,9 +680,11 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
           ])}
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm">
-            <input type="checkbox" checked={eject} onChange={(event) => setEject(event.target.checked)} className="size-4 accent-accent" /> Danach auswerfen
-          </label>
+          {ejectByDefault !== null && (
+            <label className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={eject} onChange={(event) => setEject(event.target.checked)} className="size-4 accent-accent" /> Danach auswerfen
+            </label>
+          )}
           <button type="submit" disabled={Boolean(problem) || rip.isPending || !canRip} className={primaryButton}>
             {rip.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Disc3 className="size-4" aria-hidden />} Rippen
           </button>
@@ -651,6 +825,7 @@ function Rips({ rips }: { rips: DiscRip[] }) {
                     <span className="block text-xs text-ink-2">
                       {joinParts([
                         `von «${rip.disc}»`,
+                        rip.iso !== undefined && 'ISO-Image',
                         rip.state === 'queued' && 'wartet',
                         rip.state === 'running' && current >= 0 && `Titel ${current + 1} von ${rip.titles.length}`,
                         rip.state === 'done' && `${done} Titel fertig`,
@@ -783,6 +958,44 @@ function AutoSettings({ settings }: { settings: DiscSettings }) {
         </p>
       )}
       {save.isError && <p className="mt-2 text-xs text-critical">{save.error.message}</p>}
+      {settings.isoFolder !== undefined && <IsoFolderSetting key={settings.isoFolder ?? ''} settings={settings} />}
     </Card>
+  );
+}
+
+/** Where the ISO images lie on the server (agent from 0.40.0); the agent checks that the folder is there. */
+function IsoFolderSetting({ settings }: { settings: DiscSettings }) {
+  const id = useId();
+  const save = useSetDiscSettings();
+  const [value, setValue] = useState(settings.isoFolder ?? '');
+  const changed = value.trim() !== (settings.isoFolder ?? '');
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    save.mutate({ ...settings, isoFolder: value.trim() || null });
+  }
+  return (
+    <form onSubmit={submit} className="mt-4 border-t border-line pt-4">
+      <label htmlFor={id} className="font-medium">
+        ISO-Ordner
+      </label>
+      <p className="mt-0.5 text-ink-2">
+        Der Ordner auf dem Jellyfin-Server mit den ISO-Images, z. B. von UHD-Blu-rays. Manelly schaut nur in diesen Ordner und in die Ordner direkt
+        darin – und nur, solange der Tab «ISO-Images» offen ist. Leer lassen: keiner.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <input
+          id={id}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="D:\ISOs"
+          spellCheck={false}
+          className={clsx(fieldClass, 'min-w-56 flex-1 font-mono')}
+        />
+        <button type="submit" disabled={!changed || save.isPending} className={button}>
+          {save.isPending && <LoaderCircle className="size-4 animate-spin" aria-hidden />} Speichern
+        </button>
+      </div>
+      {save.isError && <p className="mt-2 text-xs text-critical">{save.error.message}</p>}
+    </form>
   );
 }

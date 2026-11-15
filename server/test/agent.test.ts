@@ -103,7 +103,8 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       }
       if (url.pathname.startsWith('/api/discs')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
-        if (url.pathname === '/api/discs/read') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null }, { status: 202 });
+        if (url.pathname === '/api/discs/read') return Response.json({ drive: body.drive ?? null, iso: body.iso, state: 'reading', info: null, error: null }, { status: 202 });
+        if (url.pathname === '/api/discs/isos') return Response.json({ folder: 'D:\\ISOs', isos: [{ path: 'Dune.iso', bytes: 80e9, modifiedAt: '2026-11-01T10:00:00Z' }], error: null });
         if (url.pathname === '/api/discs/eject') return Response.json({ ejected: true });
         if (url.pathname === '/api/discs/read/cancel') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null });
         if (url.pathname === '/api/discs/settings') return Response.json(body);
@@ -118,6 +119,8 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (url.pathname.endsWith('/samples')) return Response.json({ samples: [{ path: 'Dune/Sample/dune-sample.mkv', bytes: 2 }] });
         if (url.pathname.endsWith('/convert')) return Response.json({ id: 'j1', state: 'queued', source: `D:\\Entpackt\\${body.path}`, output: `D:\\Entpackt\\${body.path}` }, { status: 202 });
         if (url.pathname.endsWith('/rename')) return Response.json({ path: body.name });
+        if (url.pathname.endsWith('/isos') && init?.method === 'POST') return Response.json({ move: null, skipped: [{ path: 'Alien.iso', error: 'Wurde eben noch geschrieben.' }] });
+        if (url.pathname.endsWith('/isos')) return Response.json({ isos: [{ path: 'Alien.iso', bytes: 60e9, modifiedAt: '2026-11-15T10:00:00Z' }], isoFolder: 'D:\\ISOs' });
         if (url.pathname.endsWith('/audio')) return Response.json({ id: 'a2', state: 'running', language: body.language ?? 'ger', first: body.first ?? true, total: 3, done: 0, current: null, results: [], startedAt: '', finishedAt: null }, { status: 202 });
         return Response.json({ deleted: body.paths, problems: [] });
       }
@@ -623,6 +626,38 @@ describe('agent connection', () => {
       'POST /api/discs/rips',
       'POST /api/discs/rips/r1/cancel',
       'PUT /api/discs/settings',
+    ]);
+  });
+
+  it('reads and rips ISO images through the agent, and moves those in the extraction folder', async () => {
+    const { app, world } = await setup();
+    const inject = (method: 'GET' | 'POST' | 'PUT', url: string, payload?: object) => app.inject({ method, url: `/api/agent${url}`, payload });
+    expect((await inject('GET', '/discs/isos')).json()).toMatchObject({ folder: 'D:\\ISOs', isos: [{ path: 'Dune.iso' }] });
+    expect((await inject('POST', '/discs/read', { iso: 'Dune.iso' })).json()).toMatchObject({ drive: null, iso: 'Dune.iso', state: 'reading' });
+    // A drive or an image, not both, not none.
+    expect((await inject('POST', '/discs/read', { iso: 'Dune.iso', drive: 0 })).statusCode).toBe(400);
+    expect((await inject('POST', '/discs/read', {})).statusCode).toBe(400);
+    expect((await inject('POST', '/discs/read', { iso: '' })).statusCode).toBe(400);
+    expect((await inject('POST', '/discs/eject', { iso: 'Dune.iso' })).statusCode).toBe(400);
+    expect((await inject('POST', '/discs/read/cancel', { iso: 'Dune.iso' })).statusCode).toBe(200);
+    const rip = { iso: 'Dune.iso', folder: 'Dune (2021)', titles: [{ index: 0, fileName: 'Dune (2021).mkv' }] };
+    expect((await inject('POST', '/discs/rips', rip)).statusCode).toBe(202);
+    expect((await inject('POST', '/discs/rips', { ...rip, drive: 0 })).statusCode).toBe(400);
+    expect((await inject('PUT', '/discs/settings', { auto: false, eject: true, isoFolder: 'D:\\ISOs' })).json()).toEqual({ auto: false, eject: true, isoFolder: 'D:\\ISOs' });
+    expect((await inject('PUT', '/discs/settings', { auto: false, eject: true, isoFolder: `D:\\${'x'.repeat(400)}` })).statusCode).toBe(400);
+
+    expect((await inject('GET', '/jdownloader/extracted/isos')).json()).toMatchObject({ isos: [{ path: 'Alien.iso' }], isoFolder: 'D:\\ISOs' });
+    const moved = await inject('POST', '/jdownloader/extracted/isos');
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json()).toEqual({ move: null, skipped: [{ path: 'Alien.iso', error: 'Wurde eben noch geschrieben.' }] });
+    expect(world.sent.jdownloader.map((entry) => [`${entry.method} ${entry.path}`, entry.body])).toEqual([
+      ['GET /api/discs/isos', undefined],
+      ['POST /api/discs/read', { iso: 'Dune.iso' }],
+      ['POST /api/discs/read/cancel', { iso: 'Dune.iso' }],
+      ['POST /api/discs/rips', rip],
+      ['PUT /api/discs/settings', { auto: false, eject: true, isoFolder: 'D:\\ISOs' }],
+      ['GET /api/jdownloader/extracted/isos', undefined],
+      ['POST /api/jdownloader/extracted/isos', {}],
     ]);
   });
 

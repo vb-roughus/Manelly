@@ -285,9 +285,12 @@ export async function readDisc(tool: string, source: DiscSource, options: { sign
     ...options,
   });
   const info = 'iso' in source ? parseDiscInfo(null, lines, new Date(), imageName(source.iso)) : parseDiscInfo(source.drive, lines);
+  const said = lastMessages(lines);
   if (!lines.some((line) => line.startsWith('TCOUNT:') || line.startsWith('TINFO:'))) {
-    throw new Error(`MakeMKV konnte ${'iso' in source ? 'das Image' : 'die Disc'} nicht lesen${lastMessages(lines) ? `: ${lastMessages(lines)}` : '.'}`);
+    throw new Error(`MakeMKV konnte ${'iso' in source ? 'das Image' : 'die Disc'} nicht lesen${said ? `: ${said}` : '.'}`);
   }
+  // E.g. a Blu-ray without a valid key: MakeMKV ends well, says why, and lists nothing – nothing to rip.
+  if (info.titles.length === 0) throw new Error(`MakeMKV fand ${'iso' in source ? 'im Image' : 'auf der Disc'} keine Titel${said ? `: ${said}` : '.'}`);
   return info;
 }
 

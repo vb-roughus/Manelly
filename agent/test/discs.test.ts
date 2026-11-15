@@ -557,12 +557,20 @@ describe('ripping ISO images', () => {
 
   it('says what MakeMKV said about an image it cannot decrypt', async () => {
     await image('Verschluesselt.iso', { disc: 'movie', label: 'LOCKED', encrypted: true });
+    await image('Blu-ray ohne Schluessel.iso', { disc: 'movie', label: 'STARSKY', expired: true });
     await writeFile(path.join(isos, 'Kaputt.iso'), 'kein Image');
     const discs = service();
     await discs.read({ iso: 'Verschluesselt.iso' });
+    await discs.read({ iso: 'Blu-ray ohne Schluessel.iso' });
     await discs.read({ iso: 'Kaputt.iso' });
     await settle(discs);
     const reads = (await discs.status()).reads;
+    // No titles is no read: nothing to rip, and MakeMKV says why.
+    expect(reads.find((read) => read.iso === 'Blu-ray ohne Schluessel.iso')).toMatchObject({
+      state: 'failed',
+      info: null,
+      error: expect.stringMatching(/^MakeMKV fand im Image keine Titel: Using image file Evaluation period has expired\./),
+    });
     expect(reads.find((read) => read.iso === 'Verschluesselt.iso')).toMatchObject({
       state: 'failed',
       error: "MakeMKV konnte das Image nicht lesen: Using image file This disc uses AACS 2.0 and its volume key is unknown, it can't be decrypted",

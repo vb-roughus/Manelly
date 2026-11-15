@@ -102,3 +102,19 @@ export function languageName(code: string | null, fallback: string | null): stri
   }
   return fallback ?? code ?? 'unbekannt';
 }
+
+/** What helps after MakeMKV failed or found nothing: a key for Blu-rays, a newer version, or another one after a crash. */
+export type MakemkvAdvice = 'key' | 'version' | 'crash';
+
+/** Windows reports a crash as a status from 0xC0000000 on, e.g. 0xC0000005 (access violation) as exit code 3221225477. */
+const CRASH_STATUS = 0xc0000000;
+
+/** The advice that fits what MakeMKV said – its error and its messages; null when nothing in particular helps. */
+export function makemkvAdvice(error: string | null, messages: ReadonlyArray<{ text: string }> = []): MakemkvAdvice | null {
+  const said = [error ?? '', ...messages.map((message) => message.text)].join('\n');
+  if (/evaluation period|expired|activation key|registration key/i.test(said)) return 'key';
+  if (/version is too old|zu alt/i.test(said)) return 'version';
+  const code = /Exit-Code (\d+)/.exec(error ?? '')?.[1];
+  if (/abgestürzt/.test(error ?? '') || (code !== undefined && Number(code) >= CRASH_STATUS)) return 'crash';
+  return null;
+}

@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { DiscActivity, DiscDrive, DiscInfo, DiscIso, DiscRead, DiscRip, DiscSettings, DiscSourceRequest, DiscsStatus, DiscTitle } from '@manelly/shared';
-import { ChevronDown, CircleCheck, CircleX, Disc3, DiscAlbum, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
+import { ChevronDown, CircleCheck, CircleX, Disc3, DiscAlbum, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Code, Message } from '../components/ConnectionForm';
@@ -13,6 +13,7 @@ import {
   useAgentSettings,
   useCancelDiscRead,
   useCancelDiscRip,
+  useDeleteDiscIso,
   useDiscIsos,
   useDiscs,
   useEjectDisc,
@@ -134,6 +135,7 @@ export function DiscsPage() {
                 reads={reads.filter((read) => read.iso !== undefined)}
                 rips={rips}
                 canRip={Boolean(target)}
+                deletable={Boolean(status.discIsoDelete)}
                 onShowRips={() => selectTab('rips')}
                 onShowSettings={() => selectTab('settings')}
               />
@@ -312,6 +314,7 @@ function ReadOutcome({
   ejectByDefault,
   canRip,
   onShowRips,
+  hideRipped = false,
 }: {
   read: DiscRead | null;
   info: DiscInfo | null;
@@ -319,6 +322,8 @@ function ReadOutcome({
   ejectByDefault: boolean | null;
   canRip: boolean;
   onShowRips: () => void;
+  /** «Ripped before» is said elsewhere (the image's card). */
+  hideRipped?: boolean;
 }) {
   const image = ejectByDefault === null;
   const advice = read && (read.state === 'failed' || (info && info.titles.length === 0)) ? makemkvAdvice(read.error, read.messages) : null;
@@ -349,7 +354,7 @@ function ReadOutcome({
           .
         </p>
       )}
-      {info?.rippedBefore && !ripping && (
+      {info?.rippedBefore && !ripping && !hideRipped && (
         <p className="mt-3 flex items-start gap-2 rounded-lg bg-card-2/60 px-3 py-2 text-xs ring-1 ring-line ring-inset" role="status">
           <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
           <span>
@@ -373,6 +378,7 @@ function IsoImages({
   reads,
   rips,
   canRip,
+  deletable,
   onShowRips,
   onShowSettings,
 }: {
@@ -380,6 +386,8 @@ function IsoImages({
   reads: DiscRead[];
   rips: DiscRip[];
   canRip: boolean;
+  /** Agent from 0.42.0. */
+  deletable: boolean;
   onShowRips: () => void;
   onShowSettings: () => void;
 }) {
@@ -433,6 +441,7 @@ function IsoImages({
           read={reads.find((read) => read.iso === iso.path) ?? null}
           ripping={rips.some((rip) => rip.iso === iso.path && active(rip))}
           canRip={canRip}
+          deletable={deletable}
           onShowRips={onShowRips}
         />
       ))}
@@ -446,10 +455,31 @@ function IsoImages({
   );
 }
 
-function IsoCard({ iso, read, ripping, canRip, onShowRips }: { iso: DiscIso; read: DiscRead | null; ripping: boolean; canRip: boolean; onShowRips: () => void }) {
+function IsoCard({
+  iso,
+  read,
+  ripping,
+  canRip,
+  deletable,
+  onShowRips,
+}: {
+  iso: DiscIso;
+  read: DiscRead | null;
+  ripping: boolean;
+  canRip: boolean;
+  deletable: boolean;
+  onShowRips: () => void;
+}) {
   const readDisc = useReadDisc();
+  const remove = useDeleteDiscIso();
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const names = iso.path.split('/');
   const info = read?.state === 'done' ? read.info : null;
+  const working = read?.state === 'reading' || ripping;
+  // Ripped already: folded to one line, unless something is under way or it is opened.
+  const ripped = info?.rippedBefore ?? iso.rippedBefore ?? null;
+  const folded = Boolean(ripped) && !open && !working;
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -469,18 +499,73 @@ function IsoCard({ iso, read, ripping, canRip, onShowRips }: { iso: DiscIso; rea
             </p>
           </div>
         </div>
+        <div className="flex flex-wrap gap-2">
+          {!folded && (
+            <button
+              type="button"
+              onClick={() => readDisc.mutate({ iso: iso.path })}
+              disabled={working || readDisc.isPending}
+              className={button}
+              title="Die Titel des Images mit MakeMKV lesen"
+            >
+              <ScanSearch className="size-4" aria-hidden /> {info ? 'Neu lesen' : 'Einlesen'}
+            </button>
+          )}
+          {deletable && (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              disabled={working || remove.isPending || confirming}
+              className={button}
+              aria-label={`${names.at(-1)} löschen`}
+              title="Das Image löschen, z. B. wenn es gerippt ist"
+            >
+              <Trash2 className="size-4" aria-hidden />
+            </button>
+          )}
+        </div>
+      </div>
+      {confirming && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-critical/8 px-3 py-2 ring-1 ring-critical/20 ring-inset" role="alert">
+          <p className="min-w-0 text-xs">
+            <span className="font-medium break-all">«{names.at(-1)}»</span> ({formatBytes(iso.bytes)}) endgültig löschen – ohne Papierkorb?
+            {!ripped && <span className="block text-critical">Von diesem Image ist noch kein Rip bekannt.</span>}
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setConfirming(false)} className={button}>
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              onClick={() => remove.mutate(iso.path, { onSettled: () => setConfirming(false) })}
+              disabled={remove.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-critical px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {remove.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Trash2 className="size-4" aria-hidden />} Löschen
+            </button>
+          </div>
+        </div>
+      )}
+      {remove.isError && <p className="mt-3 text-critical">{remove.error.message}</p>}
+      {readDisc.isError && <p className="mt-3 text-critical">{readDisc.error.message}</p>}
+      {ripped && !working && (
         <button
           type="button"
-          onClick={() => readDisc.mutate({ iso: iso.path })}
-          disabled={read?.state === 'reading' || ripping || readDisc.isPending}
-          className={button}
-          title="Die Titel des Images mit MakeMKV lesen"
+          onClick={() => setOpen(!open)}
+          aria-expanded={!folded}
+          className="mt-3 flex w-full items-start gap-2 rounded-lg bg-card-2/60 px-3 py-2 text-left text-xs ring-1 ring-line ring-inset hover:bg-card-2"
         >
-          <ScanSearch className="size-4" aria-hidden /> {info ? 'Neu lesen' : 'Einlesen'}
+          <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
+          <span className="min-w-0 flex-1">
+            Gerippt am {new Date(ripped.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })} nach «{ripped.folder}».
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 font-medium text-accent">
+            {folded ? 'Details' : 'Weniger'}
+            <ChevronDown className={clsx('size-3.5 transition-transform', !folded && 'rotate-180')} aria-hidden />
+          </span>
         </button>
-      </div>
-      {readDisc.isError && <p className="mt-3 text-critical">{readDisc.error.message}</p>}
-      <ReadOutcome read={read} info={info} ripping={ripping} ejectByDefault={null} canRip={canRip} onShowRips={onShowRips} />
+      )}
+      {!folded && <ReadOutcome read={read} info={info} ripping={ripping} ejectByDefault={null} canRip={canRip} onShowRips={onShowRips} hideRipped />}
     </Card>
   );
 }

@@ -1178,7 +1178,7 @@ describe('JDownloader routes', () => {
   });
 
   it('keeps the ISO folder and lists its images', async () => {
-    expect(((await (await call('/api/status')).json()) as AgentStatus).discIsos).toBe(true);
+    expect(((await (await call('/api/status')).json()) as AgentStatus)).toMatchObject({ discIsos: true, discIsoDelete: true });
     const isos = path.join(root, 'isos');
     const settings = { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, trimTracks: false };
     const refused = async (pathname: string, body: unknown, method = 'POST') => {
@@ -1195,10 +1195,14 @@ describe('JDownloader routes', () => {
     expect(((await (await put('/api/discs/settings', settings)).json()) as { isoFolder: string }).isoFolder).toBe(isos);
 
     const list = (await (await call('/api/discs/isos')).json()) as DiscIsoList;
-    expect(list).toEqual({ folder: isos, isos: [{ path: 'UHD/Dune.iso', bytes: 5, modifiedAt: expect.any(String) }], error: null });
+    expect(list).toEqual({ folder: isos, isos: [{ path: 'UHD/Dune.iso', bytes: 5, modifiedAt: expect.any(String), rippedBefore: null }], error: null });
     expect(await refused('/api/discs/read', { iso: 'UHD/Dune.iso' })).toEqual([409, 'MakeMKV fehlt auf dem Server – zuerst installieren (makemkv.com).']);
     expect(await refused('/api/discs/read/cancel', { iso: 'UHD/Dune.iso' })).toEqual([409, 'Dieses Image wird gerade nicht gelesen.']);
     expect(await refused('/api/discs/eject', { iso: 'UHD/Dune.iso' })).toEqual([400, 'Das Laufwerk (Nummer) erwartet.']);
+    expect(await refused('/api/discs/isos/delete', { path: '../settings.json' })).toEqual([400, 'Ein ISO-Image im ISO-Ordner erwartet.']);
+    await writeFile(path.join(isos, 'UHD', 'Weg.iso'), 'image');
+    expect(await (await post('/api/discs/isos/delete', { path: 'UHD/Weg.iso' })).json()).toEqual({ deleted: 'UHD/Weg.iso' });
+    expect(await readdir(path.join(isos, 'UHD'))).toEqual(['Dune.iso']);
 
     // Empty: none.
     expect(((await (await put('/api/discs/settings', { ...settings, isoFolder: '' })).json()) as { isoFolder: string | null }).isoFolder).toBeNull();

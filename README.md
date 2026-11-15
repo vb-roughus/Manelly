@@ -357,7 +357,10 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   Ordnern direkt darin (tiefer schaut der Agent nicht, und nur, solange der Reiter offen ist), mit Grösse und Datum.
   **«Einlesen»** liest ein Image wie eine Disc im Laufwerk; danach geht alles gleich: Titel wählen, Namen geben, Blick
   in die Mediathek, «Rippen» in den Entpack-Ordner, Tonspur danach. Ausgeworfen wird nichts, und das Image bleibt
-  liegen. Auch ein Image merkt sich der Agent als gerippt. Ein **entschlüsseltes** Image liest MakeMKV immer; ein
+  liegen. Auch ein Image merkt sich der Agent als gerippt: Seine Karte ist dann auf eine Zeile eingeklappt («Gerippt am
+  … nach «…»», ab Agent 0.42.0 auch ohne es neu zu lesen); «Details» klappt sie auf, um es nochmals zu rippen. Der
+  Papierkorb-Knopf **löscht** ein Image nach einer Rückfrage endgültig (ab Agent 0.42.0) – nicht, solange es gelesen
+  oder gerippt wird; ein Unterordner, der dabei leer wird, geht mit. Ein **entschlüsseltes** Image liest MakeMKV immer; ein
   verschlüsseltes (1:1-Kopie einer UHD-Blu-ray) nur, wenn MakeMKV den Schlüssel der Disc kennt, z. B. aus einer
   Schlüsseldatei `KEYDB.cfg` in seinem Datenordner – sonst steht die Meldung von MakeMKV bei der Karte. Findet
   MakeMKV gar keine Titel, zeigt die Karte, was MakeMKV meldete (ab Agent 0.40.1 als Fehler), und je nach Meldung, was

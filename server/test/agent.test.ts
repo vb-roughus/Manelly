@@ -104,6 +104,7 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
       if (url.pathname.startsWith('/api/discs')) {
         sent.jdownloader.push({ method: init?.method ?? 'GET', path: `${url.pathname}${url.search}`, body });
         if (url.pathname === '/api/discs/read') return Response.json({ drive: body.drive ?? null, iso: body.iso, state: 'reading', info: null, error: null }, { status: 202 });
+        if (url.pathname === '/api/discs/isos/delete') return Response.json({ deleted: body.path });
         if (url.pathname === '/api/discs/isos') return Response.json({ folder: 'D:\\ISOs', isos: [{ path: 'Dune.iso', bytes: 80e9, modifiedAt: '2026-11-01T10:00:00Z' }], error: null });
         if (url.pathname === '/api/discs/eject') return Response.json({ ejected: true });
         if (url.pathname === '/api/discs/read/cancel') return Response.json({ drive: body.drive, state: 'reading', info: null, error: null });
@@ -642,6 +643,8 @@ describe('agent connection', () => {
     expect((await inject('POST', '/discs/read', { iso: '' })).statusCode).toBe(400);
     expect((await inject('POST', '/discs/eject', { iso: 'Dune.iso' })).statusCode).toBe(400);
     expect((await inject('POST', '/discs/read/cancel', { iso: 'Dune.iso' })).statusCode).toBe(200);
+    expect((await inject('POST', '/discs/isos/delete', { path: 'Alt.iso' })).json()).toEqual({ deleted: 'Alt.iso' });
+    expect((await inject('POST', '/discs/isos/delete', {})).statusCode).toBe(400);
     const rip = { iso: 'Dune.iso', folder: 'Dune (2021)', titles: [{ index: 0, fileName: 'Dune (2021).mkv', audio: [0, 2], subtitles: [] }] };
     expect((await inject('POST', '/discs/rips', rip)).statusCode).toBe(202);
     expect((await inject('POST', '/discs/rips', { ...rip, drive: 0 })).statusCode).toBe(400);
@@ -657,6 +660,7 @@ describe('agent connection', () => {
       ['GET /api/discs/isos', undefined],
       ['POST /api/discs/read', { iso: 'Dune.iso' }],
       ['POST /api/discs/read/cancel', { iso: 'Dune.iso' }],
+      ['POST /api/discs/isos/delete', { path: 'Alt.iso' }],
       ['POST /api/discs/rips', rip],
       ['PUT /api/discs/settings', { auto: false, eject: true, isoFolder: 'D:\\ISOs' }],
       ['GET /api/jdownloader/extracted/isos', undefined],

@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { lstat, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, rename, rm, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import type { DiscDrive, DiscInfo, DiscIso, DiscIsoList, DiscRead, DiscRip, DiscRipRequest, DiscSettings, DiscSourceRequest, DiscsStatus, DiscTitle } from '@manelly/shared';
 import { formatBytes } from './convert.js';
 import { AgentError } from './errors.js';
@@ -324,8 +324,13 @@ export function createDiscs(options: DiscsOptions) {
     const skipped = (name: string) => name.startsWith('.') || name.startsWith('$');
     const image = (entry: { name: string; isFile(): boolean }) => entry.isFile() && !skipped(entry.name) && /\.iso$/i.test(entry.name);
     async function add(names: string[]) {
-      const info = await stat(api.join(folder!, ...names)).catch(() => null);
-      if (info?.isFile()) isos.push({ path: names.join('/'), bytes: info.size, modifiedAt: info.mtime.toISOString() });
+      const full = api.join(folder!, ...names);
+      const info = await stat(full).catch(() => null);
+      if (!info?.isFile()) return;
+      // Ripped from before: known by its full path (agents before 0.42.0 kept the path in the ISO folder).
+      const path = names.join('/');
+      const ripped = history.find((entry) => entry.label === full || entry.label === path);
+      isos.push({ path, bytes: info.size, modifiedAt: info.mtime.toISOString(), rippedBefore: ripped ? { at: ripped.at, folder: ripped.folder } : null });
     }
     for (const entry of top) {
       if (isos.length >= MAX_ISOS) break;
@@ -523,7 +528,8 @@ export function createDiscs(options: DiscsOptions) {
     let fallback: string;
     if (request.iso !== undefined) {
       source = await resolveIso(request.iso);
-      label = source.iso;
+      // Its full path, so the list of the ISO folder knows it as ripped.
+      label = source.full;
       fallback = imageName(source.iso);
     } else {
       const drive = (await currentDrives(tool)).find((candidate) => candidate.index === request.drive);
@@ -725,6 +731,28 @@ export function createDiscs(options: DiscsOptions) {
 
     /** The images in the ISO folder; only when Manelly asks, e.g. while its tab is open. */
     isos: listIsos,
+
+    /** Deletes an image of the ISO folder for good – not while it is read or ripped; a folder it leaves empty goes too. */
+    async deleteIso(path: unknown): Promise<{ deleted: string }> {
+      const source = await resolveIso(path);
+      const key = keyOf(source);
+      if (busy.has(key) || jobs.some((job) => active(job.view) && keyOf(job.source) === key)) {
+        throw new AgentError(409, 'Das Image wird gerade gelesen oder gerippt – erst danach löschen.');
+      }
+      try {
+        await unlink(source.full);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        throw new AgentError(409, `«${source.iso}» liess sich nicht löschen (${code ?? 'Fehler'}) – ist es noch geöffnet, z. B. eingebunden?`);
+      }
+      const folder = isoFolder();
+      const api = pathApiFor(folder);
+      const parent = api.dirname(source.full);
+      if (api.resolve(parent) !== api.resolve(folder) && (await readdir(parent).catch(() => ['?'])).length === 0) await rmdir(parent).catch(() => {});
+      reads.delete(key);
+      log(`Image «${source.iso}» im ISO-Ordner gelöscht.`);
+      return { deleted: source.iso };
+    },
 
     rip: (request: DiscRipRequest) => enqueue(request, false),
 

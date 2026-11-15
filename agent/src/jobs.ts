@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ConversionJob, ConversionRequest, CopyThrottle } from '@manelly/shared';
 import { discardTemp, overallProgress, PAUSE, runConversion, type ConversionContext, type ConversionResult } from './convert.js';
 import { suspendProcess, type Suspender } from './suspend.js';
 import { AgentError } from './errors.js';
+import { writeWhole } from './persist.js';
 import { pathApiFor, planOutput, type OutputPlan, type PathAccess } from './paths.js';
 import type { GateCheck } from './schedule.js';
 import type { Originals } from './originals.js';
@@ -104,8 +105,7 @@ export async function createJobQueue(options: JobQueueOptions) {
     // Serialize writes and replace the file atomically.
     saving = saving.then(async () => {
       await mkdir(dataDir, { recursive: true });
-      await writeFile(`${file}.tmp`, JSON.stringify(entries.slice(0, HISTORY_LIMIT), null, 2));
-      await rename(`${file}.tmp`, file);
+      await writeWhole(file, JSON.stringify(entries.slice(0, HISTORY_LIMIT), null, 2));
     }).catch((error: unknown) => log(`jobs.json konnte nicht gespeichert werden: ${(error as Error).message}`));
     return saving;
   }

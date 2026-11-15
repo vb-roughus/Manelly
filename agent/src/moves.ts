@@ -8,6 +8,7 @@ import { formatBytes, pace } from './convert.js';
 import { AgentError } from './errors.js';
 import { measure, resolveExtracted } from './extracted.js';
 import { isWithin, pathApiFor } from './paths.js';
+import { readWholeSync, writeWhole } from './persist.js';
 
 const CHUNK_BYTES = 8 * 1024 * 1024;
 /** Finished moves shown at most. */
@@ -16,6 +17,17 @@ const KEEP_FINISHED = 20;
 const PART_SUFFIX = '.manelly-part';
 /** The rate is averaged over this long, so writing in big chunks still shows a steady figure. */
 const RATE_WINDOW_MS = 6000;
+/** Moves remembered at most, the newest first. */
+const MOVED_LIMIT = 2000;
+
+/** An entry of the extraction folder that went somewhere, remembered over restarts. */
+export interface MovedEntry {
+  /** Its path in the extraction folder, with "/" between the names. */
+  path: string;
+  target: string;
+  label: string;
+  at: string;
+}
 
 interface Source {
   path: string;
@@ -42,6 +54,8 @@ export interface MoverOptions {
   log?: (message: string) => void;
   /** For tests: the first try, a plain rename. */
   rename?: (from: string, to: string) => Promise<void>;
+  /** Where the moves are remembered, so the extraction folder can say what went from it before. */
+  stateFile?: string;
 }
 
 /**
@@ -52,6 +66,28 @@ export interface MoverOptions {
 export function createMover(options: MoverOptions = {}) {
   const jobs: Job[] = [];
   let working = false;
+  const moved: MovedEntry[] = loadMoved();
+  let saving: Promise<void> = Promise.resolve();
+
+  function loadMoved(): MovedEntry[] {
+    const content = options.stateFile ? readWholeSync(options.stateFile) : null;
+    if (!content) return [];
+    const parsed = JSON.parse(content) as unknown;
+    return Array.isArray(parsed)
+      ? (parsed as MovedEntry[]).filter((entry) => typeof entry?.path === 'string' && typeof entry.label === 'string' && typeof entry.at === 'string').slice(0, MOVED_LIMIT)
+      : [];
+  }
+
+  function remember(path: string, target: string, label: string) {
+    const known = moved.findIndex((entry) => entry.path === path);
+    if (known >= 0) moved.splice(known, 1);
+    moved.unshift({ path, target, label, at: new Date().toISOString() });
+    moved.splice(MOVED_LIMIT);
+    const file = options.stateFile;
+    if (!file) return;
+    const content = JSON.stringify(moved);
+    saving = saving.then(() => writeWhole(file, content)).catch((error: Error) => options.log?.(`Die verschobenen Einträge liessen sich nicht speichern (${file}): ${error.message}`));
+  }
 
   const exists = (path: string) => lstat(path).then(() => true, () => false);
 
@@ -95,14 +131,15 @@ export function createMover(options: MoverOptions = {}) {
     }
   }
 
-  async function moveOne(job: Job, source: Source): Promise<string> {
+  /** The new path, and why the entry still lies in the extraction folder, if it does (copied, not deleted). */
+  async function moveOne(job: Job, source: Source): Promise<{ destination: string; left: string | null }> {
     const name = pathApiFor(source.full).basename(source.full);
     const destination = pathApiFor(job.view.target).join(job.view.target, name);
     if (await exists(destination)) throw new AgentError(409, `«${name}» gibt es in ${job.view.label} schon.`);
     try {
       await (options.rename ?? rename)(source.full, destination);
       progress(job, source.bytes);
-      return destination;
+      return { destination, left: null };
     } catch (error) {
       // Another disk: copy, then delete.
       if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
@@ -122,8 +159,14 @@ export function createMover(options: MoverOptions = {}) {
       job.copying = false;
       job.samples = [];
     }
-    await rm(source.full, { recursive: true, force: true });
-    return destination;
+    // It is there now; a file still open at the source (e.g. played) only keeps the old copy.
+    try {
+      await rm(source.full, { recursive: true, force: true });
+      return { destination, left: null };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? 'Fehler';
+      return { destination, left: `Nach ${job.view.label} kopiert, aber im Entpack-Ordner nicht gelöscht (${code}) – ist eine Datei darin noch offen? Danach von Hand löschen.` };
+    }
   }
 
   async function execute(job: Job) {
@@ -136,8 +179,11 @@ export function createMover(options: MoverOptions = {}) {
     }
     for (const source of folderError ? [] : job.sources) {
       try {
-        created.push(await moveOne(job, source));
-        options.log?.(`«${source.path}» nach ${job.view.target} verschoben`);
+        const { destination, left } = await moveOne(job, source);
+        created.push(destination);
+        remember(source.path, job.view.target, job.view.label);
+        if (left) job.view.problems.push({ path: source.path, error: left });
+        options.log?.(`«${source.path}» nach ${job.view.target} verschoben${left ? ' (Quelle blieb)' : ''}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         job.view.problems.push({ path: source.path, error: message });
@@ -215,15 +261,19 @@ export function createMover(options: MoverOptions = {}) {
     /** Newest first. */
     list: (): ExtractedMove[] => jobs.map(view).reverse(),
 
+    /** What went from the extraction folder before, over restarts too; the newest first. */
+    moved: (): readonly MovedEntry[] => moved,
+
     /** The move running or waiting, if any – a restart would interrupt it. */
     running: (): ExtractedMove | null => {
       const job = busy();
       return job && view(job);
     },
 
-    /** Resolves once nothing is moved any more. */
+    /** Resolves once nothing is moved any more, and what was moved is saved. */
     async idle(): Promise<void> {
       while (busy()) await new Promise((resolve) => setTimeout(resolve, 1000));
+      await saving;
     },
   };
 }

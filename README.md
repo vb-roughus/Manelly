@@ -405,6 +405,12 @@ liest nur diesen Ordner, jede Minute neu.
   schnell, wie das Kopier-Limit der Konvertierungen es während Streams erlaubt) und löscht erst danach im
   Entpack-Ordner. Was es am Ziel schon gibt, bleibt unangetastet und wird gemeldet. Jellyfin erfährt gleich von den
   neuen Ordnern. Ein Neustart des Agents fragt nach, solange etwas verschoben wird.
+- **Schon verschoben** (ab Agent 0.43.0): Der Agent merkt sich alles, was er aus dem Entpack-Ordner verschoben hat –
+  auch über Neustarts. Taucht ein Eintrag mit demselben Namen wieder auf (z. B. von JDownloader nochmals entpackt) oder
+  blieb er liegen, weil eine Datei noch offen war, steht bei ihm **«schon nach Filme»**; wurde etwas aus einem Ordner
+  verschoben (etwa sein ISO in den ISO-Ordner), **«teils nach ISOs»**. Mit der Maus darauf stehen Datum und Ziel – der
+  Rest lässt sich dann meist löschen. Eine Kopie auf eine andere Platte, deren Quelle sich nicht löschen liess, zählt als
+  verschoben; die Liste sagt, warum der Eintrag noch da ist
 - **Löschen** (ab Agent 0.30.0) löscht die angekreuzten Einträge – Ordner samt Inhalt – nach einer Rückfrage mit der
   Liste und der Grösse endgültig, ohne Papierkorb. Der Agent löscht nur im Entpack-Ordner und nichts, was gerade
   verschoben oder konvertiert wird; was nicht ging, nennt der Dialog mit dem Grund.

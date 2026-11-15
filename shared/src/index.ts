@@ -1063,6 +1063,11 @@ export interface ExtractedEntry {
   updatedAt: string;
   /** Video files, from agent 0.31.0: the Dolby Vision in them, null without; missing when not known. */
   dolbyVision?: DolbyVisionInfo | null;
+  /**
+   * Moved from here before (agent from 0.43.0): an entry of the same name went into a library – it came back, e.g.
+   * extracted again, or its files stayed – or, with `inside`, something in it went (e.g. its ISO into the ISO folder).
+   */
+  movedBefore?: { label: string; target: string; at: string; inside: boolean };
 }
 
 /** Dolby Vision in a video file, as ffprobe reads it from the header. */

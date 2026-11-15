@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   AgentJellyfinAccess,
@@ -14,6 +14,7 @@ import type {
 import type { NetworkCredential } from './drives.js';
 import { isAudioLanguage } from './audio.js';
 import { AgentError } from './errors.js';
+import { writeWhole } from './persist.js';
 import { createJellyfinApi } from './jellyfin.js';
 
 /** A network interface picked in Manelly; name and description as they were then, for the display. */
@@ -181,8 +182,7 @@ export async function createSettingsStore(dataDir: string) {
   async function save(next: AgentSettings) {
     await mkdir(dataDir, { recursive: true });
     // Holds the Jellyfin API key and the logins for the network shares.
-    await writeFile(`${file}.tmp`, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-    await rename(`${file}.tmp`, file);
+    await writeWhole(file, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
     current = next;
   }
 

@@ -455,6 +455,7 @@ function EntryRow({ entry, siblings, now }: { entry: ExtractedEntry; siblings: E
         <span className="block font-medium break-words">
           {entry.name}
           {entry.dolbyVision && <DolbyVisionBadge info={entry.dolbyVision} />}
+          {entry.movedBefore && <MovedBadge moved={entry.movedBefore} />}
         </span>
         <span className="block text-xs text-ink-2">{details(entry, now)}</span>
         {job && <ConversionLine job={job} now={now} />}
@@ -524,6 +525,23 @@ function DolbyVisionBadge({ info }: { info: DolbyVisionInfo }) {
       )}
     >
       {dolbyVisionLabel(info)}
+    </span>
+  );
+}
+
+/**
+ * Moved from here before: the entry itself (it came back, e.g. extracted again, or its files stayed) – or something in
+ * it, e.g. its ISO into the ISO folder; the rest can likely go.
+ */
+function MovedBadge({ moved }: { moved: NonNullable<ExtractedEntry['movedBefore']> }) {
+  const when = new Date(moved.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' });
+  return (
+    <span
+      title={`${moved.inside ? 'Daraus verschoben' : 'Schon einmal verschoben'} am ${when} nach ${moved.target}`}
+      className="ml-2 inline-flex items-center gap-1 rounded bg-good/12 px-1.5 py-px align-[1px] text-[0.6875rem] font-semibold whitespace-nowrap text-good ring-1 ring-good/25"
+    >
+      <CircleCheck className="size-3" aria-hidden />
+      {moved.inside ? `teils nach ${moved.label}` : `schon nach ${moved.label}`}
     </span>
   );
 }

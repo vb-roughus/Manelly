@@ -349,8 +349,11 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   in die Mediathek, «Rippen» in den Entpack-Ordner, Tonspur danach. Ausgeworfen wird nichts, und das Image bleibt
   liegen. Auch ein Image merkt sich der Agent als gerippt. Ein **entschlüsseltes** Image liest MakeMKV immer; ein
   verschlüsseltes (1:1-Kopie einer UHD-Blu-ray) nur, wenn MakeMKV den Schlüssel der Disc kennt, z. B. aus einer
-  Schlüsseldatei `KEYDB.cfg` in seinem Datenordner – sonst steht die Meldung von MakeMKV bei der Karte. Dolby Vision
-  Profil 7 einer UHD lässt sich danach unter Extracted in Profil 8.1 konvertieren
+  Schlüsseldatei `KEYDB.cfg` in seinem Datenordner – sonst steht die Meldung von MakeMKV bei der Karte. Findet
+  MakeMKV gar keine Titel, zeigt die Karte, was MakeMKV meldete (ab Agent 0.40.1 als Fehler); bei Blu-rays ist es meist
+  ein abgelaufener Beta-Schlüssel («Evaluation period has expired») – den aktuellen aus dem MakeMKV-Forum in MakeMKV unter
+  Hilfe → Registrieren eintragen. Dolby Vision Profil 7 einer UHD lässt sich danach unter Extracted in Profil 8.1
+  konvertieren
 - Kopien eigener Discs für den Eigengebrauch sind in der Schweiz erlaubt; die Entschlüsselung übernimmt MakeMKV.
   Blu-rays kann MakeMKV auch (mit Beta-Schlüssel oder Lizenz), UHD-Blu-rays nur mit einem «LibreDrive»-Laufwerk
   oder als Image mit bekanntem Schlüssel

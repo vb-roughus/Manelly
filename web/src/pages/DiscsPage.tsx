@@ -325,7 +325,16 @@ function ReadOutcome({
       {(read?.state === 'failed' || read?.state === 'canceled') && (
         <div className="mt-3">
           <p className={read.state === 'failed' ? 'text-critical' : 'text-ink-2'}>{read.state === 'canceled' ? 'Lesen abgebrochen.' : read.error}</p>
+          {read.state === 'failed' && image && <p className="mt-1 text-xs text-ink-2">{BLURAY_KEY_HINT}</p>}
           <Messages activity={read} />
+        </div>
+      )}
+      {/* Agent 0.40.0 calls a read without titles done; there is nothing to rip then, only what MakeMKV said. */}
+      {info && info.titles.length === 0 && (
+        <div className="mt-3">
+          <p className="text-critical">MakeMKV hat {image ? 'im Image' : 'auf der Disc'} keine Titel gefunden.</p>
+          <p className="mt-1 text-xs text-ink-2">{BLURAY_KEY_HINT}</p>
+          {read && <Messages activity={read} open />}
         </div>
       )}
       {ripping && (
@@ -350,7 +359,7 @@ function ReadOutcome({
           </span>
         </p>
       )}
-      {info && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} onStarted={onShowRips} />}
+      {info && info.titles.length > 0 && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} onStarted={onShowRips} />}
     </>
   );
 }
@@ -532,13 +541,17 @@ function Reading({ read }: { read: DiscRead }) {
   );
 }
 
-/** What MakeMKV reported, folded away; errors count and show in red. */
-function Messages({ activity }: { activity: DiscActivity }) {
+/** Blu-rays, also as images, need a key in MakeMKV; DVDs do not – the usual reason why a Blu-ray yields nothing. */
+const BLURAY_KEY_HINT =
+  'Für Blu-rays – auch als Image – braucht MakeMKV einen gültigen Beta-Schlüssel oder eine gekaufte Lizenz; DVDs gehen ohne. Steht in den Meldungen etwas von «evaluation period» oder «expired»: den aktuellen Beta-Schlüssel aus dem MakeMKV-Forum in MakeMKV unter Hilfe → Registrieren eintragen und nochmals lesen.';
+
+/** What MakeMKV reported, folded away unless `open`; errors count and show in red. */
+function Messages({ activity, open = false }: { activity: DiscActivity; open?: boolean }) {
   const messages = activity.messages ?? [];
   if (messages.length === 0) return null;
   const errors = messages.filter((message) => message.error).length;
   return (
-    <details className="mt-2 text-xs">
+    <details className="mt-2 text-xs" open={open}>
       <summary className="cursor-pointer text-ink-2 select-none hover:text-ink">
         Meldungen von MakeMKV ({messages.length}
         {errors > 0 && <span className="text-critical">, davon {errors} Fehler</span>})

@@ -52,6 +52,12 @@ if (command === 'info') {
   out(`MSG:3007,0,0,${q(image ? 'Using image file' : 'Using direct disc access mode')},"x"`);
   out('MSG:1011,32,1,"Debug: tracing drive","x"');
   if (disc.readError) out(`MSG:2003,0,3,${q(disc.readError)},"x"`);
+  if (disc.expired) {
+    // Blu-rays without a valid key: MakeMKV says so and lists nothing, but ends well.
+    out('MSG:5095,0,0,"Evaluation period has expired. Please purchase an activation key if you\'ve found this application useful. You may still use all DVD-related functionality without restrictions.","x"');
+    out('TCOUNT:0');
+    process.exit(0);
+  }
   if (disc.encrypted) {
     out('MSG:5021,0,1,"This disc uses AACS 2.0 and its volume key is unknown, it can\'t be decrypted","x"');
     process.exit(0);

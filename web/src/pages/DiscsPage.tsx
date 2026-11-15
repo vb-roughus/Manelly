@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { DiscActivity, DiscDrive, DiscInfo, DiscIso, DiscRead, DiscRip, DiscSettings, DiscSourceRequest, DiscsStatus, DiscTitle } from '@manelly/shared';
-import { CircleCheck, CircleX, Disc3, DiscAlbum, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
+import { ChevronDown, CircleCheck, CircleX, Disc3, DiscAlbum, Eject, HardDriveDownload, Library, LoaderCircle, RefreshCw, ScanSearch, Settings2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Code, Message } from '../components/ConnectionForm';
@@ -595,17 +595,14 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
   // The tracks to keep, per layout of tracks (the episodes of a series disc share one); agent from 0.41.0.
   const [trackChoices, setTrackChoices] = useState<Map<string, TrackChoice>>(new Map());
   const pickTracks = info.titles.some((title) => [...title.audio, ...title.subtitles].some((stream) => stream.keep !== undefined));
+  // Titles whose tracks are folded open, to pick them; all closed at first.
+  const [opened, setOpened] = useState<Set<number>>(new Set());
 
   const derived = fileNamesFor(kind, name, [...selected], season, firstEpisode);
   const fileName = (index: number) => custom.get(index) ?? derived.get(index) ?? '';
   const folder = kind === 'serie' ? `${name.trim()} S${two(season)}` : name.trim();
   const chosen = info.titles.filter((title) => selected.has(title.index));
   const bytes = chosen.reduce((sum, title) => sum + (title.bytes ?? 0), 0);
-  const layouts = new Map<string, DiscTitle[]>();
-  for (const title of chosen) {
-    const layout = layoutOf(title.audio, title.subtitles);
-    layouts.set(layout, [...(layouts.get(layout) ?? []), title]);
-  }
   const choiceFor = (title: DiscTitle) => trackChoices.get(layoutOf(title.audio, title.subtitles)) ?? suggestedChoice(title.audio, title.subtitles);
   const files = chosen.map((title) => fileName(title.index));
   const problem = !name.trim()
@@ -695,32 +692,43 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {info.titles.map((title) => (
-              <TitleRow
-                key={title.index}
-                title={title}
-                checked={selected.has(title.index)}
-                suggested={suggested.selected.includes(title.index) ? (suggested.kind === 'film' ? 'Hauptfilm' : 'Folge') : null}
-                fileName={fileName(title.index)}
-                onToggle={() => toggle(title.index)}
-                onRename={(value) => setCustom(new Map(custom).set(title.index, value))}
-              />
-            ))}
+            {info.titles.map((title) => {
+              const layout = layoutOf(title.audio, title.subtitles);
+              // Something to pick: more than one audio track, or subtitles.
+              const pickable = pickTracks && (title.audio.length > 1 || title.subtitles.length > 0);
+              const shared = info.titles.filter((other) => other !== title && layoutOf(other.audio, other.subtitles) === layout).map((other) => other.index + 1);
+              return (
+                <TitleRow
+                  key={title.index}
+                  title={title}
+                  checked={selected.has(title.index)}
+                  suggested={suggested.selected.includes(title.index) ? (suggested.kind === 'film' ? 'Hauptfilm' : 'Folge') : null}
+                  fileName={fileName(title.index)}
+                  onToggle={() => toggle(title.index)}
+                  onRename={(value) => setCustom(new Map(custom).set(title.index, value))}
+                  tracks={
+                    pickable
+                      ? {
+                          choice: choiceFor(title),
+                          onChange: (choice) => setTrackChoices(new Map(trackChoices).set(layout, choice)),
+                          // Titles with the same tracks share the choice – the episodes of a series disc.
+                          label: shared.length > 0 ? `gilt auch für Titel ${shared.join(', ')} mit denselben Spuren` : null,
+                          open: opened.has(title.index),
+                          onOpen: () => {
+                            const next = new Set(opened);
+                            if (next.has(title.index)) next.delete(title.index);
+                            else next.add(title.index);
+                            setOpened(next);
+                          },
+                        }
+                      : null
+                  }
+                />
+              );
+            })}
           </tbody>
         </table>
       </div>
-
-      {pickTracks &&
-        [...layouts].map(([layout, titles]) => (
-          <TrackPicker
-            key={layout}
-            audio={titles[0]!.audio}
-            subtitles={titles[0]!.subtitles}
-            choice={choiceFor(titles[0]!)}
-            onChange={(choice) => setTrackChoices(new Map(trackChoices).set(layout, choice))}
-            label={layouts.size > 1 ? `Titel ${titles.map((title) => title.index + 1).join(', ')}` : titles.length > 1 ? `gilt für alle ${titles.length} Titel` : null}
-          />
-        ))}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-ink-2">
@@ -754,6 +762,7 @@ function TitleRow({
   fileName,
   onToggle,
   onRename,
+  tracks,
 }: {
   title: DiscTitle;
   checked: boolean;
@@ -761,36 +770,71 @@ function TitleRow({
   fileName: string;
   onToggle: () => void;
   onRename: (value: string) => void;
+  /** Its tracks to pick, folded away; null when there is nothing to pick (or the agent cannot). */
+  tracks: { choice: TrackChoice; onChange: (choice: TrackChoice) => void; label: string | null; open: boolean; onOpen: () => void } | null;
 }) {
-  // «5.1(side)» shows as 5.1, as in the media.
-  const audio = title.audio.map((track) => [languageName(track.language, track.languageName), track.codec, channelLayoutLabel(track.channels)].filter(Boolean).join(' ')).join(', ');
-  const subtitles = title.subtitles.map((track) => languageName(track.language, track.languageName)).join(', ');
+  // A ticked title shows the tracks it keeps; «5.1(side)» shows as 5.1, as in the media.
+  const keeps = (kind: keyof TrackChoice, index: number) => !tracks || !checked || tracks.choice[kind].has(index);
+  const audio = title.audio
+    .filter((_, index) => keeps('audio', index))
+    .map((track) => [languageName(track.language, track.languageName), track.codec, channelLayoutLabel(track.channels)].filter(Boolean).join(' '))
+    .join(', ');
+  const subtitles = title.subtitles
+    .filter((_, index) => keeps('subtitles', index))
+    .map((track) => languageName(track.language, track.languageName))
+    .join(', ');
+  const dropped = tracks && checked ? title.audio.length - tracks.choice.audio.size + title.subtitles.length - tracks.choice.subtitles.size : 0;
   return (
-    <tr className={clsx(checked && 'bg-accent/5')}>
-      <td className="px-3 py-2 align-top">
-        <input type="checkbox" checked={checked} onChange={onToggle} aria-label={`Titel ${title.index + 1} rippen`} className="mt-0.5 size-4 accent-accent" />
-      </td>
-      <td className="px-2 py-2 align-top whitespace-nowrap">
-        <span className="font-medium text-ink">Titel {title.index + 1}</span>
-        {suggested && <span className="ml-1.5 rounded bg-accent/12 px-1.5 py-px text-[0.6875rem] font-semibold text-accent">{suggested}</span>}
-        <span className="block text-ink-3">
-          {joinParts([title.chapters > 0 && `${title.chapters} Kapitel`, title.video && [title.video.size, title.video.aspect].filter(Boolean).join(' ')])}
-        </span>
-      </td>
-      <td className="px-2 py-2 align-top tabular-nums">{formatDuration(title.durationSeconds)}</td>
-      <td className="px-2 py-2 align-top whitespace-nowrap tabular-nums">{title.bytes ? formatBytes(title.bytes) : '–'}</td>
-      <td className="px-2 py-2 align-top text-ink-2">
-        {audio || 'kein Ton'}
-        {subtitles && <span className="block text-ink-3">UT: {subtitles}</span>}
-      </td>
-      <td className="min-w-56 px-2 py-2 align-top">
-        {checked ? (
-          <input value={fileName} onChange={(event) => onRename(event.target.value)} aria-label={`Dateiname von Titel ${title.index + 1}`} spellCheck={false} className={clsx(fieldClass, 'py-1 font-mono text-xs')} />
-        ) : (
-          <span className="text-ink-3">–</span>
-        )}
-      </td>
-    </tr>
+    <>
+      <tr className={clsx(checked && 'bg-accent/5', tracks?.open && 'border-b-0! [&>td]:pb-1')}>
+        <td className="px-3 py-2 align-top">
+          <input type="checkbox" checked={checked} onChange={onToggle} aria-label={`Titel ${title.index + 1} rippen`} className="mt-0.5 size-4 accent-accent" />
+        </td>
+        <td className="px-2 py-2 align-top whitespace-nowrap">
+          <span className="font-medium text-ink">Titel {title.index + 1}</span>
+          {suggested && <span className="ml-1.5 rounded bg-accent/12 px-1.5 py-px text-[0.6875rem] font-semibold text-accent">{suggested}</span>}
+          <span className="block text-ink-3">
+            {joinParts([title.chapters > 0 && `${title.chapters} Kapitel`, title.video && [title.video.size, title.video.aspect].filter(Boolean).join(' ')])}
+          </span>
+        </td>
+        <td className="px-2 py-2 align-top tabular-nums">{formatDuration(title.durationSeconds)}</td>
+        <td className="px-2 py-2 align-top whitespace-nowrap tabular-nums">{title.bytes ? formatBytes(title.bytes) : '–'}</td>
+        <td className="px-2 py-2 align-top text-ink-2">
+          {audio || 'kein Ton'}
+          {subtitles && <span className="block text-ink-3">UT: {subtitles}</span>}
+          {tracks && (
+            <button
+              type="button"
+              onClick={tracks.onOpen}
+              aria-expanded={tracks.open}
+              aria-label={`Spuren von Titel ${title.index + 1} wählen`}
+              className="mt-1 inline-flex items-center gap-1 font-medium text-accent hover:underline"
+            >
+              <ChevronDown className={clsx('size-3.5 transition-transform', tracks.open && 'rotate-180')} aria-hidden />
+              Spuren wählen
+              {dropped > 0 && <span className="font-normal text-ink-3">· {dropped === 1 ? '1 kommt heraus' : `${dropped} kommen heraus`}</span>}
+            </button>
+          )}
+        </td>
+        <td className="min-w-56 px-2 py-2 align-top">
+          {checked ? (
+            <input value={fileName} onChange={(event) => onRename(event.target.value)} aria-label={`Dateiname von Titel ${title.index + 1}`} spellCheck={false} className={clsx(fieldClass, 'py-1 font-mono text-xs')} />
+          ) : (
+            <span className="text-ink-3">–</span>
+          )}
+        </td>
+      </tr>
+      {tracks?.open && (
+        // Below its title, without a line between them.
+        <tr className={clsx(checked && 'bg-accent/5')}>
+          <td />
+          <td colSpan={5} className="px-2 pb-3">
+            <TrackPicker audio={title.audio} subtitles={title.subtitles} choice={tracks.choice} onChange={tracks.onChange} label={tracks.label} />
+            {!checked && <p className="mt-1 text-xs text-ink-3">Gilt, sobald der Titel zum Rippen angekreuzt ist.</p>}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

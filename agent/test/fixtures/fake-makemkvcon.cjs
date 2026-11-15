@@ -124,7 +124,8 @@ function describe() {
     out(`SINFO:${index},3,3,0,"deu"`);
     out(`SINFO:${index},3,4,0,"German"`);
   });
-  process.exit(0);
+  // Through a pipe, output still on its way would be lost by exiting right away.
+  process.stdout.write('', () => process.exit(0));
 }
 if (command === 'mkv') {
   const title = Number(args[args.length - 2]);

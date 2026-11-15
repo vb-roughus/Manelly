@@ -326,8 +326,9 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   jeder Dateiname lässt sich noch ändern
 - **Schon in der Mediathek?** Zum Namen sucht Manelly im Medienindex nach dem Film bzw. der Serie und zeigt Treffer mit
   Jahr, Auflösung und Anzahl Folgen – mit Link in die Medien
-- **Spuren wählen** (ab Agent 0.41.0): Unter der Titelliste stehen die Ton- und Untertitelspuren der gewählten Titel
-  zum Ankreuzen – bei Serien-Discs eine Auswahl für alle Folgen mit denselben Spuren. Vorgewählt sind die Sprache der
+- **Spuren wählen** (ab Agent 0.41.0): Titel mit mehreren Spuren klappen mit **«Spuren wählen»** auf und zeigen ihre Ton-
+  und Untertitelspuren zum Ankreuzen; die Zeile nennt danach nur die Spuren, die bleiben. Titel mit denselben Spuren –
+  die Folgen einer Serien-Disc – teilen sich die Auswahl. Vorgewählt sind die Sprache der
   ersten Tonspur und Deutsch (bzw. die Sprache aus «Tonspur nach dem Rippen»), jeweils in der **besten Tonqualität**:
   verlustfrei (TrueHD, DTS-HD MA, PCM) vor verlustbehaftet, dann mehr Kanäle, dann das bessere Format – also DTS 5.1
   vor Dolby Digital 5.1 vor Stereo; Kommentarspuren bleiben so meist draussen. Bei den Untertiteln die ersten und die

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DiscTitle } from '@manelly/shared';
-import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, makemkvAdvice, nameFromDisc, namesFromDisc, suggestSelection } from './discs';
+import { fileNamesFor, formatDuration, imageCoverage, isPlainName, languageName, librarySearchFor, makemkvAdvice, nameFromDisc, namesFromDisc, suggestSelection } from './discs';
 
 const title = (index: number, minutes: number, bytes = minutes * 1e7): DiscTitle => ({ index, durationSeconds: Math.round(minutes * 60), chapters: 1, bytes, video: null, audio: [], subtitles: [] });
 
@@ -50,5 +50,18 @@ describe('discs', () => {
     expect([formatDuration(7112), formatDuration(1330)]).toEqual(['1:58:32', '22:10']);
     expect(languageName('deu', 'German')).toBe('Deutsch');
     expect(languageName(null, 'German')).toBe('German');
+  });
+});
+
+describe('how much of an image the titles make up', () => {
+  it('adds up the titles and calls under 40 % of the image low', () => {
+    expect(imageCoverage([title(0, 110, 30e9), title(1, 20, 4e9)], 46e9)).toEqual({ bytes: 34e9, low: false });
+    expect(imageCoverage([title(0, 110, 312e6), title(1, 5, 80e6)], 46e9)).toEqual({ bytes: 392e6, low: true });
+  });
+
+  it('counts only titles that say their size, and says nothing without any', () => {
+    expect(imageCoverage([title(0, 110, 20e9), { ...title(1, 20), bytes: null }], 46e9)).toEqual({ bytes: 20e9, low: false });
+    expect(imageCoverage([{ ...title(0, 110), bytes: null }], 46e9)).toBeNull();
+    expect(imageCoverage([], 46e9)).toBeNull();
   });
 });

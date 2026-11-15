@@ -23,6 +23,17 @@ export function suggestSelection(titles: DiscTitle[]): { kind: DiscKind; selecte
   return { kind: 'film', selected: [longest.index] };
 }
 
+/**
+ * How much of an image its titles make up. Little – under 40 % – means MakeMKV does not see the main part of it, e.g.
+ * because the image is incomplete or broken. Null when no title says its size.
+ */
+export function imageCoverage(titles: DiscTitle[], imageBytes: number): { bytes: number; low: boolean } | null {
+  const sizes = titles.map((title) => title.bytes).filter((bytes): bytes is number => bytes !== null);
+  if (sizes.length === 0 || imageBytes <= 0) return null;
+  const bytes = sizes.reduce((sum, size) => sum + size, 0);
+  return { bytes, low: bytes < imageBytes * 0.4 };
+}
+
 /** "FINDET_NEMO" → "Findet Nemo", as the agent names folders itself. */
 export function nameFromDisc(name: string): string {
   let text = name.replace(/[_.]+/g, ' ').replace(/[<>:"/\\|?*\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim();

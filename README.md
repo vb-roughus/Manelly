@@ -357,8 +357,11 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   Ordnern direkt darin (tiefer schaut der Agent nicht, und nur, solange der Reiter offen ist), mit Grösse und Datum.
   **«Einlesen»** liest ein Image wie eine Disc im Laufwerk; danach geht alles gleich: Titel wählen, Namen geben, Blick
   in die Mediathek, «Rippen» in den Entpack-Ordner, Tonspur danach. Ausgeworfen wird nichts, und das Image bleibt
-  liegen. Auch ein Image merkt sich der Agent als gerippt: Seine Karte ist dann auf eine Zeile eingeklappt («Gerippt am
-  … nach «…»», ab Agent 0.42.0 auch ohne es neu zu lesen); «Details» klappt sie auf, um es nochmals zu rippen. Der
+  liegen. Jede Karte ist auf eine Zeile eingeklappt, bis «Details» sie aufklappt: «2 Titel gelesen, der längste 1:58:32
+  (25 GB)», «Lesen fehlgeschlagen» – oder, wenn sich der Agent das Image als gerippt merkt, «Gerippt am … nach «…»» (ab
+  Agent 0.42.0 auch ohne es neu zu lesen). «Einlesen» klappt die Karte auf; was MakeMKV beim Lesen meldete, steht
+  darunter. Ergeben die Titel zusammen weniger als 40 % des Images, warnt die Karte: Dann sieht MakeMKV den Hauptfilm
+  wohl nicht, etwa weil das Image unvollständig oder ohne UDF erstellt ist und Dateien über 4 GB fehlen. Der
   Papierkorb-Knopf **löscht** ein Image nach einer Rückfrage endgültig (ab Agent 0.42.0) – nicht, solange es gelesen
   oder gerippt wird; ein Unterordner, der dabei leer wird, geht mit. Ein **entschlüsseltes** Image liest MakeMKV immer; ein
   verschlüsseltes (1:1-Kopie einer UHD-Blu-ray) nur, wenn MakeMKV den Schlüssel der Disc kennt, z. B. aus einer
@@ -522,6 +525,9 @@ Statt im Konsolenfenster läuft Manelly auf Windows auch als Programm mit einem 
   gelaufen, kommen seine Einstellungen aus `data\` mit), installiert die Abhängigkeiten und baut es,
 - legt das Symbol **«Manelly»** auf den Desktop und ins Startmenü, dazu **«Manelly beenden»**,
 - trägt Manelly unter **Einstellungen → Apps** ein, wo es sich wie jedes Programm deinstallieren lässt, und startet es.
+
+Ist alles gut gegangen, schliesst sich das Fenster des Installers von selbst und Manelly öffnet sich im Browser; nach
+einem Fehler bleibt es offen, damit sich die Meldung lesen lässt.
 
 **Das Symbol** öffnet <http://localhost:3000> im Browser. Läuft Manelly noch nicht, startet das Symbol es zuerst – unsichtbar
 im Hintergrund, ohne Konsolenfenster – und öffnet den Browser, sobald es antwortet. Ein zweiter Klick öffnet nur noch

@@ -29,6 +29,8 @@ import type {
   ExtractedFolder,
   ExtractedIsos,
   ExtractedIsosMoved,
+  ExtractedTracks,
+  TrackRemovalRequest,
   ExtractedRenamed,
   ExtractedRenameRequest,
   AudioRequest,
@@ -822,6 +824,26 @@ export function useAudioTask(enabled: boolean) {
     previous.current = running;
   }, [running, queryClient]);
   return query;
+}
+
+/** From agent 0.41.0: the tracks of the MKV files of entries of the extraction folder, with a suggestion which to keep. */
+export function useExtractedTracks(paths: string[]) {
+  return useQuery({
+    queryKey: ['extracted-tracks', paths],
+    queryFn: () => sendJson<ExtractedTracks>('POST', '/api/agent/jdownloader/extracted/tracks', { paths }),
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/** Takes the tracks not kept out of those files, in the background as an audio task. */
+export function useRemoveExtractedTracks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: TrackRemovalRequest) => sendJson<AudioTask>('POST', '/api/agent/jdownloader/extracted/tracks/remove', request),
+    onSuccess: (task) => queryClient.setQueryData(['audio'], task),
+  });
 }
 
 /** The preferred audio track in entries of the extraction folder (files, or folders with all their MKV files). */

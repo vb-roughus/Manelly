@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DiscSettings } from '@manelly/shared';
-import { createDiscs, ejectDisc, ejectScript, folderNameFrom, mainTitle } from '../src/discs.js';
+import { createDiscs, ejectDisc, ejectScript, folderNameFrom, mainTitle, type DiscsOptions } from '../src/discs.js';
+import type { StreamKeep } from '../src/tracks.js';
 import { crashOf, createActivity, durationSeconds, parseDiscInfo, parseDrives, parseRobotLine, runMakemkv } from '../src/makemkv.js';
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-makemkvcon.cjs', import.meta.url));
@@ -20,7 +21,7 @@ async function insert(disc: 'movie' | 'series' | null, extra: Record<string, unk
   await writeFile(statePath, JSON.stringify({ disc, label: disc === 'series' ? 'DARK_S1_D1' : 'FINDET_NEMO', ripMs: 40, ...extra }));
 }
 
-function service(tool: string | null = FAKE, stateFile?: string, afterTitle?: (file: string) => Promise<unknown>) {
+function service(tool: string | null = FAKE, stateFile?: string, afterTitle?: DiscsOptions['afterTitle']) {
   return createDiscs({
     stateFile,
     afterTitle,
@@ -107,8 +108,8 @@ describe('makemkvcon output', () => {
           chapters: 28,
           bytes: 6_400_000_000,
           video: { size: '720x576', aspect: null, codec: null },
-          audio: [{ language: 'deu', languageName: null, codec: null, channels: '6 Kanäle' }],
-          subtitles: [{ language: 'eng', languageName: null, codec: null, channels: null }],
+          audio: [{ language: 'deu', languageName: null, codec: null, channels: '6 Kanäle', codecId: null, channelCount: 6 }],
+          subtitles: [{ language: 'eng', languageName: null, codec: null, channels: null, codecId: null, channelCount: null }],
         },
       ],
     });
@@ -177,10 +178,12 @@ describe('ripping discs', () => {
       [0, 7112, 600000],
       [1, 725, 60000],
     ]);
+    // German first: German stays, the English track is suggested to go; the German subtitles stay.
     expect(read.info?.titles[0]?.audio).toEqual([
-      { language: 'deu', languageName: 'German', codec: 'AC3', channels: '5.1(side)' },
-      { language: 'eng', languageName: 'English', codec: 'AC3', channels: 'stereo' },
+      { language: 'deu', languageName: 'German', codec: 'AC3', channels: '5.1(side)', codecId: null, channelCount: 6, keep: true },
+      { language: 'eng', languageName: 'English', codec: 'AC3', channels: 'stereo', codecId: null, channelCount: 2, keep: false },
     ]);
+    expect(read.info?.titles[0]?.subtitles.map((stream) => stream.keep)).toEqual([true]);
 
     const rip = await discs.rip({ drive: 0, folder: 'Findet Nemo (2003)', titles: [{ index: 0, fileName: 'Findet Nemo (2003).mkv' }, { index: 1, fileName: 'Extras.mkv' }] });
     expect(rip).toMatchObject({ disc: 'FINDET_NEMO', folder: 'Findet Nemo (2003)', state: 'queued', eject: true, auto: false });
@@ -351,7 +354,7 @@ describe('ripping discs', () => {
     await discs.idle();
     expect((await discs.status()).rips[0]).toMatchObject({
       state: 'done',
-      error: 'Gerippt, aber die Tonspuren blieben, wie sie waren: mkvmerge fehlt auf dem Server – MKVToolNix installieren.',
+      error: 'Gerippt, aber die Spuren blieben, wie sie waren: mkvmerge fehlt auf dem Server – MKVToolNix installieren.',
     });
     expect(await readdir(path.join(target, 'Nochmal'))).toEqual(['Nochmal.mkv']);
   });
@@ -371,6 +374,44 @@ describe('ripping discs', () => {
     expect(ejected).toEqual(['/dev/sr0']);
     expect(discs.active()).toBeNull();
     expect((await discs.status()).rips[0]?.state).toBe('done');
+  });
+
+  it('hands the chosen tracks of each title on after the rip, and checks them first', async () => {
+    const seen: Array<[string, StreamKeep | undefined]> = [];
+    const discs = service(FAKE, undefined, async (file, _signal, keep) => seen.push([path.basename(file), keep]));
+    await discs.status();
+    await discs.read({ drive: 0 });
+    for (let i = 0; i < 100 && (await discs.status()).reads[0]?.state === 'reading'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const refused = (titles: Parameters<typeof discs.rip>[0]['titles']) => discs.rip({ drive: 0, folder: 'Nemo', titles }).then(() => 'started', (error: Error) => error.message);
+    expect(await refused([{ index: 0, fileName: 'A.mkv', audio: [5] }])).toBe('Ungültige Spuren für Titel 1.');
+    expect(await refused([{ index: 0, fileName: 'A.mkv', audio: [] }])).toBe('Titel 1: mindestens eine Tonspur behalten.');
+    expect(await refused([{ index: 7, fileName: 'A.mkv', audio: [0] }])).toBe('Die Spuren von Titel 8 kennt der Agent nicht (mehr) – zuerst neu lesen.');
+
+    await discs.rip({
+      drive: 0,
+      folder: 'Nemo',
+      titles: [
+        { index: 0, fileName: 'A.mkv', audio: [0], subtitles: [] },
+        // All of them: nothing to take out.
+        { index: 1, fileName: 'B.mkv', audio: [1, 0], subtitles: [0] },
+      ],
+      eject: false,
+    });
+    await discs.idle();
+    expect(seen.map(([file, keep]) => [file, keep && { audio: keep.audio.chosen, subtitles: keep.subtitles.chosen, streams: keep.audio.streams.length }])).toEqual([
+      ['A.mkv', { audio: [0], subtitles: [], streams: 2 }],
+      ['B.mkv', undefined],
+    ]);
+  });
+
+  it('keeps only the suggested tracks in the automatic mode, when so set', async () => {
+    const seen: Array<StreamKeep | undefined> = [];
+    settings = { auto: true, eject: true, read: true, trimTracks: true };
+    const discs = service(FAKE, undefined, async (_file, _signal, keep) => seen.push(keep));
+    await discs.tick();
+    await discs.idle();
+    // German first: German alone, and the German subtitles.
+    expect(seen.map((keep) => keep && [keep.audio.chosen, keep.subtitles.chosen])).toEqual([[[0], [0]]]);
   });
 
   it('remembers a ripped disc over a restart, so the automatic mode does not take it again', async () => {

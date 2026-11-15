@@ -18,6 +18,7 @@ import type {
   ExtractedFolder,
   ExtractedIsos,
   ExtractedIsosMoved,
+  ExtractedTracks,
   ExtractedMove,
   HistoryResponse,
   JDownloaderStatus,
@@ -862,6 +863,7 @@ describe('JDownloader routes', () => {
       extractedConvert: true,
       links: true,
       extractedRename: true,
+      extractedTracks: true,
     });
     expect((await post('/api/jdownloader/control', { action: 'start' })).status).toBe(409);
     expect((await call('/api/jdownloader/linkgrabber')).status).toBe(409);
@@ -981,6 +983,58 @@ describe('JDownloader routes', () => {
     expect((await post('/api/audio', { paths: ['Serie/Folge 1.mkv'] })).status).toBe(400);
     await rm(path.join(extracted, 'Serie'), { recursive: true });
 
+    // The tracks of the MKV files, with a suggestion, and taking some out.
+    await mkdir(path.join(extracted, 'Film'));
+    const audioTrack = (id: number, language: string, codec: string, channels: number) => ({ id, type: 'audio', codec, properties: { number: id + 1, language, codec_id: 'A_X', audio_channels: channels, default_track: id === 1 } });
+    await writeFile(
+      path.join(extracted, 'Film', 'Film.mkv'),
+      JSON.stringify({
+        tracks: [
+          { id: 0, type: 'video', codec: 'HEVC', properties: { number: 1, language: 'und', default_track: true } },
+          audioTrack(1, 'eng', 'TrueHD Atmos', 8),
+          audioTrack(2, 'eng', 'AC-3', 2),
+          audioTrack(3, 'ger', 'AC-3', 2),
+          audioTrack(4, 'ger', 'DTS', 6),
+          audioTrack(5, 'fre', 'AC-3', 6),
+          { id: 6, type: 'subtitles', codec: 'HDMV PGS', properties: { number: 7, language: 'fre', forced_track: false } },
+        ],
+        padding: 'x'.repeat(3000),
+      }),
+    );
+    await writeFile(path.join(extracted, 'Film', 'Film.nfo'), 'nfo');
+    expect(((await (await call('/api/status')).json()) as AgentStatus).jdownloader?.extractedTracks).toBe(true);
+    expect((await post('/api/jdownloader/extracted/tracks', { paths: [] })).status).toBe(400);
+    const listed = (await (await post('/api/jdownloader/extracted/tracks', { paths: ['Film'] })).json()) as ExtractedTracks;
+    expect(listed).toMatchObject({ language: 'ger', first: true });
+    expect(listed.files.map((file) => file.path)).toEqual(['Film/Film.mkv']);
+    // English TrueHD (first, best English), German DTS (best German), the first subtitles.
+    expect(listed.files[0]!.tracks.map((entry) => [entry.id, entry.type, entry.language, entry.codec, entry.channels, entry.keep])).toEqual([
+      [0, 'video', 'und', 'HEVC', null, true],
+      [1, 'audio', 'eng', 'TrueHD Atmos', 8, true],
+      [2, 'audio', 'eng', 'AC-3', 2, false],
+      [3, 'audio', 'ger', 'AC-3', 2, false],
+      [4, 'audio', 'ger', 'DTS', 6, true],
+      [5, 'audio', 'fre', 'AC-3', 6, false],
+      [6, 'subtitles', 'fre', 'HDMV PGS', null, true],
+    ]);
+    expect((await post('/api/jdownloader/extracted/tracks/remove', { files: [{ path: 'Film/Film.nfo', keep: [1] }] })).status).toBe(400);
+    expect((await post('/api/jdownloader/extracted/tracks/remove', { files: [{ path: '../x.mkv', keep: [1] }] })).status).toBe(400);
+    expect((await post('/api/jdownloader/extracted/tracks/remove', { files: [{ path: 'Film/Film.mkv', keep: ['eins'] }] })).status).toBe(400);
+    const trimmed = await post('/api/jdownloader/extracted/tracks/remove', { files: [{ path: 'Film/Film.mkv', keep: [1, 4] }] });
+    expect(trimmed.status).toBe(202);
+    expect(await trimmed.json()).toMatchObject({ kind: 'tracks', language: 'ger', total: 1 });
+    task = (await (await call('/api/audio')).json()) as AudioTask;
+    for (let i = 0; i < 100 && task.state === 'running'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      task = (await (await call('/api/audio')).json()) as AudioTask;
+    }
+    expect(task.results).toEqual([
+      { path: 'Film/Film.mkv', changed: true, message: '3 Tonspuren und 1 Untertitelspur entfernt. Die deutsche Tonspur steht jetzt zuerst und ist Standard.' },
+    ]);
+    const after = JSON.parse(await readFile(path.join(extracted, 'Film', 'Film.mkv'), 'utf8')) as { tracks: Array<{ type: string; properties: { language: string } }> };
+    expect(after.tracks.map((entry) => `${entry.type}:${entry.properties.language}`)).toEqual(['video:und', 'audio:ger', 'audio:eng']);
+    await rm(path.join(extracted, 'Film'), { recursive: true });
+
     expect((await post('/api/jdownloader/extracted/move', { ...move, target: path.join(root, 'gibts-nicht') })).status).toBe(404);
     expect((await post('/api/jdownloader/extracted/move', { ...move, label: '' })).status).toBe(400);
     expect((await post('/api/jdownloader/extracted/move', { ...move, paths: ['../filme'] })).status).toBe(400);
@@ -1087,7 +1141,7 @@ describe('JDownloader routes', () => {
       drives: [],
       reads: [],
       rips: [],
-      settings: { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, isoFolder: null },
+      settings: { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, isoFolder: null, trimTracks: false },
       target: null,
       error: null,
     });
@@ -1106,7 +1160,7 @@ describe('JDownloader routes', () => {
       'Eine bekannte Sprache für die Tonspur erwartet (ger, eng, fre, ita, spa) oder keine.',
     ]);
     const saved = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false }) });
-    expect(await saved.json()).toEqual({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false, isoFolder: null });
+    expect(await saved.json()).toEqual({ auto: true, eject: false, read: false, audioLanguage: null, audioFirst: false, isoFolder: null, trimTracks: false });
     expect(JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8')).discs).toEqual({
       auto: true,
       eject: false,
@@ -1114,16 +1168,19 @@ describe('JDownloader routes', () => {
       audioLanguage: null,
       audioFirst: false,
       isoFolder: null,
+      trimTracks: false,
     });
     // From an older Manelly, without read and the audio track: reading stays on, German first.
     const older = await call('/api/discs/settings', { method: 'PUT', body: JSON.stringify({ auto: false, eject: true }) });
-    expect(await older.json()).toEqual({ auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, isoFolder: null });
+    expect(await older.json()).toEqual({ auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, isoFolder: null, trimTracks: false });
+    expect(await refused('/api/discs/settings', { auto: false, eject: true, trimTracks: 'ja' }, 'PUT')).toEqual([400, 'Spuren kürzen erwartet (ja/nein).']);
+    expect(((await (await put('/api/discs/settings', { auto: false, eject: true, trimTracks: true })).json()) as { trimTracks: boolean }).trimTracks).toBe(true);
   });
 
   it('keeps the ISO folder and lists its images', async () => {
     expect(((await (await call('/api/status')).json()) as AgentStatus).discIsos).toBe(true);
     const isos = path.join(root, 'isos');
-    const settings = { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true };
+    const settings = { auto: false, eject: true, read: true, audioLanguage: 'ger', audioFirst: true, trimTracks: false };
     const refused = async (pathname: string, body: unknown, method = 'POST') => {
       const response = await call(pathname, { method, body: JSON.stringify(body) });
       return [response.status, ((await response.json()) as { error: { message: string } }).error.message];

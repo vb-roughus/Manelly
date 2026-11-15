@@ -17,6 +17,12 @@ export interface MkvTrack {
   languageIetf: string | null;
   default: boolean;
   forced: boolean;
+  /** "DTS-HD Master Audio", "AC-3", "HDMV PGS" … */
+  codec: string | null;
+  /** "A_DTS", "S_HDMV/PGS" … */
+  codecId: string | null;
+  channels: number | null;
+  name: string | null;
 }
 
 /** The spellings of a language, by its ISO 639-2/B code as Manelly stores it. */
@@ -81,7 +87,7 @@ export function identify(mkvmerge: string, file: string): Promise<MkvTrack[]> {
       try {
         const parsed = JSON.parse(stdout) as {
           errors?: string[];
-          tracks?: Array<{ id: number; type: string; properties?: Record<string, unknown> }>;
+          tracks?: Array<{ id: number; type: string; codec?: string; properties?: Record<string, unknown> }>;
         };
         if (!parsed.tracks) return reject(new AgentError(400, parsed.errors?.[0] ?? `${pathApiFor(file).basename(file)} ist keine MKV-Datei.`));
         resolve(
@@ -95,6 +101,10 @@ export function identify(mkvmerge: string, file: string): Promise<MkvTrack[]> {
               languageIetf: typeof props.language_ietf === 'string' ? props.language_ietf : null,
               default: props.default_track === true,
               forced: props.forced_track === true,
+              codec: typeof track.codec === 'string' ? track.codec : null,
+              codecId: typeof props.codec_id === 'string' ? props.codec_id : null,
+              channels: typeof props.audio_channels === 'number' ? props.audio_channels : null,
+              name: typeof props.track_name === 'string' ? props.track_name : null,
             };
           }),
         );
@@ -136,25 +146,52 @@ function run(tool: string, args: string[], signal?: AbortSignal): Promise<void> 
   });
 }
 
-/** Writes the file anew with the tracks in `plan.order`, next to it, and puts it in place of the old one. */
-async function remux(mkvmerge: string, file: string, plan: AudioPlan, tracks: MkvTrack[], signal?: AbortSignal): Promise<void> {
+const removable = (track: MkvTrack) => track.type === 'audio' || track.type === 'subtitles';
+
+/**
+ * Writes the file anew next to it and puts it in place of the old one: the tracks in `plan.order` (if any), with the
+ * plan's default flags, and – with `kept` – only those tracks of audio and subtitles. Nothing is encoded.
+ */
+async function remux(mkvmerge: string, file: string, plan: AudioPlan, tracks: MkvTrack[], signal?: AbortSignal, kept?: MkvTrack[]): Promise<void> {
   const api = pathApiFor(file);
   const temp = api.join(api.dirname(file), `${TEMP_FOLDER_PREFIX}audio-${randomUUID()}`);
   const output = api.join(temp, api.basename(file));
-  const preferred = plan.preferred!;
-  // Every audio track gets its flag; a changed subtitle flag too.
-  const flags = new Map<number, boolean>(tracks.filter((track) => track.type === 'audio').map((track) => [track.id, track === preferred]));
-  for (const { track, value } of plan.flags) flags.set(track.id, value);
+  const remaining = kept ?? tracks;
+  // Every audio track gets its flag when one is preferred; a changed subtitle flag too.
+  const flags = new Map<number, boolean>(plan.preferred ? remaining.filter((track) => track.type === 'audio').map((track) => [track.id, track === plan.preferred]) : []);
+  for (const { track, value } of plan.flags) if (remaining.includes(track)) flags.set(track.id, value);
+  const ids = (type: string) => remaining.filter((track) => track.type === type).map((track) => track.id);
+  const selection = kept
+    ? [
+        ...(ids('audio').length > 0 ? ['--audio-tracks', ids('audio').join(',')] : ['--no-audio']),
+        ...(ids('subtitles').length > 0 ? ['--subtitle-tracks', ids('subtitles').join(',')] : ['--no-subtitles']),
+      ]
+    : [];
   try {
     await mkdir(temp);
     await run(
       mkvmerge,
-      ['-o', output, ...[...flags].flatMap(([id, value]) => ['--default-track-flag', `${id}:${value ? 1 : 0}`]), '--track-order', plan.order!.map((id) => `0:${id}`).join(','), file],
+      [
+        '-o',
+        output,
+        ...selection,
+        ...[...flags].flatMap(([id, value]) => ['--default-track-flag', `${id}:${value ? 1 : 0}`]),
+        ...(plan.order ? ['--track-order', plan.order.map((id) => `0:${id}`).join(',')] : []),
+        file,
+      ],
       signal,
     );
     const [before, after] = await Promise.all([stat(file), stat(output)]);
-    // Only the order changed: a much smaller file means something went missing.
-    if (after.size < before.size * 0.95) throw new AgentError(500, `mkvmerge hat eine zu kleine Datei geschrieben – ${api.basename(file)} bleibt, wie sie war.`);
+    if (kept) {
+      // Tracks went: the new file must hold exactly the others – and its picture, so not be tiny.
+      const written = await identify(mkvmerge, output);
+      if (written.length !== remaining.length || after.size < before.size * 0.3) {
+        throw new AgentError(500, `mkvmerge hat nicht die erwarteten Spuren geschrieben – ${api.basename(file)} bleibt, wie sie war.`);
+      }
+    } else if (after.size < before.size * 0.95) {
+      // Only the order changed: a much smaller file means something went missing.
+      throw new AgentError(500, `mkvmerge hat eine zu kleine Datei geschrieben – ${api.basename(file)} bleibt, wie sie war.`);
+    }
     try {
       await rename(output, file);
     } catch (error) {
@@ -166,15 +203,70 @@ async function remux(mkvmerge: string, file: string, plan: AudioPlan, tracks: Mk
   }
 }
 
+/** "2 Tonspuren und 1 Untertitelspur". */
+function removedText(removed: MkvTrack[]): string {
+  const audio = removed.filter((track) => track.type === 'audio').length;
+  const subtitles = removed.filter((track) => track.type === 'subtitles').length;
+  return [audio > 0 && `${audio} ${audio === 1 ? 'Tonspur' : 'Tonspuren'}`, subtitles > 0 && `${subtitles} ${subtitles === 1 ? 'Untertitelspur' : 'Untertitelspuren'}`]
+    .filter(Boolean)
+    .join(' und ');
+}
+
+export interface AdjustOptions {
+  mkvmerge: string;
+  /** Made the default (and with `first` the first) audio track; null leaves the flags. */
+  language: string | null;
+  first: boolean;
+  /**
+   * The ids of the audio and subtitle tracks to keep – or how to find them from the file's tracks; the others go.
+   * Left out: all stay. Video and everything else always stays.
+   */
+  keep?: readonly number[] | ((tracks: MkvTrack[]) => readonly number[]);
+  signal?: AbortSignal;
+}
+
+/**
+ * Takes out the tracks not kept and makes `language` the sound a player picks – in one go: when tracks go, mkvmerge
+ * writes the file anew with the flags and the order; otherwise only the flags change (see preferAudio).
+ */
+export async function adjustTracks(file: string, { mkvmerge, language, first, keep, signal }: AdjustOptions): Promise<Omit<AudioResult, 'path'>> {
+  const tracks = await identify(mkvmerge, file);
+  const ids = typeof keep === 'function' ? keep(tracks) : keep;
+  // Ids of the video and the like are fine – those always stay; an id the file does not have is not.
+  if (ids?.some((id) => !tracks.some((track) => track.id === id))) {
+    throw new AgentError(409, 'Die Spuren der Datei sind nicht mehr dieselben – den Dialog nochmals öffnen.');
+  }
+  const removed = ids ? tracks.filter((track) => removable(track) && !ids.includes(track.id)) : [];
+  if (removed.length === 0) {
+    if (language) return preferAudio(file, { mkvmerge, language, first, signal, tracks });
+    return { changed: false, message: 'Alle Spuren bleiben.' };
+  }
+  const kept = tracks.filter((track) => !removed.includes(track));
+  if (tracks.some((track) => track.type === 'audio') && !kept.some((track) => track.type === 'audio')) throw new AgentError(400, 'Mindestens eine Tonspur muss bleiben.');
+  const plan = language ? planAudio(kept, language, first) : { preferred: null, flags: [], order: null };
+  await remux(mkvmerge, file, plan, tracks, signal, kept);
+  const name = language ? adjective(language) : '';
+  const sound = !language
+    ? ''
+    : !plan.preferred
+      ? ` Keine ${name} Tonspur.`
+      : plan.order
+        ? ` Die ${name} Tonspur steht jetzt zuerst und ist Standard.`
+        : plan.flags.length > 0
+          ? ` Die ${name} Tonspur ist jetzt Standard.`
+          : '';
+  return { changed: true, message: `${removedText(removed)} entfernt.${sound}` };
+}
+
 /**
  * Makes `language` the sound a player picks: the default flag on its first track (mkvpropedit, only the header
  * changes), and with `first` that track in front of the others (mkvmerge writes the file anew, nothing is encoded).
  */
 export async function preferAudio(
   file: string,
-  { mkvmerge, language, first, signal }: { mkvmerge: string; language: string; first: boolean; signal?: AbortSignal },
+  { mkvmerge, language, first, signal, tracks: known }: { mkvmerge: string; language: string; first: boolean; signal?: AbortSignal; tracks?: MkvTrack[] },
 ): Promise<Omit<AudioResult, 'path'>> {
-  const tracks = await identify(mkvmerge, file);
+  const tracks = known ?? (await identify(mkvmerge, file));
   const plan = planAudio(tracks, language, first);
   const name = adjective(language);
   if (!plan.preferred) return { changed: false, message: `Keine ${name} Tonspur.` };
@@ -215,6 +307,15 @@ export async function mkvFiles(full: string, limit = 500): Promise<string[]> {
   return found.sort();
 }
 
+/** A file of an audio task. */
+export interface TaskFile {
+  path: string;
+  shown: string;
+  busy: string | null;
+  /** The ids of the audio and subtitle tracks to keep; left out: all stay. */
+  keep?: number[];
+}
+
 export interface AudioFixerOptions {
   /** mkvmerge, if installed. */
   tool: () => Promise<string | null>;
@@ -231,7 +332,7 @@ export function createAudioFixer({ tool, notify, log = () => {} }: AudioFixerOpt
   let task: AudioTask | null = null;
   let running: Promise<void> | null = null;
 
-  async function work(current: AudioTask, files: Array<{ path: string; shown: string; busy: string | null }>, library: boolean) {
+  async function work(current: AudioTask, files: TaskFile[], library: boolean) {
     const mkvmerge = await tool();
     const changed: string[] = [];
     for (const file of files) {
@@ -239,7 +340,7 @@ export function createAudioFixer({ tool, notify, log = () => {} }: AudioFixerOpt
       try {
         if (file.busy) throw new AgentError(409, file.busy);
         if (!mkvmerge) throw new AgentError(503, 'mkvmerge fehlt auf dem Server – MKVToolNix installieren.');
-        const result = await preferAudio(file.path, { mkvmerge, language: current.language, first: current.first });
+        const result = await adjustTracks(file.path, { mkvmerge, language: current.language, first: current.first, keep: file.keep });
         current.results.push({ path: file.shown, ...result });
         if (result.changed) changed.push(file.path);
       } catch (error) {
@@ -251,7 +352,7 @@ export function createAudioFixer({ tool, notify, log = () => {} }: AudioFixerOpt
     current.state = 'done';
     current.finishedAt = new Date().toISOString();
     const failed = current.results.filter((result) => result.error).length;
-    log(`Tonspuren: ${changed.length} von ${files.length} Dateien geändert${failed ? `, ${failed} mit Fehler` : ''}.`);
+    log(`${current.kind === 'tracks' ? 'Spuren' : 'Tonspuren'}: ${changed.length} von ${files.length} Dateien geändert${failed ? `, ${failed} mit Fehler` : ''}.`);
     if (library && changed.length > 0) await notify?.(changed.map((path) => ({ Path: path, UpdateType: 'Modified' as const })));
   }
 
@@ -260,13 +361,20 @@ export function createAudioFixer({ tool, notify, log = () => {} }: AudioFixerOpt
   return {
     status,
 
-    /** `busy` says why a file must stay as it is (being converted, moved …); `shown` is how the file is named in the answer. */
-    start(files: Array<{ path: string; shown: string; busy: string | null }>, options: { language: string; first: boolean; library: boolean }): AudioTask {
-      if (task?.state === 'running') throw new AgentError(409, 'Es werden gerade schon Tonspuren angepasst – danach nochmals.');
+    /** mkvmerge, as the tasks find it. */
+    mkvmerge: tool,
+
+    /**
+     * `busy` says why a file must stay as it is (being converted, moved …); `shown` is how the file is named in the
+     * answer; `keep` the tracks to keep (kind tracks).
+     */
+    start(files: TaskFile[], options: { language: string | null; first: boolean; library: boolean; kind?: 'audio' | 'tracks' }): AudioTask {
+      if (task?.state === 'running') throw new AgentError(409, 'Es werden gerade schon Spuren angepasst – danach nochmals.');
       if (files.length === 0) throw new AgentError(400, 'Keine MKV-Dateien gefunden.');
       const current: AudioTask = {
         id: randomUUID(),
         state: 'running',
+        kind: options.kind ?? 'audio',
         language: options.language,
         first: options.first,
         total: files.length,

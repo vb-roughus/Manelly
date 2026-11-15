@@ -32,6 +32,8 @@ import type {
   ExtractedMoveTarget,
   ExtractedRenamed,
   ExtractedRenameRequest,
+  ExtractedTracks,
+  TrackRemovalRequest,
   AudioRequest,
   AudioTask,
   ExtractedSamples,
@@ -511,6 +513,52 @@ export async function agentRoutes(
 
   app.get('/jdownloader/extracted/samples', async (): Promise<ExtractedSamples> => requireAgent(agent).extractedSamples());
 
+  // The audio and subtitle tracks of MKV files there, with a suggestion which to keep; and taking the others out.
+  app.post<{ Body: { paths: string[] } }>(
+    '/jdownloader/extracted/tracks',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['paths'],
+          properties: { paths: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'string', minLength: 1, maxLength: 2000 } } },
+        },
+      },
+    },
+    async (request): Promise<ExtractedTracks> => requireAgent(agent).extractedTracks(request.body.paths),
+  );
+  app.post<{ Body: TrackRemovalRequest }>(
+    '/jdownloader/extracted/tracks/remove',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['files'],
+          properties: {
+            files: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 200,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['path', 'keep'],
+                properties: { path: { type: 'string', minLength: 1, maxLength: 2000 }, keep: { type: 'array', maxItems: 500, items: { type: 'integer', minimum: 0 } } },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply): Promise<AudioTask> => {
+      const task = await requireAgent(agent).removeExtractedTracks(request.body);
+      request.log.info(`Spuren entfernen im Entpack-Ordner: ${request.body.files.length} Dateien`);
+      return reply.status(202).send(task);
+    },
+  );
+
   // ISO images that came with a download: all of them go into the ISO folder of the disc settings, for ripping there.
   app.get('/jdownloader/extracted/isos', async (): Promise<ExtractedIsos> => requireAgent(agent).extractedIsos());
   app.post('/jdownloader/extracted/isos', async (request, reply): Promise<ExtractedIsosMoved> => {
@@ -690,7 +738,13 @@ export async function agentRoutes(
                 type: 'object',
                 additionalProperties: false,
                 required: ['index', 'fileName'],
-                properties: { index: { type: 'integer', minimum: 0 }, fileName: { type: 'string', minLength: 1, maxLength: 255 } },
+                // The tracks to keep, as positions in the title's streams (agent from 0.41.0).
+                properties: {
+                  index: { type: 'integer', minimum: 0 },
+                  fileName: { type: 'string', minLength: 1, maxLength: 255 },
+                  audio: { type: 'array', maxItems: 500, items: { type: 'integer', minimum: 0 } },
+                  subtitles: { type: 'array', maxItems: 500, items: { type: 'integer', minimum: 0 } },
+                },
               },
             },
             eject: { type: 'boolean' },
@@ -727,6 +781,7 @@ export async function agentRoutes(
             audioLanguage: { type: ['string', 'null'], enum: [...AUDIO_LANGUAGES, null] },
             audioFirst: { type: 'boolean' },
             isoFolder: { type: ['string', 'null'], maxLength: 400 },
+            trimTracks: { type: 'boolean' },
           },
         },
       },

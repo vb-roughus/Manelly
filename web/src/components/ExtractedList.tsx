@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import type { ConversionJob, DolbyVisionInfo, ExtractedEntry, ExtractedMove, LibrarySeries, MoveScan, SeriesSeason } from '@manelly/shared';
+import type { AudioTask, ConversionJob, DolbyVisionInfo, ExtractedEntry, ExtractedMove, ExtractedTrack, LibrarySeries, MoveScan, SeriesSeason } from '@manelly/shared';
 import {
   ChevronDown,
   CircleCheck,
@@ -13,6 +13,7 @@ import {
   FolderInput,
   FolderOpen,
   FolderSearch,
+  Layers,
   LoaderCircle,
   AudioLines,
   Pencil,
@@ -39,17 +40,20 @@ import {
   useExtractedIsos,
   useExtractedMoves,
   useExtractedSamples,
+  useExtractedTracks,
   useLibrarySeries,
   useMediaLibraries,
   useMoveExtracted,
   useMoveExtractedIsos,
+  useRemoveExtractedTracks,
   useRenameExtracted,
   useSeriesSeasons,
 } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
 import { initialChoices, loadChoices, rememberedChoices, saveChoices } from '../lib/convertChoices';
 import { describeDolbyVision, dolbyVisionLabel, guessSeriesName, isExtractedFile, isFolderName, joinFolder, VIDEO } from '../lib/extracted';
-import { AUDIO_LANGUAGES, audioLanguageLabel } from '../lib/audioLanguages';
+import { AUDIO_LANGUAGES, audioLanguageAdjective, audioLanguageLabel } from '../lib/audioLanguages';
+import { layoutOf, type PickTrack } from '../lib/tracks';
 import { formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 import { range } from '../lib/packageSelection';
 import { describeSchedule, restricts } from '../lib/schedule';
@@ -59,6 +63,7 @@ import { isActive, STEP_LABELS } from './ConversionStatus';
 import { Choice } from './media/ConvertDialog';
 import { Modal } from './Modal';
 import { SearchSelect } from './SearchSelect';
+import { keepsSound, suggestedChoice, TrackPicker, type TrackChoice } from './TrackPicker';
 import { keepTextOnShift } from './Tick';
 
 const TEXT = /\.(nfo|txt|srt|ass|ssa|sub|idx|sfv|md5)$/i;
@@ -165,6 +170,7 @@ export function ExtractedList({
   renamable,
   audio = false,
   isos = false,
+  tracks = false,
 }: {
   onOpenSettings: () => void;
   actions: boolean;
@@ -179,13 +185,15 @@ export function ExtractedList({
   audio?: boolean;
   /** Agent from 0.40.0: ISO images found here go into the ISO folder, from where Discs rips them. */
   isos?: boolean;
+  /** Agent from 0.41.0: audio and subtitle tracks of the ticked MKV files can be taken out. */
+  tracks?: boolean;
 }) {
   const root = useExtracted('', true, 60_000);
   const moves = useExtractedMoves(actions);
   const now = useNow(60_000);
   const [selected, setSelected] = useState<Map<string, Ticked>>(new Map());
   const [anchor, setAnchor] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<'move' | 'samples' | 'delete' | 'audio' | null>(null);
+  const [dialog, setDialog] = useState<'move' | 'samples' | 'delete' | 'audio' | 'tracks' | null>(null);
   const audioTask = useAudioTask(audio);
   const [converting, setConverting] = useState<ExtractedEntry | null>(null);
   const [renaming, setRenaming] = useState<ExtractedEntry | null>(null);
@@ -293,6 +301,15 @@ export function ExtractedList({
             >
               <AudioLines className="size-4" aria-hidden /> Tonspur
             </button>
+            <button
+              type="button"
+              onClick={() => setDialog('tracks')}
+              disabled={selected.size === 0 || !tracks}
+              title={tracks ? 'Ton- und Untertitelspuren, die es nicht braucht, aus den MKV-Dateien nehmen' : 'Geht ab Agent 0.41.0 – unter Einstellungen → Updates «Alles aktualisieren».'}
+              className={button}
+            >
+              <Layers className="size-4" aria-hidden /> Spuren
+            </button>
             {selected.size > 0 ? (
               <span className="text-xs text-ink-2">
                 {selected.size} ausgewählt · {size(selectedBytes)} ·{' '}
@@ -307,10 +324,10 @@ export function ExtractedList({
         )}
         {!actions && <p className="mt-3 text-xs text-ink-3">Verschieben in eine Mediathek und Samples löschen gehen ab Agent 0.27.0 – unter Server → Agent «Aktualisieren & neu starten».</p>}
 
-        {audioTask.data?.state === 'running' && dialog !== 'audio' && (
+        {audioTask.data?.state === 'running' && dialog !== 'audio' && dialog !== 'tracks' && (
           <p className="mt-3 flex items-center gap-2 rounded-xl bg-card-2/50 p-3 text-xs ring-1 ring-line" role="status">
             <LoaderCircle className="size-3.5 shrink-0 animate-spin text-accent" aria-hidden />
-            Tonspuren werden angepasst – {audioTask.data.done} von {audioTask.data.total}
+            {audioTask.data.kind === 'tracks' ? 'Spuren werden entfernt' : 'Tonspuren werden angepasst'} – {audioTask.data.done} von {audioTask.data.total}
             {audioTask.data.current && <span className="truncate text-ink-2"> · {audioTask.data.current}</span>}
           </p>
         )}
@@ -365,6 +382,15 @@ export function ExtractedList({
         description="In den angekreuzten MKV-Dateien – bei Ordnern in allen darin. Jellyfin spielt danach diese Sprache, Englisch bleibt wählbar."
       >
         {dialog === 'audio' && <AudioForm paths={[...selected.keys()]} onClose={() => setDialog(null)} />}
+      </Modal>
+      <Modal
+        open={dialog === 'tracks'}
+        onClose={() => setDialog(null)}
+        icon={Layers}
+        title="Spuren entfernen"
+        description="Angekreuzte Spuren bleiben, die anderen nimmt der Agent aus den MKV-Dateien – Bild und Ton werden nicht neu kodiert."
+      >
+        {dialog === 'tracks' && <TracksForm paths={[...selected.keys()]} onClose={() => setDialog(null)} />}
       </Modal>
       <Modal open={dialog === 'delete'} onClose={() => setDialog(null)} icon={Trash2} tone="critical" title="Im Entpack-Ordner löschen">
         <DeleteForm
@@ -1034,50 +1060,92 @@ function AudioForm({ paths, onClose }: { paths: string[]; onClose: () => void })
   const task = useAudioTask(true).data;
   const mine = start.data && task?.id === start.data.id ? task : (start.data ?? null);
 
-  if (mine) {
-    const running = mine.state === 'running';
-    const changed = mine.results.filter((result) => result.changed).length;
-    return (
-      <div className="space-y-4 text-sm">
-        <p className="flex items-center gap-2" role="status">
-          {running ? <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden /> : <CircleCheck className="size-4 text-good" aria-hidden />}
-          {running
-            ? `${mine.done} von ${mine.total} Dateien${mine.current ? ` – ${mine.current}` : ''}`
-            : `Fertig: ${changed} von ${mine.total} ${mine.total === 1 ? 'Datei' : 'Dateien'} geändert.`}
-        </p>
-        {mine.results.length > 0 && (
-          <ul className="max-h-64 space-y-1.5 overflow-y-auto text-xs">
-            {mine.results.map((result) => (
-              <li key={result.path} className="flex items-start gap-1.5">
-                {result.error ? (
-                  <CircleX className="mt-px size-3.5 shrink-0 text-critical" aria-hidden />
-                ) : result.changed ? (
-                  <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
-                ) : (
-                  <CircleCheck className="mt-px size-3.5 shrink-0 text-ink-3" aria-hidden />
-                )}
-                <span className="min-w-0">
-                  <span className="font-medium break-all">{result.path}</span>
-                  <span className={clsx('block', result.error ? 'text-critical' : 'text-ink-2')}>{result.message}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="flex justify-end">
-          <button type="button" onClick={onClose} className={button}>
-            {running ? 'Im Hintergrund weiterlaufen lassen' : 'Schliessen'}
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (mine) return <TaskProgress task={mine} onClose={onClose} />;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     start.mutate({ paths, language: chosenLanguage, first: chosenFirst });
   }
 
+  return (
+    <AudioChoice
+      id={id}
+      paths={paths}
+      language={chosenLanguage}
+      first={chosenFirst}
+      onLanguage={setLanguage}
+      onFirst={setFirst}
+      onSubmit={submit}
+      onClose={onClose}
+      error={start.error}
+      pending={start.isPending}
+    />
+  );
+}
+
+/** How far an audio task is, and for each file what came of it. */
+function TaskProgress({ task: mine, onClose }: { task: AudioTask; onClose: () => void }) {
+  const running = mine.state === 'running';
+  const changed = mine.results.filter((result) => result.changed).length;
+  return (
+    <div className="space-y-4 text-sm">
+      <p className="flex items-center gap-2" role="status">
+        {running ? <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden /> : <CircleCheck className="size-4 text-good" aria-hidden />}
+        {running
+          ? `${mine.done} von ${mine.total} Dateien${mine.current ? ` – ${mine.current}` : ''}`
+          : `Fertig: ${changed} von ${mine.total} ${mine.total === 1 ? 'Datei' : 'Dateien'} geändert.`}
+      </p>
+      {mine.results.length > 0 && (
+        <ul className="max-h-64 space-y-1.5 overflow-y-auto text-xs">
+          {mine.results.map((result) => (
+            <li key={result.path} className="flex items-start gap-1.5">
+              {result.error ? (
+                <CircleX className="mt-px size-3.5 shrink-0 text-critical" aria-hidden />
+              ) : result.changed ? (
+                <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
+              ) : (
+                <CircleCheck className="mt-px size-3.5 shrink-0 text-ink-3" aria-hidden />
+              )}
+              <span className="min-w-0">
+                <span className="font-medium break-all">{result.path}</span>
+                <span className={clsx('block', result.error ? 'text-critical' : 'text-ink-2')}>{result.message}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex justify-end">
+        <button type="button" onClick={onClose} className={button}>
+          {running ? 'Im Hintergrund weiterlaufen lassen' : 'Schliessen'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AudioChoice({
+  id,
+  paths,
+  language: chosenLanguage,
+  first: chosenFirst,
+  onLanguage: setLanguage,
+  onFirst: setFirst,
+  onSubmit: submit,
+  onClose,
+  error,
+  pending,
+}: {
+  id: string;
+  paths: string[];
+  language: string;
+  first: boolean;
+  onLanguage: (language: string) => void;
+  onFirst: (first: boolean) => void;
+  onSubmit: (event: FormEvent) => void;
+  onClose: () => void;
+  error: Error | null;
+  pending: boolean;
+}) {
   return (
     <form onSubmit={submit} className="space-y-4 text-sm">
       <p className="text-ink-2">
@@ -1101,14 +1169,119 @@ function AudioForm({ paths, onClose }: { paths: string[]; onClose: () => void })
           <span className="block text-ink-2">Für Apps wie Infuse, die die erste Tonspur nehmen. Der Agent schreibt die Datei dafür neu, ohne etwas neu zu kodieren.</span>
         </span>
       </label>
-      {start.error && <Message tone="critical">{start.error.message}</Message>}
+      {error && <Message tone="critical">{error.message}</Message>}
       <div className="flex flex-wrap justify-end gap-2">
         <button type="button" onClick={onClose} className={button}>
           Abbrechen
         </button>
-        <button type="submit" disabled={start.isPending} className={primaryButton}>
-          {start.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <AudioLines className="size-4" aria-hidden />}{' '}
+        <button type="submit" disabled={pending} className={primaryButton}>
+          {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <AudioLines className="size-4" aria-hidden />}{' '}
           {audioLanguageLabel(chosenLanguage)} zum Standard machen
+        </button>
+      </div>
+    </form>
+  );
+}
+
+const pickOf = (track: ExtractedTrack): PickTrack => ({ language: track.language, codec: track.codec, channels: track.channels, keep: track.keep, forced: track.forced, name: track.name });
+
+/**
+ * The audio and subtitle tracks of the ticked MKV files, to keep or take out. Files with the same tracks – the episodes
+ * of a season – share one choice; it starts from the suggestion (first track's language and the preferred one, each
+ * in its best sound).
+ */
+function TracksForm({ paths, onClose }: { paths: string[]; onClose: () => void }) {
+  const listing = useExtractedTracks(paths);
+  const start = useRemoveExtractedTracks();
+  const task = useAudioTask(true).data;
+  const [choices, setChoices] = useState<Map<string, TrackChoice>>(new Map());
+  const mine = start.data && task?.id === start.data.id ? task : (start.data ?? null);
+  if (mine) return <TaskProgress task={mine} onClose={onClose} />;
+  if (listing.isPending) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-ink-2" role="status">
+        <LoaderCircle className="size-4 animate-spin text-accent" aria-hidden /> Liest die Spuren der Dateien …
+      </p>
+    );
+  }
+  if (listing.isError) {
+    return (
+      <div className="space-y-4 text-sm">
+        <Message tone="critical">{listing.error.message}</Message>
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} className={button}>
+            Schliessen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const { files, language, first } = listing.data;
+  const groups = new Map<string, { audio: PickTrack[]; subtitles: PickTrack[]; files: typeof files }>();
+  for (const file of files.filter((entry) => !entry.error)) {
+    const audio = file.tracks.filter((track) => track.type === 'audio').map(pickOf);
+    const subtitles = file.tracks.filter((track) => track.type === 'subtitles').map(pickOf);
+    const layout = layoutOf(audio, subtitles);
+    const group = groups.get(layout) ?? { audio, subtitles, files: [] };
+    group.files.push(file);
+    groups.set(layout, group);
+  }
+  const choiceOf = (layout: string) => choices.get(layout) ?? suggestedChoice(groups.get(layout)!.audio, groups.get(layout)!.subtitles);
+  // Per file the ids of the tracks that stay; only files that lose something are written anew.
+  const removals = [...groups].flatMap(([layout, group]) => {
+    const choice = choiceOf(layout);
+    return group.files.flatMap((file) => {
+      const audio = file.tracks.filter((track) => track.type === 'audio');
+      const subtitles = file.tracks.filter((track) => track.type === 'subtitles');
+      const keep = [...audio.filter((_, index) => choice.audio.has(index)), ...subtitles.filter((_, index) => choice.subtitles.has(index))].map((track) => track.id);
+      return keep.length < audio.length + subtitles.length ? [{ path: file.path, keep }] : [];
+    });
+  });
+  const silent = [...groups].some(([layout, group]) => !keepsSound(group.audio, choiceOf(layout)));
+  const failed = files.filter((file) => file.error);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (removals.length > 0 && !silent) start.mutate({ files: removals });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4 text-sm">
+      <p className="text-ink-2">
+        {files.length === 1 ? '1 MKV-Datei' : `${files.length} MKV-Dateien`}. Der Agent schreibt jede Datei ohne die abgewählten Spuren neu – bei grossen
+        Dateien einige Minuten pro Datei, im Hintergrund.
+        {language && ` Danach ist die ${audioLanguageAdjective(language)} Tonspur Standard${first ? ' und steht zuerst' : ''}, wie nach einem Rip.`}
+      </p>
+      <div className="max-h-[55dvh] space-y-3 overflow-y-auto">
+        {[...groups].map(([layout, group]) => (
+          <div key={layout}>
+            <p className="mb-1 text-xs font-medium break-all">
+              {group.files.length === 1 ? group.files[0]!.path : `${group.files.length} Dateien mit denselben Spuren`}
+            </p>
+            {group.files.length > 1 && (
+              <p className="mb-1.5 truncate text-xs text-ink-3" title={group.files.map((file) => file.path).join('\n')}>
+                {group.files.map((file) => lastName(file.path)).join(', ')}
+              </p>
+            )}
+            <TrackPicker audio={group.audio} subtitles={group.subtitles} choice={choiceOf(layout)} onChange={(choice) => setChoices(new Map(choices).set(layout, choice))} />
+          </div>
+        ))}
+        {failed.map((file) => (
+          <p key={file.path} className="text-xs text-critical">
+            <span className="font-medium break-all">{file.path}</span>: {file.error}
+          </p>
+        ))}
+      </div>
+      {start.error && <Message tone="critical">{start.error.message}</Message>}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {removals.length === 0 && !silent && <span className="mr-auto text-xs text-ink-3">Es bleiben alle Spuren – nichts zu tun.</span>}
+        <button type="button" onClick={onClose} className={button}>
+          Abbrechen
+        </button>
+        <button type="submit" disabled={removals.length === 0 || silent || start.isPending} className={primaryButton}>
+          {start.isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Layers className="size-4" aria-hidden />}
+          {removals.length > 1 ? ` Aus ${removals.length} Dateien entfernen` : ' Spuren entfernen'}
         </button>
       </div>
     </form>

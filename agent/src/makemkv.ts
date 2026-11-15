@@ -88,6 +88,7 @@ const TYPE = 1;
 const NAME = 2;
 const LANG_CODE = 3;
 const LANG_NAME = 4;
+const CODEC_ID = 5;
 const CODEC_SHORT = 6;
 const CHAPTERS = 8;
 const DURATION = 9;
@@ -101,6 +102,14 @@ const CHANNEL_LAYOUT = 40;
 const VIDEO = '6201';
 const AUDIO = '6202';
 const SUBTITLES = '6203';
+
+/** "5.1(side)" → 6, "7.1" → 8, "stereo" → 2, "mono" → 1; null when the layout does not say. */
+export function channelsOf(layout: string | null): number | null {
+  if (!layout) return null;
+  const surround = /(\d+)\.(\d)/.exec(layout);
+  if (surround) return Number(surround[1]) + Number(surround[2]);
+  return /stereo/i.test(layout) ? 2 : /mono/i.test(layout) ? 1 : null;
+}
 
 /**
  * The disc and its titles from the output of `makemkvcon -r info disc:N` (or iso:…); `fallback` names a disc that does
@@ -129,11 +138,13 @@ export function parseDiscInfo(drive: number | null, lines: string[], now = new D
     }
   }
   const text = (values: Map<number, string>, id: number) => values.get(id)?.trim() || null;
-  const stream = (values: Map<number, string>): DiscStream => ({
+  const stream = (values: Map<number, string>, audio: boolean): DiscStream => ({
     language: text(values, LANG_CODE),
     languageName: text(values, LANG_NAME),
     codec: text(values, CODEC_SHORT),
     channels: text(values, CHANNEL_LAYOUT) ?? (text(values, CHANNELS) ? `${text(values, CHANNELS)} Kanäle` : null),
+    codecId: text(values, CODEC_ID),
+    channelCount: audio ? Number(text(values, CHANNELS)) || channelsOf(text(values, CHANNEL_LAYOUT)) : null,
   });
 
   const list: DiscTitle[] = [...titles.entries()]
@@ -147,8 +158,8 @@ export function parseDiscInfo(drive: number | null, lines: string[], now = new D
         chapters: Number(values.get(CHAPTERS)) || 0,
         bytes: Number.isFinite(bytes) && bytes > 0 ? bytes : null,
         video: video ? { size: text(video.values, VIDEO_SIZE), aspect: text(video.values, ASPECT), codec: text(video.values, CODEC_SHORT) } : null,
-        audio: own.filter((entry) => entry.type === AUDIO).map((entry) => stream(entry.values)),
-        subtitles: own.filter((entry) => entry.type === SUBTITLES).map((entry) => stream(entry.values)),
+        audio: own.filter((entry) => entry.type === AUDIO).map((entry) => stream(entry.values, true)),
+        subtitles: own.filter((entry) => entry.type === SUBTITLES).map((entry) => stream(entry.values, false)),
       };
     })
     .filter((title) => title.durationSeconds >= MIN_TITLE_SECONDS)

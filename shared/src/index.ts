@@ -1531,6 +1531,8 @@ export interface AgentStatus {
     extractedConvert?: boolean;
     links?: boolean;
     extractedRename?: boolean;
+    /** Taking audio and subtitle tracks out of MKV files there; from agent 0.41.0. */
+    extractedTracks?: boolean;
   };
   /** The Windows user's network drives and whether the agent reaches them; missing before 0.14.0, empty elsewhere. */
   drives?: NetworkDrive[];
@@ -1824,6 +1826,15 @@ export interface DiscStream {
   codec: string | null;
   /** Audio: "5.1", "stereo" and the like. */
   channels: string | null;
+  /** Matroska's codec id, e.g. "A_DTS"; from agent 0.41.0. */
+  codecId?: string | null;
+  /** Audio channels as a number, e.g. 6 for 5.1; from agent 0.41.0. */
+  channelCount?: number | null;
+  /**
+   * Suggested to keep (agent from 0.41.0): of the audio the best track in the language of the first one and the best
+   * in the preferred language, of the subtitles the first and those in the preferred language.
+   */
+  keep?: boolean;
 }
 
 /** A title of a disc: a film, an episode, an extra – MakeMKV makes one MKV file of each. */
@@ -1944,6 +1955,11 @@ export interface DiscSettings {
    * this folder and the folders right in it. Missing before agent 0.40.0.
    */
   isoFolder?: string | null;
+  /**
+   * The automatic mode keeps only the suggested tracks (first track's language and the preferred one, each in its best
+   * sound); otherwise all. Missing before agent 0.41.0.
+   */
+  trimTracks?: boolean;
 }
 
 /** An ISO image in the ISO folder. */
@@ -1977,8 +1993,10 @@ export interface AudioResult {
 export interface AudioTask {
   id: string;
   state: 'running' | 'done';
-  /** ISO 639-2/B, e.g. ger. */
-  language: string;
+  /** tracks (from agent 0.41.0): tracks are taken out, and the preferred track set as well, if there is one. */
+  kind?: 'audio' | 'tracks';
+  /** ISO 639-2/B, e.g. ger; null: none to prefer (only tracks taken out). */
+  language: string | null;
   first: boolean;
   total: number;
   done: number;
@@ -2016,10 +2034,44 @@ export interface DiscsStatus {
 export type DiscRipRequest = DiscSourceRequest & {
   /** The new folder in the extraction folder. */
   folder: string;
-  titles: Array<{ index: number; fileName: string }>;
+  /**
+   * From agent 0.41.0, `audio` and `subtitles`: the tracks to keep, as positions in the title's `audio` and
+   * `subtitles`; the others are taken out after the rip (nothing is encoded). Left out: all stay.
+   */
+  titles: Array<{ index: number; fileName: string; audio?: number[]; subtitles?: number[] }>;
   /** Only for a drive. */
   eject?: boolean;
 };
+
+/** A track of an MKV file in the extraction folder, as mkvmerge describes it (agent from 0.41.0). */
+export interface ExtractedTrack {
+  /** mkvmerge's track id. */
+  id: number;
+  type: 'video' | 'audio' | 'subtitles' | string;
+  /** ISO 639-2, e.g. "ger"; null without one. */
+  language: string | null;
+  /** E.g. "DTS-HD Master Audio", "AC-3", "HDMV PGS". */
+  codec: string | null;
+  channels: number | null;
+  name: string | null;
+  default: boolean;
+  forced: boolean;
+  /** Suggested to keep: as for rips, the first track's language and the preferred one, each in its best sound. */
+  keep: boolean;
+}
+
+/** POST /api/jdownloader/extracted/tracks: the tracks of the MKV files of some entries (folders: all MKV files in them). */
+export interface ExtractedTracks {
+  files: Array<{ path: string; bytes: number; tracks: ExtractedTrack[]; error: string | null }>;
+  /** Set as default afterwards, from the disc settings; null: the flags stay. */
+  language: string | null;
+  first: boolean;
+}
+
+/** POST /api/jdownloader/extracted/tracks/remove: per file the ids of the tracks to keep; video always stays. */
+export interface TrackRemovalRequest {
+  files: Array<{ path: string; keep: number[] }>;
+}
 
 /** The ISO images in the extraction folder, e.g. from a download (GET /api/jdownloader/extracted/isos, agent 0.40.0). */
 export interface ExtractedIsos {

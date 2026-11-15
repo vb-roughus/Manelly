@@ -7,6 +7,7 @@ import { formatBytes } from './convert.js';
 import { AgentError } from './errors.js';
 import { createActivity, listDrives, readDisc, ripTitle, type DiscSource } from './makemkv.js';
 import { isValidSegment, isWithin, pathApiFor, TEMP_FOLDER_PREFIX } from './paths.js';
+import { markSuggested, type StreamKeep } from './tracks.js';
 import { defaultPowershell, scriptArgs, scriptError } from './powershell.js';
 
 /** Finished rips shown at most. */
@@ -120,8 +121,11 @@ export interface DiscsOptions {
   tickMs?: number;
   /** Where the agent keeps which disc of a drive is ripped already, over a restart. */
   stateFile?: string;
-  /** After each title: e.g. the preferred audio track first; a failure there does not fail the rip. */
-  afterTitle?: (file: string, signal: AbortSignal) => Promise<unknown>;
+  /**
+   * After each title: e.g. the preferred audio track first, and with `keep` only the chosen tracks left; a failure there
+   * does not fail the rip.
+   */
+  afterTitle?: (file: string, signal: AbortSignal, keep?: StreamKeep) => Promise<unknown>;
 }
 
 interface Job {
@@ -133,6 +137,8 @@ interface Job {
   label: string;
   /** discKey of the read it was ripped from; null without one. */
   fingerprint: string | null;
+  /** Per title index: the tracks to keep, when not all of them. */
+  keeps: Map<number, StreamKeep>;
   abort: AbortController;
   samples: Array<{ t: number; bytes: number }>;
   /** Feeds MakeMKV's output into the rip's step and messages. */
@@ -357,6 +363,8 @@ export function createDiscs(options: DiscsOptions) {
     if (source.iso !== undefined) forgetOldIsoReads();
     try {
       const info = await readDisc(tool, opened(source), { signal: abort.signal, onLine: take });
+      // Which tracks to keep, suggested as for the audio track after the rip.
+      markSuggested(info.titles, options.settings.get().audioLanguage ?? 'ger');
       read.info = { ...info, ...iso, rippedBefore: rippedBefore(info) };
       read.state = 'done';
       return read.info;
@@ -430,12 +438,13 @@ export function createDiscs(options: DiscsOptions) {
           if (made.length === 0) throw new Error(`MakeMKV hat Titel ${title.index + 1} nicht gespeichert${said ? `: ${said}` : '.'}`);
           await rename(api.join(temp, made[0]!), destination);
           if (options.afterTitle) {
-            view.step = 'Passt die Tonspuren an';
+            const keep = job.keeps.get(title.index);
+            view.step = keep ? 'Nimmt die nicht gewählten Spuren heraus' : 'Passt die Tonspuren an';
             try {
-              await options.afterTitle(destination, job.abort.signal);
+              await options.afterTitle(destination, job.abort.signal, keep);
             } catch (error) {
               if (job.abort.signal.aborted) throw error;
-              afterwards ??= `Gerippt, aber die Tonspuren blieben, wie sie waren: ${(error as Error).message}`;
+              afterwards ??= `Gerippt, aber die Spuren blieben, wie sie waren: ${(error as Error).message}`;
             }
           }
           title.state = 'done';
@@ -537,6 +546,25 @@ export function createDiscs(options: DiscsOptions) {
     // The sizes MakeMKV named when it read the disc.
     const read = reads.get(key)?.info;
     const known = read?.titles ?? [];
+    // The tracks to keep, as positions in the title's streams; all of them need nothing done.
+    const keeps = new Map<number, StreamKeep>();
+    for (const title of request.titles) {
+      if (title.audio === undefined && title.subtitles === undefined) continue;
+      const streams = known.find((candidate) => candidate.index === title.index);
+      if (!streams) throw new AgentError(409, `Die Spuren von Titel ${title.index + 1} kennt der Agent nicht (mehr) – zuerst neu lesen.`);
+      const positions = (value: unknown, count: number): number[] | null =>
+        value === undefined
+          ? [...Array(count).keys()]
+          : Array.isArray(value) && value.length <= 500 && value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry < count)
+            ? [...new Set(value as number[])].sort((a, b) => a - b)
+            : null;
+      const audio = positions(title.audio, streams.audio.length);
+      const subtitles = positions(title.subtitles, streams.subtitles.length);
+      if (!audio || !subtitles) throw new AgentError(400, `Ungültige Spuren für Titel ${title.index + 1}.`);
+      if (streams.audio.length > 0 && audio.length === 0) throw new AgentError(400, `Titel ${title.index + 1}: mindestens eine Tonspur behalten.`);
+      if (audio.length === streams.audio.length && subtitles.length === streams.subtitles.length) continue;
+      keeps.set(title.index, { audio: { streams: streams.audio, chosen: audio }, subtitles: { streams: streams.subtitles, chosen: subtitles } });
+    }
     const bytes = request.titles.map((title) => known.find((candidate) => candidate.index === title.index)?.bytes ?? null);
     const needed = bytes.reduce<number>((sum, value) => sum + (value ?? 0), 0);
     const free = (await options.freeBytes?.(target)) ?? null;
@@ -561,7 +589,7 @@ export function createDiscs(options: DiscsOptions) {
       startedAt: null,
       finishedAt: null,
     };
-    jobs.unshift({ view, source, device, label, fingerprint: read ? discKey(read) : null, abort: new AbortController(), samples: [], take: createActivity(view).take });
+    jobs.unshift({ view, source, device, label, fingerprint: read ? discKey(read) : null, keeps, abort: new AbortController(), samples: [], take: createActivity(view).take });
     log(`Disc «${view.disc}»: ${view.titles.length} Titel nach ${folder}${auto ? ' (automatisch)' : ''}`);
     const answer = snapshot(view);
     void work();
@@ -627,7 +655,10 @@ export function createDiscs(options: DiscsOptions) {
         const main = mainTitle(info.titles);
         if (!main) continue;
         const folder = await freeFolder(ripTo, folderNameFrom(info.name) ?? folderNameFrom(drive.disc ?? '') ?? `Disc ${new Date().toISOString().slice(0, 10)}`);
-        await enqueue({ drive: drive.index, folder, titles: [{ index: main.index, fileName: `${folder}.mkv` }], eject: true }, true);
+        // Only the suggested tracks, when so set.
+        const kept = (streams: DiscTitle['audio']) => streams.flatMap((stream, index) => (stream.keep ? [index] : []));
+        const tracks = settings.trimTracks === true ? { audio: kept(main.audio), subtitles: kept(main.subtitles) } : {};
+        await enqueue({ drive: drive.index, folder, titles: [{ index: main.index, fileName: `${folder}.mkv`, ...tracks }], eject: true }, true);
       } catch (error) {
         log(`Automatisches Rippen von «${key}» ging nicht: ${(error as Error).message}`);
       }

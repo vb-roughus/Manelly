@@ -326,6 +326,13 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   jeder Dateiname lässt sich noch ändern
 - **Schon in der Mediathek?** Zum Namen sucht Manelly im Medienindex nach dem Film bzw. der Serie und zeigt Treffer mit
   Jahr, Auflösung und Anzahl Folgen – mit Link in die Medien
+- **Spuren wählen** (ab Agent 0.41.0): Unter der Titelliste stehen die Ton- und Untertitelspuren der gewählten Titel
+  zum Ankreuzen – bei Serien-Discs eine Auswahl für alle Folgen mit denselben Spuren. Vorgewählt sind die Sprache der
+  ersten Tonspur und Deutsch (bzw. die Sprache aus «Tonspur nach dem Rippen»), jeweils in der **besten Tonqualität**:
+  verlustfrei (TrueHD, DTS-HD MA, PCM) vor verlustbehaftet, dann mehr Kanäle, dann das bessere Format – also DTS 5.1
+  vor Dolby Digital 5.1 vor Stereo; Kommentarspuren bleiben so meist draussen. Bei den Untertiteln die ersten und die
+  deutschen. «Vorschlag» und «Alle» setzen die Auswahl zurück. Nach dem Rippen nimmt der Agent die abgewählten Spuren
+  mit mkvmerge heraus, ohne etwas neu zu kodieren – im selben Durchgang, in dem er die Tonspur als Standard setzt
 - **«Rippen»** schreibt die gewählten Titel in einen neuen Ordner im **Entpack-Ordner** (bei Serien «Name S02»); die Seite
   wechselt dabei zum Reiter **Rips** mit Fortschritt, Tempo und Restzeit; danach wirft der Agent die Disc aus (abschaltbar). Die Dateien erscheinen unter
   **Server → Extracted** und kommen von dort mit «Move to Library» in die Mediathek. Der Agent prüft vorher den
@@ -336,7 +343,9 @@ MakeMKV, seine Version sei zu alt (das tun die Beta-Versionen nach einigen Monat
   genügt. Serien-DVDs besser von Hand. Eine Disc, die schon gerippt wurde, lässt der automatische Modus aus (ab Agent
   0.39.0): Der Agent merkt sich jede gerippte Disc an ihrem Namen und Länge, Grösse und Kapiteln ihrer Titel – auch
   ausgeworfen und über Neustarts hinweg, etwa wenn ein nächtlicher Neustart des Servers die Lade wieder einzieht. Die
-  Laufwerkskarte sagt dann, wann und wohin sie gerippt wurde; von Hand lässt sie sich trotzdem nochmals rippen
+  Laufwerkskarte sagt dann, wann und wohin sie gerippt wurde; von Hand lässt sie sich trotzdem nochmals rippen. Mit
+  **«Im automatischen Modus nur die vorgeschlagenen Spuren behalten»** (ab Agent 0.41.0) behält er nur die Spuren, die
+  beim Rippen von Hand vorgewählt wären
 - **Tonspur nach dem Rippen** (ab Agent 0.38.0, Reiter «Einstellungen», ab Werk Deutsch und an erster Stelle): MakeMKV
   markiert die erste Tonspur als Standard – oft die englische –, und Jellyfin spielt dann Englisch. Nach jedem Titel
   macht der Agent die gewählte Sprache zum Standard und setzt sie auf Wunsch an die erste Stelle (siehe
@@ -408,6 +417,11 @@ liest nur diesen Ordner, jede Minute neu.
   Disc-Einstellungen, von wo [Discs](#discs-dvds-in-mkv-mit-agent-ab-0330) sie rippt; der Rest des Downloads bleibt. Das
   läuft wie Move to Library (auf derselben Platte sofort, sonst kopiert der Agent im Hintergrund). Ein Image, das eben
   noch geschrieben wurde (JDownloader entpackt es vielleicht noch), bleibt liegen, bis es eine Minute ruht
+- **Spuren** (ab Agent 0.41.0): zeigt die Ton- und Untertitelspuren der angekreuzten MKV-Dateien (bei Ordnern aller
+  darin) und nimmt die abgewählten heraus – vorgewählt wie beim Rippen (erste Tonspur und Deutsch, jeweils in der
+  besten Tonqualität; die ersten und die deutschen Untertitel). Dateien mit denselben Spuren, etwa die Folgen einer
+  Staffel, teilen sich eine Auswahl. Der Agent schreibt jede Datei mit mkvmerge neu, ohne neu zu kodieren, und setzt
+  dabei die Tonspur aus den Disc-Einstellungen als Standard; das läuft im Hintergrund, mindestens eine Tonspur bleibt
 - **Check for Samples** sucht im ganzen Entpack-Ordner nach Dateien mit «sample» im Namen und zeigt sie mit Ordner und
   Grösse; angekreuzt sind alle bis 1 GB (grössere sind selten ein Sample). Nach der Kontrolle löscht «Samples löschen»
   die angekreuzten – nur Dateien mit «sample» im Namen – und einen Sample-Ordner, der dabei leer wird

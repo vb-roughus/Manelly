@@ -31,6 +31,8 @@ import type {
   ExtractedMoveRequest,
   ExtractedRenamed,
   ExtractedRenameRequest,
+  ExtractedTracks,
+  TrackRemovalRequest,
   AudioRequest,
   AudioTask,
   ExtractedSamples,
@@ -126,6 +128,9 @@ export interface AgentClient {
   /** From agent 0.30.0: entries of the extraction folder, for good. */
   deleteExtracted(paths: string[]): Promise<ExtractedDeleted>;
   renameExtracted(request: ExtractedRenameRequest): Promise<ExtractedRenamed>;
+  /** From agent 0.41.0: the tracks of MKV files in the extraction folder, and taking some out (an audio task). */
+  extractedTracks(paths: string[]): Promise<ExtractedTracks>;
+  removeExtractedTracks(request: TrackRemovalRequest): Promise<AudioTask>;
   /** From agent 0.40.0: the ISO images in the extraction folder, and moving them all into the ISO folder. */
   extractedIsos(): Promise<ExtractedIsos>;
   moveExtractedIsos(): Promise<ExtractedIsosMoved>;
@@ -246,6 +251,8 @@ export function createAgentClient(settings: AgentSettings, options: { fetch?: ty
     renameExtracted: (request) => call('POST', '/api/jdownloader/extracted/rename', request, 60_000),
     extractedAudio: (request) => call('POST', '/api/jdownloader/extracted/audio', request, 60_000),
     extractedIsos: () => call('GET', '/api/jdownloader/extracted/isos', undefined, 60_000),
+    extractedTracks: (paths) => call('POST', '/api/jdownloader/extracted/tracks', { paths }, 120_000),
+    removeExtractedTracks: (request) => call('POST', '/api/jdownloader/extracted/tracks/remove', request, 60_000),
     moveExtractedIsos: () => call('POST', '/api/jdownloader/extracted/isos', {}, 60_000),
     libraryAudio: (paths, language, first) => call('POST', '/api/audio', { paths, language, first }, 60_000),
     audioStatus: () => call('GET', '/api/audio'),

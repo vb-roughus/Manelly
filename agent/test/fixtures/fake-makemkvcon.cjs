@@ -96,6 +96,20 @@ function describe() {
     out(`SINFO:${index},0,6,0,"Mpeg2"`);
     out(`SINFO:${index},0,19,0,"720x576"`);
     out(`SINFO:${index},0,20,0,"16:9"`);
+    // Streams of its own: [{ type: 'audio' | 'subtitles', lang, name, codec, codecId, channels, layout }].
+    if (disc.streams) {
+      disc.streams.forEach((stream, at) => {
+        const n = at + 1;
+        out(`SINFO:${index},${n},1,${stream.type === 'audio' ? 6202 : 6203},${q(stream.type === 'audio' ? 'Audio' : 'Subtitles')}`);
+        out(`SINFO:${index},${n},3,0,${q(stream.lang)}`);
+        out(`SINFO:${index},${n},4,0,${q(stream.name)}`);
+        out(`SINFO:${index},${n},6,0,${q(stream.codec)}`);
+        if (stream.codecId) out(`SINFO:${index},${n},5,0,${q(stream.codecId)}`);
+        if (stream.channels) out(`SINFO:${index},${n},14,0,${q(stream.channels)}`);
+        if (stream.layout) out(`SINFO:${index},${n},40,0,${q(stream.layout)}`);
+      });
+      return;
+    }
     out(`SINFO:${index},1,1,6202,"Audio"`);
     out(`SINFO:${index},1,3,0,"deu"`);
     out(`SINFO:${index},1,4,0,"German"`);
@@ -129,6 +143,13 @@ if (command === 'mkv') {
     process.exit(0);
   }
   const file = path.join(directory, `${disc.label}_t0${title}.mkv`);
+  // A real Matroska file to stand for the title, when the disc names one.
+  if (disc.source) {
+    out('PRGV:65536,65536,65536');
+    fs.copyFileSync(disc.source, file);
+    out(`MSG:5036,0,1,${q('Copy complete. 1 titles saved.')},"x"`);
+    process.exit(0);
+  }
   let step = 0;
   const timer = setInterval(() => {
     step++;

@@ -119,6 +119,8 @@ function fakeWorld(options: { videoRangeType?: string; dvProfile?: number; agent
         if (url.pathname.endsWith('/samples')) return Response.json({ samples: [{ path: 'Dune/Sample/dune-sample.mkv', bytes: 2 }] });
         if (url.pathname.endsWith('/convert')) return Response.json({ id: 'j1', state: 'queued', source: `D:\\Entpackt\\${body.path}`, output: `D:\\Entpackt\\${body.path}` }, { status: 202 });
         if (url.pathname.endsWith('/rename')) return Response.json({ path: body.name });
+        if (url.pathname.endsWith('/tracks/remove')) return Response.json({ id: 't1', state: 'running', kind: 'tracks', language: 'ger', first: true, total: body.files.length, done: 0, current: null, results: [], startedAt: '', finishedAt: null }, { status: 202 });
+        if (url.pathname.endsWith('/tracks')) return Response.json({ files: body.paths.map((path: string) => ({ path: `${path}/${path}.mkv`, bytes: 1, tracks: [], error: null })), language: 'ger', first: true });
         if (url.pathname.endsWith('/isos') && init?.method === 'POST') return Response.json({ move: null, skipped: [{ path: 'Alien.iso', error: 'Wurde eben noch geschrieben.' }] });
         if (url.pathname.endsWith('/isos')) return Response.json({ isos: [{ path: 'Alien.iso', bytes: 60e9, modifiedAt: '2026-11-15T10:00:00Z' }], isoFolder: 'D:\\ISOs' });
         if (url.pathname.endsWith('/audio')) return Response.json({ id: 'a2', state: 'running', language: body.language ?? 'ger', first: body.first ?? true, total: 3, done: 0, current: null, results: [], startedAt: '', finishedAt: null }, { status: 202 });
@@ -640,9 +642,10 @@ describe('agent connection', () => {
     expect((await inject('POST', '/discs/read', { iso: '' })).statusCode).toBe(400);
     expect((await inject('POST', '/discs/eject', { iso: 'Dune.iso' })).statusCode).toBe(400);
     expect((await inject('POST', '/discs/read/cancel', { iso: 'Dune.iso' })).statusCode).toBe(200);
-    const rip = { iso: 'Dune.iso', folder: 'Dune (2021)', titles: [{ index: 0, fileName: 'Dune (2021).mkv' }] };
+    const rip = { iso: 'Dune.iso', folder: 'Dune (2021)', titles: [{ index: 0, fileName: 'Dune (2021).mkv', audio: [0, 2], subtitles: [] }] };
     expect((await inject('POST', '/discs/rips', rip)).statusCode).toBe(202);
     expect((await inject('POST', '/discs/rips', { ...rip, drive: 0 })).statusCode).toBe(400);
+    expect((await inject('POST', '/discs/rips', { ...rip, titles: [{ index: 0, fileName: 'x.mkv', audio: [-1] }] })).statusCode).toBe(400);
     expect((await inject('PUT', '/discs/settings', { auto: false, eject: true, isoFolder: 'D:\\ISOs' })).json()).toEqual({ auto: false, eject: true, isoFolder: 'D:\\ISOs' });
     expect((await inject('PUT', '/discs/settings', { auto: false, eject: true, isoFolder: `D:\\${'x'.repeat(400)}` })).statusCode).toBe(400);
 
@@ -658,6 +661,22 @@ describe('agent connection', () => {
       ['PUT /api/discs/settings', { auto: false, eject: true, isoFolder: 'D:\\ISOs' }],
       ['GET /api/jdownloader/extracted/isos', undefined],
       ['POST /api/jdownloader/extracted/isos', {}],
+    ]);
+  });
+
+  it('lists and takes out tracks of MKV files in the extraction folder through the agent', async () => {
+    const { app, world } = await setup();
+    const inject = (url: string, payload: object) => app.inject({ method: 'POST', url: `/api/agent/jdownloader/extracted${url}`, payload });
+    expect((await inject('/tracks', { paths: ['Film'] })).json()).toMatchObject({ language: 'ger', files: [{ path: 'Film/Film.mkv' }] });
+    expect((await inject('/tracks', { paths: [] })).statusCode).toBe(400);
+    const removed = await inject('/tracks/remove', { files: [{ path: 'Film/Film.mkv', keep: [1, 4] }] });
+    expect(removed.statusCode).toBe(202);
+    expect(removed.json()).toMatchObject({ kind: 'tracks', total: 1 });
+    expect((await inject('/tracks/remove', { files: [{ path: 'Film/Film.mkv', keep: [-1] }] })).statusCode).toBe(400);
+    expect((await inject('/tracks/remove', { files: [] })).statusCode).toBe(400);
+    expect(world.sent.jdownloader).toEqual([
+      { method: 'POST', path: '/api/jdownloader/extracted/tracks', body: { paths: ['Film'] } },
+      { method: 'POST', path: '/api/jdownloader/extracted/tracks/remove', body: { files: [{ path: 'Film/Film.mkv', keep: [1, 4] }] } },
     ]);
   });
 

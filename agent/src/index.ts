@@ -9,7 +9,8 @@ import { createRecorder } from './history.js';
 import { createJDownloader } from './jdownloader.js';
 import { AGENT_VERSION, createMediaNotifier, createNotifier } from './jellyfin.js';
 import { createJobQueue } from './jobs.js';
-import { createAudioFixer, preferAudio } from './audio.js';
+import { adjustTracks, createAudioFixer } from './audio.js';
+import { keepFromStreams } from './tracks.js';
 import { createDiscs } from './discs.js';
 import { createMover } from './moves.js';
 import { createOriginals } from './originals.js';
@@ -96,13 +97,20 @@ const discs = createDiscs({
   log,
   tickMs: 15_000,
   stateFile: join(dataDir, 'discs.json'),
-  // MakeMKV marks the first audio track as default, often English: the preferred language goes there instead.
-  afterTitle: async (file, signal) => {
+  // MakeMKV marks the first audio track as default, often English: the preferred language goes there instead – and the
+  // tracks not chosen go, in the same go.
+  afterTitle: async (file, signal, keep) => {
     const { audioLanguage, audioFirst } = settings.get().discs;
-    if (!audioLanguage) return;
+    if (!audioLanguage && !keep) return;
     const mkvmerge = (await currentTools()).mkvmerge.path;
     if (!mkvmerge) throw new Error('mkvmerge fehlt auf dem Server – MKVToolNix installieren.');
-    const result = await preferAudio(file, { mkvmerge, language: audioLanguage, first: audioFirst !== false, signal });
+    const result = await adjustTracks(file, {
+      mkvmerge,
+      language: audioLanguage ?? null,
+      first: audioFirst !== false,
+      keep: keep ? (tracks) => keepFromStreams(tracks, keep) : undefined,
+      signal,
+    });
     log(`${file}: ${result.message}`);
   },
 });

@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Code, Message } from '../components/ConnectionForm';
 import { Tabs, useTab, type TabEntry } from '../components/Tabs';
+import { keepsSound, suggestedChoice, TrackPicker, type TrackChoice } from '../components/TrackPicker';
 import { fetchJson } from '../lib/api';
 import {
   useAgent,
@@ -21,7 +22,8 @@ import {
   useSetDiscSettings,
 } from '../hooks/queries';
 import { useNow } from '../hooks/useNow';
-import { AUDIO_LANGUAGES } from '../lib/audioLanguages';
+import { AUDIO_LANGUAGES, audioLanguageAdjective, audioLanguageLabel } from '../lib/audioLanguages';
+import { layoutOf } from '../lib/tracks';
 import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, makemkvAdvice, namesFromDisc, suggestSelection, type DiscKind, type MakemkvAdvice } from '../lib/discs';
 import { channelLayoutLabel, formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 
@@ -590,12 +592,21 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
   const [firstEpisode, setFirstEpisode] = useState(1);
   const [custom, setCustom] = useState<Map<number, string>>(new Map());
   const [eject, setEject] = useState(ejectByDefault ?? false);
+  // The tracks to keep, per layout of tracks (the episodes of a series disc share one); agent from 0.41.0.
+  const [trackChoices, setTrackChoices] = useState<Map<string, TrackChoice>>(new Map());
+  const pickTracks = info.titles.some((title) => [...title.audio, ...title.subtitles].some((stream) => stream.keep !== undefined));
 
   const derived = fileNamesFor(kind, name, [...selected], season, firstEpisode);
   const fileName = (index: number) => custom.get(index) ?? derived.get(index) ?? '';
   const folder = kind === 'serie' ? `${name.trim()} S${two(season)}` : name.trim();
   const chosen = info.titles.filter((title) => selected.has(title.index));
   const bytes = chosen.reduce((sum, title) => sum + (title.bytes ?? 0), 0);
+  const layouts = new Map<string, DiscTitle[]>();
+  for (const title of chosen) {
+    const layout = layoutOf(title.audio, title.subtitles);
+    layouts.set(layout, [...(layouts.get(layout) ?? []), title]);
+  }
+  const choiceFor = (title: DiscTitle) => trackChoices.get(layoutOf(title.audio, title.subtitles)) ?? suggestedChoice(title.audio, title.subtitles);
   const files = chosen.map((title) => fileName(title.index));
   const problem = !name.trim()
     ? 'Einen Namen eingeben.'
@@ -607,7 +618,9 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
           ? `«${files.find((entry) => !isPlainName(entry) || !/\.mkv$/i.test(entry))}» geht nicht als Dateiname; er muss auf .mkv enden.`
           : new Set(files.map((entry) => entry.toLowerCase())).size < files.length
             ? 'Zwei Titel haben denselben Dateinamen.'
-            : null;
+            : pickTracks && chosen.some((title) => !keepsSound(title.audio, choiceFor(title)))
+              ? 'Mindestens eine Tonspur behalten.'
+              : null;
 
   function toggle(index: number) {
     const next = new Set(selected);
@@ -620,7 +633,12 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
     event.preventDefault();
     if (problem) return;
     // The progress shows in the tab «Rips».
-    const titles = chosen.map((title) => ({ index: title.index, fileName: fileName(title.index) }));
+    const sorted = (positions: Set<number>) => [...positions].sort((a, b) => a - b);
+    const titles = chosen.map((title) => ({
+      index: title.index,
+      fileName: fileName(title.index),
+      ...(pickTracks ? { audio: sorted(choiceFor(title).audio), subtitles: sorted(choiceFor(title).subtitles) } : {}),
+    }));
     // An image has nothing to eject.
     rip.mutate({ ...sourceOf(info), folder, titles, ...(ejectByDefault === null ? {} : { eject }) }, { onSuccess: onStarted });
   }
@@ -691,6 +709,18 @@ function RipForm({ info, ejectByDefault, canRip, onStarted }: { info: DiscInfo; 
           </tbody>
         </table>
       </div>
+
+      {pickTracks &&
+        [...layouts].map(([layout, titles]) => (
+          <TrackPicker
+            key={layout}
+            audio={titles[0]!.audio}
+            subtitles={titles[0]!.subtitles}
+            choice={choiceFor(titles[0]!)}
+            onChange={(choice) => setTrackChoices(new Map(trackChoices).set(layout, choice))}
+            label={layouts.size > 1 ? `Titel ${titles.map((title) => title.index + 1).join(', ')}` : titles.length > 1 ? `gilt für alle ${titles.length} Titel` : null}
+          />
+        ))}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-ink-2">
@@ -903,7 +933,7 @@ function RipAdvice({ rip }: { rip: DiscRip }) {
 
 function AutoSettings({ settings }: { settings: DiscSettings }) {
   const save = useSetDiscSettings();
-  const { auto, eject, read, audioLanguage, audioFirst } = settings;
+  const { auto, eject, read, audioLanguage, audioFirst, trimTracks } = settings;
   // Older agents leave out what they do not know (read before 0.35.0, the audio track before 0.38.0) and get only that.
   const change = (next: Partial<DiscSettings>) => save.mutate({ ...settings, ...next });
   return (
@@ -930,6 +960,19 @@ function AutoSettings({ settings }: { settings: DiscSettings }) {
           </span>
         </span>
       </label>
+      {trimTracks !== undefined && (
+        <label className="mt-3 flex items-start gap-2.5">
+          <input type="checkbox" checked={trimTracks} disabled={save.isPending} onChange={(event) => change({ trimTracks: event.target.checked })} className="mt-0.5 size-4 accent-accent" />
+          <span>
+            <span className="font-medium">Im automatischen Modus nur die vorgeschlagenen Spuren behalten</span>
+            <span className="block text-ink-2">
+              Die Sprache der ersten Tonspur und {audioLanguageLabel(audioLanguage ?? 'ger')}, jeweils in der besten Tonqualität (z. B. DTS 5.1 vor Dolby
+              Digital Stereo), dazu die ersten und die {audioLanguageAdjective(audioLanguage ?? 'ger')}n Untertitel. Von Hand wählst du die Spuren beim
+              Rippen selbst.
+            </span>
+          </span>
+        </label>
+      )}
       <label className="mt-3 flex items-start gap-2.5">
         <input type="checkbox" checked={eject} disabled={save.isPending} onChange={(event) => change({ eject: event.target.checked })} className="mt-0.5 size-4 accent-accent" />
         <span>

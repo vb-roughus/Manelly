@@ -21,6 +21,8 @@ import type {
   ExtractedIsosMoved,
   ExtractedMoveRequest,
   ExtractedRenameRequest,
+  ExtractedTracks,
+  TrackRemovalRequest,
   AudioRequest,
   HardwareTestRequest,
   JDownloaderAction,
@@ -44,7 +46,8 @@ import { HARDWARE_TESTS, runHardwareTest } from './hwtest.js';
 import { AGENT_VERSION } from './jellyfin.js';
 import { createDolbyVisionProbe } from './dvProbe.js';
 import { deleteExtracted, deleteSamples, findIsos, findSamples, listExtracted, renameExtracted, resolveExtracted, within } from './extracted.js';
-import { isAudioLanguage, mkvFiles, type AudioFixer } from './audio.js';
+import { identify, isAudioLanguage, mkvFiles, type AudioFixer, type TaskFile } from './audio.js';
+import { suggestKeep } from './tracks.js';
 import type { Discs } from './discs.js';
 import type { Mover } from './moves.js';
 import { containerType, MAX_CONTAINER_BYTES, type JDownloader } from './jdownloader.js';
@@ -76,6 +79,8 @@ const MAX_LINK_LENGTH = 4000;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const MAX_MONITORED = 16;
 const MAX_MOVED = 5000;
+/** MKV files whose tracks are listed or taken out at once at most. */
+const MAX_TRACK_FILES = 200;
 /** An ISO in the extraction folder written to this recently may still be growing: JDownloader extracting it. */
 const FRESH_ISO_MS = 60_000;
 /** "\\nas", "\\192.168.1.20": a server, without share. */
@@ -279,6 +284,7 @@ export function createAgentServer(options: AgentServerOptions) {
           extractedConvert: true,
           links: true,
           extractedRename: true,
+          extractedTracks: Boolean(options.audio),
         },
         history: { enabled: settings.get().history.enabled },
         process: await options.process(),
@@ -525,6 +531,80 @@ export function createAgentServer(options: AgentServerOptions) {
         }
       }
       return send(response, 202, options.audio.start(files, { language, first, library: route === 'POST /api/audio' }));
+    }
+    if (route === 'POST /api/jdownloader/extracted/tracks' && options.audio) {
+      const directory = requireExtractTo();
+      const { paths } = await readJson<{ paths?: unknown }>(request);
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500 || paths.some((path) => typeof path !== 'string')) throw new AgentError(400, 'Die Einträge erwartet.');
+      await options.access?.prepare(directory);
+      const mkvmerge = await options.audio.mkvmerge();
+      if (!mkvmerge) throw new AgentError(409, 'mkvmerge fehlt auf dem Server – MKVToolNix installieren.');
+      const discSettings = settings.get().discs;
+      const api = pathApiFor(directory);
+      const files: ExtractedTracks['files'] = [];
+      for (const path of new Set(paths as string[])) {
+        for (const file of await mkvFiles(resolveExtracted(directory, path), MAX_TRACK_FILES)) {
+          const shown = api.relative(directory, file).split(api.sep).join('/');
+          if (files.length >= MAX_TRACK_FILES || files.some((entry) => entry.path === shown)) continue;
+          const bytes = await stat(file).then((info) => info.size, () => 0);
+          try {
+            const tracks = await identify(mkvmerge, file);
+            // As for rips: the first track's language and the preferred one, each in its best sound.
+            const keep = suggestKeep(
+              tracks.map((track) => ({ ...track, language: track.language ?? track.languageIetf })),
+              discSettings.audioLanguage ?? 'ger',
+            );
+            files.push({
+              path: shown,
+              bytes,
+              tracks: tracks.map((track, index) => ({
+                id: track.id,
+                type: track.type,
+                language: track.language ?? track.languageIetf,
+                codec: track.codec,
+                channels: track.channels,
+                name: track.name,
+                default: track.default,
+                forced: track.forced,
+                keep: keep.has(index),
+              })),
+              error: null,
+            });
+          } catch (error) {
+            files.push({ path: shown, bytes, tracks: [], error: (error as Error).message });
+          }
+        }
+      }
+      if (files.length === 0) throw new AgentError(404, 'Keine MKV-Dateien gefunden.');
+      const answer: ExtractedTracks = { files, language: discSettings.audioLanguage ?? null, first: discSettings.audioFirst !== false };
+      return send(response, 200, answer);
+    }
+    if (route === 'POST /api/jdownloader/extracted/tracks/remove' && options.audio) {
+      const directory = requireExtractTo();
+      const { files } = await readJson<Partial<TrackRemovalRequest>>(request);
+      const valid = (entry: unknown): entry is TrackRemovalRequest['files'][number] =>
+        typeof (entry as { path?: unknown })?.path === 'string' &&
+        Array.isArray((entry as { keep?: unknown }).keep) &&
+        (entry as { keep: unknown[] }).keep.length <= 500 &&
+        (entry as { keep: unknown[] }).keep.every((id) => Number.isInteger(id) && (id as number) >= 0);
+      if (!Array.isArray(files) || files.length === 0 || files.length > MAX_TRACK_FILES || !files.every(valid)) throw new AgentError(400, 'Dateien und die Spuren, die bleiben, erwartet.');
+      await options.access?.prepare(directory);
+      const converting = convertingIn(directory);
+      const moving = (options.mover?.list() ?? []).filter((move) => move.state === 'queued' || move.state === 'running').flatMap((move) => move.paths);
+      const taskFiles: TaskFile[] = [];
+      for (const { path, keep } of files) {
+        const full = resolveExtracted(directory, path);
+        if (!/\.mkv$/i.test(full)) throw new AgentError(400, `«${path}» ist keine MKV-Datei.`);
+        const busy = converting.some((other) => within(path, other) || within(other, path))
+          ? 'Wird gerade konvertiert – danach nochmals.'
+          : moving.some((other) => within(path, other))
+            ? 'Wird gerade verschoben.'
+            : null;
+        if (!taskFiles.some((entry) => entry.path === full)) taskFiles.push({ path: full, shown: path, busy, keep });
+      }
+      // The preferred track as after a rip: the file is written anew anyway.
+      const discSettings = settings.get().discs;
+      return send(response, 202, options.audio.start(taskFiles, { language: discSettings.audioLanguage ?? null, first: discSettings.audioFirst !== false, library: false, kind: 'tracks' }));
     }
     if (route === 'POST /api/jdownloader/extracted/rename') {
       const directory = requireExtractTo();

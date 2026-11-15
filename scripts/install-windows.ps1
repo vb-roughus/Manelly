@@ -153,3 +153,5 @@ foreach ($name in @('NoModify', 'NoRepair')) { New-ItemProperty -Path $uninstall
 Write-Info 'Starte Manelly …'
 & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Target 'scripts\launch-windows.ps1')
 Write-Info "Fertig: Manelly ist installiert ($Target). Das Symbol «Manelly» auf dem Desktop öffnet es im Browser und startet es, wenn es nicht läuft; «Manelly beenden» steht im Startmenü."
+# Says so to install-windows.cmd, which then closes its window.
+exit 0

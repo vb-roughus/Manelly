@@ -25,7 +25,7 @@ import {
 import { useNow } from '../hooks/useNow';
 import { AUDIO_LANGUAGES, audioLanguageAdjective, audioLanguageLabel } from '../lib/audioLanguages';
 import { layoutOf } from '../lib/tracks';
-import { fileNamesFor, formatDuration, isPlainName, languageName, librarySearchFor, makemkvAdvice, namesFromDisc, suggestSelection, type DiscKind, type MakemkvAdvice } from '../lib/discs';
+import { fileNamesFor, formatDuration, imageCoverage, isPlainName, languageName, librarySearchFor, makemkvAdvice, namesFromDisc, suggestSelection, type DiscKind, type MakemkvAdvice } from '../lib/discs';
 import { channelLayoutLabel, formatAgo, formatBitrate, formatBytes, joinParts } from '../lib/format';
 
 const button =
@@ -315,6 +315,7 @@ function ReadOutcome({
   canRip,
   onShowRips,
   hideRipped = false,
+  imageBytes,
 }: {
   read: DiscRead | null;
   info: DiscInfo | null;
@@ -324,8 +325,11 @@ function ReadOutcome({
   onShowRips: () => void;
   /** «Ripped before» is said elsewhere (the image's card). */
   hideRipped?: boolean;
+  /** The image's size, to tell when its titles make up only a little of it. */
+  imageBytes?: number;
 }) {
   const image = ejectByDefault === null;
+  const coverage = info && imageBytes !== undefined ? imageCoverage(info.titles, imageBytes) : null;
   const advice = read && (read.state === 'failed' || (info && info.titles.length === 0)) ? makemkvAdvice(read.error, read.messages) : null;
   return (
     <>
@@ -367,6 +371,15 @@ function ReadOutcome({
           </span>
         </p>
       )}
+      {info && imageBytes !== undefined && coverage?.low && (
+        <p className="mt-3 text-xs text-warning" role="status">
+          Die Titel ergeben zusammen nur {formatBytes(coverage.bytes)} der {formatBytes(imageBytes)} des Images – MakeMKV sieht den Hauptfilm darin
+          wohl nicht. Oft ist dann das Image unvollständig oder beschädigt, etwa ohne UDF erstellt, sodass Dateien über 4 GB fehlen. Zur Probe das
+          Image in Windows mit einem Doppelklick einbinden und nachsehen, ob die grossen Filmdateien darin sind: bei Blu-rays unter BDMV\STREAM, bei
+          DVDs unter VIDEO_TS.
+        </p>
+      )}
+      {info && info.titles.length > 0 && read && !ripping && <Messages activity={read} />}
       {info && info.titles.length > 0 && !ripping && <RipForm key={info.readAt} info={info} ejectByDefault={ejectByDefault} canRip={canRip} onStarted={onShowRips} />}
     </>
   );
@@ -476,16 +489,22 @@ function IsoCard({
   const [confirming, setConfirming] = useState(false);
   const names = iso.path.split('/');
   const info = read?.state === 'done' ? read.info : null;
-  const working = read?.state === 'reading' || ripping;
-  // Ripped already: folded to one line, unless something is under way or it is opened.
+  const reading = read?.state === 'reading';
+  const working = reading || ripping;
+  // A read under way opens the details, so its titles stay in view once it is done.
+  useEffect(() => {
+    if (reading) setOpen(true);
+  }, [reading]);
   const ripped = info?.rippedBefore ?? iso.rippedBefore ?? null;
-  const folded = Boolean(ripped) && !open && !working;
+  // Folded to one line until it is opened – unless a read or a rip is under way.
+  const folded = !open && !working;
+  const summary = working ? null : isoSummary(read, info, ripped, iso.bytes);
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">
-            <DiscAlbum className={clsx('size-5', (read?.state === 'reading' || ripping) && 'animate-spin [animation-duration:3s]')} aria-hidden />
+            <DiscAlbum className={clsx('size-5', working && 'animate-spin [animation-duration:3s]')} aria-hidden />
           </span>
           <div className="min-w-0">
             <p className="font-medium break-words">{names.at(-1)}</p>
@@ -500,10 +519,13 @@ function IsoCard({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {!folded && (
+          {!(ripped && folded) && (
             <button
               type="button"
-              onClick={() => readDisc.mutate({ iso: iso.path })}
+              onClick={() => {
+                setOpen(true);
+                readDisc.mutate({ iso: iso.path });
+              }}
               disabled={working || readDisc.isPending}
               className={button}
               title="Die Titel des Images mit MakeMKV lesen"
@@ -548,25 +570,55 @@ function IsoCard({
       )}
       {remove.isError && <p className="mt-3 text-critical">{remove.error.message}</p>}
       {readDisc.isError && <p className="mt-3 text-critical">{readDisc.error.message}</p>}
-      {ripped && !working && (
+      {summary && (
         <button
           type="button"
           onClick={() => setOpen(!open)}
           aria-expanded={!folded}
           className="mt-3 flex w-full items-start gap-2 rounded-lg bg-card-2/60 px-3 py-2 text-left text-xs ring-1 ring-line ring-inset hover:bg-card-2"
         >
-          <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />
-          <span className="min-w-0 flex-1">
-            Gerippt am {new Date(ripped.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })} nach «{ripped.folder}».
-          </span>
+          {summary}
           <span className="inline-flex shrink-0 items-center gap-1 font-medium text-accent">
             {folded ? 'Details' : 'Weniger'}
             <ChevronDown className={clsx('size-3.5 transition-transform', !folded && 'rotate-180')} aria-hidden />
           </span>
         </button>
       )}
-      {!folded && <ReadOutcome read={read} info={info} ripping={ripping} ejectByDefault={null} canRip={canRip} onShowRips={onShowRips} hideRipped />}
+      {!folded && (
+        <ReadOutcome read={read} info={info} ripping={ripping} ejectByDefault={null} canRip={canRip} onShowRips={onShowRips} hideRipped imageBytes={iso.bytes} />
+      )}
     </Card>
+  );
+}
+
+/** The one line a folded image card shows: ripped, read, or why the read came to nothing. Null when there is none. */
+function isoSummary(read: DiscRead | null, info: DiscInfo | null, ripped: DiscInfo['rippedBefore'], imageBytes: number): ReactNode {
+  const line = (icon: ReactNode, text: ReactNode) => (
+    <>
+      {icon}
+      <span className="min-w-0 flex-1">{text}</span>
+    </>
+  );
+  if (ripped) {
+    return line(
+      <CircleCheck className="mt-px size-3.5 shrink-0 text-good" aria-hidden />,
+      `Gerippt am ${new Date(ripped.at).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })} nach «${ripped.folder}».`,
+    );
+  }
+  const failed = <CircleX className="mt-px size-3.5 shrink-0 text-critical" aria-hidden />;
+  if (read?.state === 'failed') return line(failed, 'Lesen fehlgeschlagen.');
+  if (read?.state === 'canceled') return line(failed, 'Lesen abgebrochen.');
+  if (!info) return null;
+  if (info.titles.length === 0) return line(failed, 'MakeMKV hat im Image keine Titel gefunden.');
+  const longest = info.titles.reduce((best, title) => (title.durationSeconds > best.durationSeconds ? title : best));
+  const coverage = imageCoverage(info.titles, imageBytes);
+  return line(
+    <ScanSearch className="mt-px size-3.5 shrink-0 text-ink-2" aria-hidden />,
+    <>
+      {info.titles.length === 1 ? '1 Titel' : `${info.titles.length} Titel`} gelesen, der längste {formatDuration(longest.durationSeconds)}
+      {longest.bytes !== null && ` (${formatBytes(longest.bytes)})`}.
+      {coverage?.low && <span className="text-warning"> Zusammen nur {formatBytes(coverage.bytes)} des Images.</span>}
+    </>,
   );
 }
 

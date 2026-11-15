@@ -62,6 +62,7 @@ export async function listExtracted(
   relative: string,
   freeBytes: (directory: string) => Promise<number | null>,
   dolbyVision?: DolbyVisionProbe,
+  moved: ReadonlyArray<{ path: string; target: string; label: string; at: string }> = [],
 ): Promise<ExtractedFolder> {
   const names = namesOf(relative);
   if (!directory) return { directory: null, path: '', entries: [], freeBytes: null, error: null };
@@ -81,6 +82,14 @@ export async function listExtracted(
 
   const entries: ExtractedEntry[] = [];
   const videos: Array<{ entry: ExtractedEntry; full: string; info: { size: number; mtimeMs: number } }> = [];
+  // What went from here before: the entry itself (it came back, or stayed) or something in it. Windows names in any case.
+  const fold = (path: string) => path.toLowerCase();
+  const movedBefore = (path: string): ExtractedEntry['movedBefore'] => {
+    const own = moved.find((entry) => fold(entry.path) === fold(path));
+    const inner = own ? undefined : moved.find((entry) => fold(entry.path).startsWith(`${fold(path)}/`));
+    const found = own ?? inner;
+    return found ? { label: found.label, target: found.target, at: found.at, inside: !own } : undefined;
+  };
   for (const dirent of dirents.slice(0, MAX_ENTRIES)) {
     // A conversion working right here leaves its scratch folder alone.
     if ((!dirent.isDirectory() && !dirent.isFile()) || dirent.name.startsWith(TEMP_FOLDER_PREFIX)) continue;
@@ -88,11 +97,13 @@ export async function listExtracted(
     const info = await lstat(full).catch(() => null);
     if (!info) continue;
     const path = [...names, dirent.name].join('/');
+    const before = movedBefore(path);
+    const mark = before ? { movedBefore: before } : {};
     if (dirent.isDirectory()) {
       const { bytes, files, complete } = await measure(full, api);
-      entries.push({ name: dirent.name, path, kind: 'directory', bytes, files, complete, updatedAt: updatedAt(info) });
+      entries.push({ name: dirent.name, path, kind: 'directory', bytes, files, complete, updatedAt: updatedAt(info), ...mark });
     } else {
-      const entry: ExtractedEntry = { name: dirent.name, path, kind: 'file', bytes: info.size, files: null, complete: true, updatedAt: updatedAt(info) };
+      const entry: ExtractedEntry = { name: dirent.name, path, kind: 'file', bytes: info.size, files: null, complete: true, updatedAt: updatedAt(info), ...mark };
       entries.push(entry);
       if (SOURCE_EXTENSIONS.has(api.extname(dirent.name).toLowerCase())) videos.push({ entry, full, info });
     }

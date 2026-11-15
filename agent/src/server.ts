@@ -639,7 +639,7 @@ export function createAgentServer(options: AgentServerOptions) {
     if (route === 'GET /api/jdownloader/extracted') {
       const directory = settings.get().jdownloader.extractTo ?? null;
       if (directory) await options.access?.prepare(directory);
-      return send(response, 200, await listExtracted(directory, url.searchParams.get('path') ?? '', freeBytes, dolbyVision));
+      return send(response, 200, await listExtracted(directory, url.searchParams.get('path') ?? '', freeBytes, dolbyVision, options.mover?.moved() ?? []));
     }
     if (route === 'GET /api/jdownloader/linkgrabber') return send(response, 200, await jdownloaderCall(() => jdownloader.linkgrabber()));
     if (route === 'GET /api/jdownloader/accounts') return send(response, 200, await jdownloaderCall(() => jdownloader.accounts()));

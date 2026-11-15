@@ -1,12 +1,12 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { lstat, mkdir, readdir, rename, rm, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, rename, rm, rmdir, stat, unlink } from 'node:fs/promises';
 import type { DiscDrive, DiscInfo, DiscIso, DiscIsoList, DiscRead, DiscRip, DiscRipRequest, DiscSettings, DiscSourceRequest, DiscsStatus, DiscTitle } from '@manelly/shared';
 import { formatBytes } from './convert.js';
 import { AgentError } from './errors.js';
 import { createActivity, listDrives, readDisc, ripTitle, type DiscSource } from './makemkv.js';
 import { isValidSegment, isWithin, pathApiFor, TEMP_FOLDER_PREFIX } from './paths.js';
+import { readWholeSync, writeWhole } from './persist.js';
 import { markSuggested, type StreamKeep } from './tracks.js';
 import { defaultPowershell, scriptArgs, scriptError } from './powershell.js';
 
@@ -209,8 +209,10 @@ export function createDiscs(options: DiscsOptions) {
   function loadState(): { drives: Array<[number, string]>; history: RippedDisc[] } {
     const nothing = { drives: [], history: [] };
     if (!options.stateFile) return nothing;
+    const content = readWholeSync(options.stateFile);
+    if (content === null) return nothing;
     try {
-      const raw = JSON.parse(readFileSync(options.stateFile, 'utf8')) as Record<string, unknown>;
+      const raw = JSON.parse(content) as Record<string, unknown>;
       // Agents before 0.39.0 kept only the drives, right at the top.
       const drivesOf = (value: unknown) =>
         Object.entries((value ?? {}) as Record<string, unknown>).flatMap(([drive, disc]) =>
@@ -232,13 +234,13 @@ export function createDiscs(options: DiscsOptions) {
     return found ? { at: found.at, folder: found.folder } : null;
   }
 
-  /** One write after the other, each whole: a temporary file first, then renamed over the old one. */
+  /** One write after the other, each whole (see writeWhole); a failure shows in the log. */
   let saving: Promise<void> = Promise.resolve();
   function saveRipped() {
     const file = options.stateFile;
     if (!file) return;
     const content = JSON.stringify({ drives: Object.fromEntries(ripped), history });
-    saving = saving.then(() => writeFile(`${file}.tmp`, content).then(() => rename(`${file}.tmp`, file))).catch(() => {});
+    saving = saving.then(() => writeWhole(file, content)).catch((error: Error) => log(`Die Liste der gerippten Discs liess sich nicht speichern (${file}): ${error.message}`));
   }
 
   /** A drive without a disc forgets what was ripped from it. */
@@ -329,7 +331,11 @@ export function createDiscs(options: DiscsOptions) {
       if (!info?.isFile()) return;
       // Ripped from before: known by its full path (agents before 0.42.0 kept the path in the ISO folder).
       const path = names.join('/');
-      const ripped = history.find((entry) => entry.label === full || entry.label === path);
+      // By its full path; by its path in the ISO folder (agents before 0.42.0); by its name, e.g. after another ISO folder was set.
+      const name = names.at(-1)!.toLowerCase();
+      const ripped =
+        history.find((entry) => entry.label === full || entry.label === path) ??
+        history.find((entry) => /\.iso$/i.test(entry.label) && entry.label.split(/[\\/]/).pop()!.toLowerCase() === name);
       isos.push({ path, bytes: info.size, modifiedAt: info.mtime.toISOString(), rippedBefore: ripped ? { at: ripped.at, folder: ripped.folder } : null });
     }
     for (const entry of top) {

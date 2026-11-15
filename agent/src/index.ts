@@ -80,7 +80,13 @@ const queue = await createJobQueue({
   log,
 });
 // From the extraction folder into the libraries; Jellyfin hears about the new folders right away.
-const mover = createMover({ copyLimit: copyLimiter.current, notify: createMediaNotifier(() => settings.get().jellyfin, { log }), log });
+const mover = createMover({
+  copyLimit: copyLimiter.current,
+  notify: createMediaNotifier(() => settings.get().jellyfin, { log }),
+  log,
+  // What went from the extraction folder, so it can say so later – also after a restart.
+  stateFile: join(dataDir, 'moves.json'),
+});
 // The preferred audio track (e.g. German) as default, and first, in MKV files of the libraries or the extraction folder.
 const audio = createAudioFixer({
   tool: async () => (await currentTools()).mkvmerge.path,

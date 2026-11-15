@@ -121,6 +121,45 @@ describe('moving into a library', () => {
   });
 });
 
+describe('remembering what was moved', () => {
+  it('keeps what went over a restart, and the listing marks the entry when it comes back or something went from it', async () => {
+    const stateFile = path.join(root, 'moves.json');
+    const first = createMover({ stateFile });
+    await mkdir(path.join(extracted, 'Alien.UHD'));
+    await writeFile(path.join(extracted, 'Alien.UHD', 'Alien.iso'), 'iso');
+    await writeFile(path.join(extracted, 'Alien.UHD', 'Alien.nfo'), 'nfo');
+    await first.add(extracted, ['Dune (2024)'], library, 'Filme');
+    await settle(first);
+    await first.add(extracted, ['Alien.UHD/Alien.iso'], library, 'ISOs', false, false);
+    await settle(first);
+    expect(first.moved().map((entry) => [entry.path, entry.label])).toEqual([
+      ['Alien.UHD/Alien.iso', 'ISOs'],
+      ['Dune (2024)', 'Filme'],
+    ]);
+
+    // After a restart; and JDownloader extracted Dune again.
+    const second = createMover({ stateFile });
+    expect(second.moved()).toHaveLength(2);
+    await mkdir(path.join(extracted, 'Dune (2024)'));
+    const listing = await listExtracted(extracted, '', async () => null, undefined, second.moved());
+    expect(Object.fromEntries(listing.entries.map((entry) => [entry.name, entry.movedBefore ?? null]))).toEqual({
+      'Alien.UHD': { label: 'ISOs', target: library, at: expect.any(String), inside: true },
+      'Arrival.mkv': null,
+      'Dune (2024)': { label: 'Filme', target: library, at: expect.any(String), inside: false },
+    });
+  });
+
+  it('remembers a copy to another disk too, and saves it right away', async () => {
+    const stateFile = path.join(root, 'moves.json');
+    const mover = createMover({ rename: acrossDisks, stateFile });
+    await mover.add(extracted, ['Arrival.mkv'], library, 'Filme');
+    const done = await settle(mover);
+    expect(done).toMatchObject({ state: 'done', problems: [] });
+    expect(mover.moved()[0]).toMatchObject({ path: 'Arrival.mkv', label: 'Filme' });
+    expect(JSON.parse(await readFile(stateFile, 'utf8'))[0]).toMatchObject({ path: 'Arrival.mkv' });
+  });
+});
+
 describe('deleting in the extraction folder', () => {
   it('deletes files and whole folders, a folder and something in it once', async () => {
     const result = await deleteExtracted(extracted, ['Dune (2024)/Dune.mkv', 'Dune (2024)', 'Arrival.mkv', 'Arrival.mkv']);

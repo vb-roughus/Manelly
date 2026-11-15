@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ArchivedOriginal } from '@manelly/shared';
 import { AgentError } from './errors.js';
+import { writeWhole } from './persist.js';
 
 const ORIGINALS_FILE = 'originals.json';
 
@@ -24,8 +25,7 @@ export async function createOriginals(dataDir: string, now: () => Date = () => n
   function save() {
     saving = saving.then(async () => {
       await mkdir(dataDir, { recursive: true });
-      await writeFile(`${file}.tmp`, JSON.stringify(entries, null, 2));
-      await rename(`${file}.tmp`, file);
+      await writeWhole(file, JSON.stringify(entries, null, 2));
     });
     return saving;
   }

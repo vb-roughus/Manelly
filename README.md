@@ -529,10 +529,13 @@ Statt im Konsolenfenster läuft Manelly auf Windows auch als Programm mit einem 
 Ist alles gut gegangen, schliesst sich das Fenster des Installers von selbst und Manelly öffnet sich im Browser; nach
 einem Fehler bleibt es offen, damit sich die Meldung lesen lässt.
 
-**Das Symbol** öffnet <http://localhost:3000> im Browser. Läuft Manelly noch nicht, startet das Symbol es zuerst – unsichtbar
-im Hintergrund, ohne Konsolenfenster – und öffnet den Browser, sobald es antwortet. Ein zweiter Klick öffnet nur noch
-den Browser. Was Manelly im Hintergrund meldet, steht in `data\manelly.log` (und `manelly-error.log`; der vorherige
-Start in `….log.1`). Neu starten und aktualisieren unter Einstellungen → Updates geht wie gewohnt. **«Manelly beenden»**
+**Das Symbol** öffnet <http://localhost:3000> im Browser. Läuft Manelly noch nicht, startet das Symbol es zuerst – im
+Hintergrund, ohne Konsolenfenster. Solange es startet, zeigt ein kleines Fenster «Manelly wird gestartet …» und die
+letzte Meldung von Manelly; sobald es antwortet, schliesst sich das Fenster und der Browser öffnet sich. Startet
+Manelly nicht (Port belegt, Node.js fehlt, Fehler beim Start, keine Antwort nach 90 Sekunden), sagt das Fenster warum
+und öffnet auf Wunsch das Log. Ein zweiter Klick öffnet nur noch den Browser. Was Manelly im Hintergrund meldet, steht
+in `data\manelly.log` und `manelly-error.log` (der vorherige Start in `….log.1`), was beim Starten geschah in
+`data\manelly-start.log`. Neu starten und aktualisieren unter Einstellungen → Updates geht wie gewohnt. **«Manelly beenden»**
 im Startmenü beendet es.
 
 - Anderer Port: `scripts\install-windows.cmd -Port 3001` (steht danach als `PORT=3001` in der `.env` des Programmordners).

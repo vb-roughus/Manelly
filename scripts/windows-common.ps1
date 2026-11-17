@@ -6,19 +6,31 @@
 $NodePackage = 'OpenJS.NodeJS.LTS'
 $MinNodeVersion = [version]'22.12.0'
 
+# A file that Write-Info, Write-Warn and Stop-WithError write to as well – for a window nobody sees
+# (start-windows.ps1 -Background sets it).
+$ManellyLog = $null
+
+function Write-Logged([string]$Line) {
+  if (-not $ManellyLog) { return }
+  try { Add-Content -LiteralPath $ManellyLog -Value $Line -Encoding UTF8 } catch { }
+}
+
 function Write-Info([string]$Message) {
   Write-Host '> ' -ForegroundColor Magenta -NoNewline
   Write-Host $Message
+  Write-Logged "> $Message"
 }
 
 function Write-Warn([string]$Message) {
   Write-Host '! ' -ForegroundColor Yellow -NoNewline
   Write-Host $Message
+  Write-Logged "! $Message"
 }
 
 function Stop-WithError([string]$Message) {
   Write-Host '! ' -ForegroundColor Red -NoNewline
   Write-Host $Message
+  Write-Logged "! $Message"
   exit 1
 }
 
@@ -60,10 +72,13 @@ function Get-ManellyPort([string]$Root, [int]$Port = 0) {
   return $Port
 }
 
-# Whether Manelly itself answers at this address – not just anything on the port.
-function Test-ManellyRunning([string]$Url) {
+# Whether Manelly itself answers on this port – not just anything. Asks only once something listens there, and at
+# 127.0.0.1: Windows takes about two seconds to refuse a connection, and «localhost» would try ::1 first, where
+# Manelly does not listen – longer than the answer may take.
+function Test-ManellyRunning([int]$Port) {
+  if (-not (Test-PortInUse $Port)) { return $false }
   try {
-    $answer = Invoke-WebRequest "$Url/api/health" -UseBasicParsing -TimeoutSec 2
+    $answer = Invoke-WebRequest "http://127.0.0.1:$Port/api/health" -UseBasicParsing -TimeoutSec 3
     return $answer.Content -match '"status"\s*:\s*"ok"'
   } catch {
     return $false

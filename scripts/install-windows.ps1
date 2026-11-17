@@ -104,7 +104,7 @@ Set-Location $Target
 if ($Port) { Set-EnvPort (Join-Path $Target '.env') $Port }
 $Port = Get-ManellyPort $Target $Port
 $url = "http://localhost:$Port"
-if (Test-ManellyRunning $url) {
+if (Test-ManellyRunning $Port) {
   Write-Warn "Auf $url läuft schon ein Manelly in einem Fenster (scripts\start-windows.cmd) – dort mit Ctrl+C beenden, sonst öffnet das Symbol jenes."
 }
 

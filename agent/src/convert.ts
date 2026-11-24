@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readFile, rename, rm, rmdir, stat, statfs, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, rename, rm, rmdir, stat, statfs, unlink, writeFile } from 'node:fs/promises';
 import { constants as osConstants, setPriority } from 'node:os';
 import { finished } from 'node:stream/promises';
 import type { ConversionRequest, ConversionStep } from '@manelly/shared';
@@ -24,6 +24,11 @@ export interface ConversionContext {
   copyLimit?: () => number | null;
   /** How fast the running step moves the film, in bytes per second; null when a step ends. */
   onRate?: (bytesPerSecond: number | null) => void;
+  /**
+   * The original is in no library (it is in the extraction folder): the work folder gets a second name for it (a hard
+   * link) instead of a copy – at once and without taking space, where the volume allows it.
+   */
+  linkSource?: boolean;
 }
 
 /** How a paused job holds its tools: the running one is suspended, the next one waits. */
@@ -252,6 +257,14 @@ interface Checkpoint {
   done: Stage;
   /** Known from the probe on; null after the copy into the work folder only. */
   info: Probe | null;
+  /** With a work folder: the original as it was once it was there; at the end it must still be so. */
+  original?: Stamp | null;
+}
+
+/** Size and last change of a file: whether it changed in between. */
+interface Stamp {
+  bytes: number;
+  modifiedMs: number;
 }
 
 /** The steps that leave a file behind, in their order. */
@@ -373,7 +386,9 @@ async function copyResumable(from: string, to: string, step: 'fetch' | 'store', 
 /**
  * Turns a Dolby Vision profile 7 file into profile 8.1: extract the video, convert the RPU, mux it back with all other tracks.
  * With a work folder, the original is copied there first and the result copied back at the end; the storage is
- * busy only while copying. Aborted with PAUSE, it keeps its temporary files and continues there next time.
+ * busy only while copying. An original from the extraction folder gets a second name there instead (linkSource), and a
+ * result on the same volume as its target only changes its folder. Aborted with PAUSE, it keeps its temporary files
+ * and continues there next time.
  */
 export async function runConversion(ctx: ConversionContext): Promise<ConversionResult> {
   const { request, plan, tools, signal } = ctx;
@@ -421,9 +436,15 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
       await writeFile(tempApi.join(temp, '.ignore'), '');
     }
 
+    let original = resumed?.original ?? null;
     if (work && !reached('fetch')) {
-      await metered(`${input}.part`, ctx, () => copyResumable(request.source, input, 'fetch', ctx));
-      await writeCheckpoint(checkpointFile, { done: 'fetch', info: null });
+      ctx.onProgress('fetch', 0);
+      if (!(ctx.linkSource && (await linkFile(request.source, input)))) {
+        await metered(`${input}.part`, ctx, () => copyResumable(request.source, input, 'fetch', ctx));
+      }
+      const fetched = await stat(request.source);
+      original = { bytes: fetched.size, modifiedMs: fetched.mtimeMs };
+      await writeCheckpoint(checkpointFile, { done: 'fetch', info: null, original });
     }
 
     let info = resumed?.info ?? null;
@@ -447,7 +468,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
           },
         }),
       );
-      await writeCheckpoint(checkpointFile, { done: 'extract', info });
+      await writeCheckpoint(checkpointFile, { done: 'extract', info, original });
     }
 
     if (!reached('convert')) {
@@ -467,7 +488,7 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
       } finally {
         clearInterval(watch);
       }
-      await writeCheckpoint(checkpointFile, { done: 'convert', info });
+      await writeCheckpoint(checkpointFile, { done: 'convert', info, original });
       await unlink(video);
     }
 
@@ -507,9 +528,9 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
           );
         }
       }
-      await writeCheckpoint(checkpointFile, { done: 'mux', info });
+      await writeCheckpoint(checkpointFile, { done: 'mux', info, original });
       await unlink(converted);
-      // The copy of the original is not needed any more – unless it is kept as the backup.
+      // The copy (or second name) of the original is not needed any more – unless it is kept as the backup.
       if (work && !archiving) await unlink(input);
     }
 
@@ -518,11 +539,13 @@ export async function runConversion(ctx: ConversionContext): Promise<ConversionR
       await mkdir(landing, { recursive: true });
       await writeFile(api.join(landing, '.ignore'), '');
       result = api.join(landing, 'output.mkv');
-      await metered(`${result}.part`, ctx, () => copyResumable(muxed, result, 'store', ctx));
+      ctx.onProgress('store', 0);
+      // On the same volume the result only changes its folder; otherwise it is copied.
+      if (!(await renameFile(muxed, result))) await metered(`${result}.part`, ctx, () => copyResumable(muxed, result, 'store', ctx));
     }
 
     ctx.onProgress('finalize', 0);
-    const done = archiving ? await finalizeArchiving(result, input, request, plan, ctx.jobId) : await finalize(result, request, plan);
+    const done = archiving ? await finalizeArchiving(result, input, original, request, plan, ctx.jobId) : await finalize(result, request, plan);
     await rm(landing, { recursive: true, force: true });
     if (work) await rm(work, { recursive: true, force: true });
     return { ...done, warning: done.warning ?? (info.frameRate ? null : 'Die Bildrate war unbekannt; mkvmerge hat sie aus dem Video übernommen.') };
@@ -545,6 +568,31 @@ async function exists(file: string): Promise<boolean> {
     () => true,
     () => false,
   );
+}
+
+/**
+ * Gives a file a second name (a hard link): at once and without taking space – where both names are on the same volume
+ * and its file system allows it. False when not; then the caller copies.
+ */
+async function linkFile(from: string, to: string): Promise<boolean> {
+  // A copy that an interrupted run left there is replaced by the name.
+  await rm(to, { force: true });
+  try {
+    await link(from, to);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Moves a temporary file where that is only a new name – on the same volume. False when not; then the caller copies. */
+async function renameFile(from: string, to: string): Promise<boolean> {
+  try {
+    await rename(from, to);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** fs.rename replaces an existing target, on Windows too; Manelly never overwrites files. */
@@ -575,11 +623,19 @@ async function besideOriginal(result: string, request: ConversionRequest, error:
  * in the folder "Originale" there. Only now does the original leave the storage, so Jellyfin has it until the result
  * takes its place.
  */
-async function finalizeArchiving(result: string, copy: string, request: ConversionRequest, plan: OutputPlan, jobId: string): Promise<ConversionResult> {
+async function finalizeArchiving(
+  result: string,
+  copy: string,
+  fetched: Stamp | null,
+  request: ConversionRequest,
+  plan: OutputPlan,
+  jobId: string,
+): Promise<ConversionResult> {
   const api = pathApiFor(request.source);
-  // The copy is the original as it was at the start; one that changed since is left alone.
+  // The copy is the original as it was at the start; one that changed since is left alone. A second name (hard link)
+  // changes along with it: then only the stamp from the start tells.
   const [original, copied] = await Promise.all([stat(request.source), stat(copy)]);
-  if (original.size !== copied.size) {
+  if (original.size !== copied.size || (fetched && (original.size !== fetched.bytes || original.mtimeMs !== fetched.modifiedMs))) {
     throw new AgentError(409, `${request.source} hat sich während der Konvertierung verändert – das Original bleibt, wie es ist.`);
   }
   const archived = await archivePath(plan.work!, request.source);

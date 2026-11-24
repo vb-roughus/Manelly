@@ -181,6 +181,7 @@ async function start() {
     tickMs: 0,
     notify: createNotifier(() => settings.get().jellyfin, { fetch: fakeJellyfin }),
     workFolder: () => settings.get().work,
+    extracted: () => settings.get().jdownloader.extractTo ?? null,
     copyLimit: createCopyLimiter({ settings, fetch: fakeJellyfin }).current,
     originals,
   });
@@ -660,6 +661,76 @@ describe('work folder', () => {
     expect((await readdir(work)).sort()).toEqual(['Originale']);
   });
 
+  it('links an original that is in no library into the work folder instead of copying it, and moves the result back', async () => {
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    const request = { source, output: { mode: 'replace' as const }, work: true };
+    const plan = await planOutput(request, [], 'linux', undefined, work);
+    const before = await stat(source);
+    let copies = 0;
+    const steps: ConversionStep[] = [];
+    const run = (jobId: string, linkSource: boolean) =>
+      runConversion({
+        jobId,
+        request,
+        plan,
+        tools,
+        signal: new AbortController().signal,
+        freeBytes: async () => free,
+        onProgress: (step) => void (steps.at(-1) !== step && steps.push(step)),
+        // Asked for each piece copied.
+        copyLimit: () => (copies++, null),
+        linkSource,
+      });
+    const result = await run('linked', true);
+    // Nothing was copied, neither way: the backup is the original itself, under its second name.
+    expect(copies).toBe(0);
+    expect(steps).toEqual(['fetch', 'probe', 'extract', 'convert', 'mux', 'store', 'finalize']);
+    const archived = path.join(work, 'Originale', 'Film (2000).mkv');
+    expect(result).toMatchObject({ output: source, backup: archived, archived: true });
+    expect((await stat(archived)).ino).toBe(before.ino);
+    expect(await readFile(archived, 'utf8')).toBe('original');
+    expect((await stat(source)).ino).not.toBe(before.ino);
+    expect(await readdir(work)).toEqual(['Originale']);
+    expect(await readdir(media)).toEqual(['Film (2000).mkv']);
+
+    // From a library, the original is copied as before.
+    await rm(archived);
+    await writeFile(source, 'original');
+    const copied = await run('copied', false);
+    expect(copies).toBeGreaterThan(0);
+    expect((await stat(copied.backup!)).ino).not.toBe((await stat(source)).ino);
+  });
+
+  it('leaves a linked original as it is when the conversion fails, or the original changed meanwhile', async () => {
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    const request = { source, output: { mode: 'replace' as const }, work: true };
+    const plan = await planOutput(request, [], 'linux', undefined, work);
+    const run = (jobId: string, onProgress: (step: ConversionStep) => void = () => {}) =>
+      runConversion({ jobId, request, plan, tools, signal: new AbortController().signal, freeBytes: async () => free, onProgress, linkSource: true });
+
+    process.env.FAKE_DOVI_FAIL = '1';
+    await expect(run('failed')).rejects.toThrow('dovi_tool ist fehlgeschlagen (Exit-Code 1).');
+    // Only the second name went.
+    expect(await readFile(source, 'utf8')).toBe('original');
+    expect((await stat(source)).nlink).toBe(1);
+    expect(await readdir(work)).toEqual([]);
+    delete process.env.FAKE_DOVI_FAIL;
+
+    // Written in place, the original changes under both names – as long as before: the stamp from the start tells.
+    process.env.FAKE_DOVI_SLEEP = '300';
+    let changed: Promise<void> | null = null;
+    const converting = run('changed', (step) => {
+      if (step === 'convert' && !changed) changed = writeFile(source, 'ORIGINAL');
+    });
+    await expect(converting).rejects.toThrow(`${source} hat sich während der Konvertierung verändert – das Original bleibt, wie es ist.`);
+    await changed;
+    expect(await readFile(source, 'utf8')).toBe('ORIGINAL');
+    expect((await stat(source)).nlink).toBe(1);
+    expect(await readdir(work)).toEqual([]);
+  });
+
   it('continues a copy that was interrupted, and goes through every step', async () => {
     const work = path.join(root, 'work');
     const jobId = 'resumed';
@@ -1132,6 +1203,21 @@ describe('JDownloader routes', () => {
 
     const again = (await (await convert({ path: 'Dune (2024)/Dune.mkv' })).json()) as ConversionJob;
     expect(await waitFor(again.id, finished)).toMatchObject({ state: 'done', output: file, backup: path.join(extracted, 'Dune (2024)', '.manelly-backup', 'Dune.mkv') });
+
+    // In the work folder: the original gets a second name there, not a copy, and stays in its folder meanwhile.
+    const work = path.join(root, 'work');
+    await mkdir(work);
+    await put('/api/work', { directory: work });
+    await writeFile(path.join(extracted, 'Arrival.mkv'), 'arrival');
+    const before = await stat(path.join(extracted, 'Arrival.mkv'));
+    process.env.FAKE_DOVI_SLEEP = '300';
+    const linked = (await (await convert({ path: 'Arrival.mkv', work: true })).json()) as ConversionJob;
+    await waitFor(linked.id, (current) => current.step === 'convert');
+    expect((await stat(path.join(work, `.manelly-tmp-${linked.id}`, 'source.mkv'))).ino).toBe(before.ino);
+    expect((await stat(path.join(extracted, 'Arrival.mkv'))).ino).toBe(before.ino);
+    const archived = path.join(work, 'Originale', 'Arrival.mkv');
+    expect(await waitFor(linked.id, finished)).toMatchObject({ state: 'done', output: path.join(extracted, 'Arrival.mkv'), backup: archived });
+    expect((await stat(archived)).ino).toBe(before.ino);
   });
 
   it('answers about discs, and keeps their settings', async () => {

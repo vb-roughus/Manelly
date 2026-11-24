@@ -6,7 +6,7 @@ import { discardTemp, overallProgress, PAUSE, runConversion, type ConversionCont
 import { suspendProcess, type Suspender } from './suspend.js';
 import { AgentError } from './errors.js';
 import { writeWhole } from './persist.js';
-import { pathApiFor, planOutput, type OutputPlan, type PathAccess } from './paths.js';
+import { isWithin, pathApiFor, planOutput, type OutputPlan, type PathAccess } from './paths.js';
 import type { GateCheck } from './schedule.js';
 import type { Originals } from './originals.js';
 import { toolsReady, type Tools } from './tools.js';
@@ -40,6 +40,8 @@ export interface JobQueueOptions {
   retryMs?: number;
   /** The work folder set in Manelly, for jobs that convert there. */
   workFolder?: () => string | null;
+  /** The extraction folder: an original there is in no library, so it is linked into the work folder, not copied. */
+  extracted?: () => string | null;
   /** How much copying to and from the work folder is held back right now; null for full speed. */
   copyLimit?: () => CopyThrottle | null;
   /** Remembers the originals that conversions in the work folder replaced and kept there. */
@@ -230,6 +232,11 @@ export async function createJobQueue(options: JobQueueOptions) {
     }
   }
 
+  function inExtracted(source: string): boolean {
+    const folder = options.extracted?.() ?? null;
+    return folder !== null && isWithin(source, folder, pathApiFor(source));
+  }
+
   async function next() {
     if (current || stopping || holding) return;
     const entry = [...entries].reverse().find(({ job }) => job.state === 'queued' && !job.paused && (!job.scheduled || lastGate?.open));
@@ -257,6 +264,7 @@ export async function createJobQueue(options: JobQueueOptions) {
         signal: controller.signal,
         freeBytes,
         copyLimit: () => options.copyLimit?.()?.bytesPerSecond ?? null,
+        linkSource: inExtracted(job.source),
         onRate: (bytesPerSecond) => {
           job.bytesPerSecond = bytesPerSecond === null ? null : Math.round(bytesPerSecond);
         },

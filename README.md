@@ -178,8 +178,9 @@ und Arbeitsordner, dort auch Kopieren begrenzen).
   kopiert das Ergebnis zurück – an den gewählten Speicherort, wie oben. Der Speicher, auf dem die Filme liegen (z. B. das
   NAS), wird so nur beim Hin- und Zurückkopieren belastet statt während der ganzen Konvertierung. Im Arbeitsordner braucht es
   etwa die dreifache Dateigrösse, am Ziel nur noch die einfache. Das Kopieren zeigt Fortschritt, lässt sich pausieren und
-  macht nach einer Unterbrechung dort weiter, wo es war. **«Direkt am Speicherort»** konvertiert wie bisher dort, wo die Datei
-  liegt
+  macht nach einer Unterbrechung dort weiter, wo es war. Liegt das Ziel auf derselben Platte wie der Arbeitsordner, wird das
+  Ergebnis nicht zurückkopiert, sondern nur verschoben – im Nu (ab Agent 0.44.0). **«Direkt am Speicherort»** konvertiert wie
+  bisher dort, wo die Datei liegt
 - **Platz im Arbeitsordner:** Unter **Konvertierungen → Einstellungen** zeigt ein Balken, wie voll die Platte des
   Arbeitsordners ist – frei, Gesamtgrösse (ab Agent 0.25.0), wie viel davon die **Backups** belegen, und bis zu welcher
   Filmgrösse der Platz für eine Konvertierung reicht. Unter 20 % frei wird der Balken gelb, unter 10 % rot
@@ -389,7 +390,11 @@ liest nur diesen Ordner, jede Minute neu.
   schlicht. Der Agent liest dafür mit ffprobe nur den Kopf jeder Datei, einmal pro Datei (neu erst, wenn sie sich
   ändert). Bei Profil 7 konvertiert **«In Profil 8.1 konvertieren»** die Datei, bevor sie in die Mediathek kommt: Die
   neue Datei ersetzt das Original im Entpack-Ordner; das Original kommt beim Konvertieren im Arbeitsordner unter
-  Konvertierungen → Backups, sonst in den Ordner `.manelly-backup` neben der Datei (Jellyfin ignoriert ihn, beim
+  Konvertierungen → Backups, sonst in den Ordner `.manelly-backup` neben der Datei. Im Arbeitsordner kopiert der Agent
+  ein Original aus dem Entpack-Ordner nicht (ab Agent 0.44.0): Liegen beide auf derselben Platte, bekommt es dort einen
+  zweiten Namen (einen Hardlink) – im Nu und ohne Platz zu brauchen. Die Datei bleibt dabei in Extracted stehen, und
+  scheitert die Konvertierung, ist nichts verloren. Auf einer anderen Platte wird es wie ein Original aus der Mediathek
+  kopiert (Jellyfin ignoriert ihn, beim
   Verschieben des Ordners kommt er aber mit – vorher löschen). Wie im Medien-Dialog wählst du «Wo konvertieren» und
   «Wann» (sofort oder nach Zeitplan). Solange die Konvertierung wartet oder läuft, steht ihr Stand bei der Datei, und
   Verschieben und Löschen der Datei (oder ihres Ordners) lehnt der Agent ab; danach liest er die Datei neu ein.

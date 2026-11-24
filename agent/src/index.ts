@@ -75,6 +75,7 @@ const queue = await createJobQueue({
   notify: createNotifier(() => settings.get().jellyfin, { log }),
   access,
   workFolder: () => settings.get().work,
+  extracted: () => settings.get().jdownloader.extractTo ?? null,
   copyLimit: copyLimiter.current,
   originals,
   log,
